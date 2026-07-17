@@ -52,6 +52,7 @@ def _get_worksheet():
     return sh.worksheet(SHEET_NAME)
 
 
+@st.cache_data(ttl=30, show_spinner=False)  # cache 30 detik - cegah 429 quota exceeded Google Sheets
 def load_positions() -> pd.DataFrame:
     ws = _get_worksheet()
     records = ws.get_all_records()
@@ -87,6 +88,8 @@ def open_positions_from_candidates(candidates: pd.DataFrame, tipe: str) -> list[
         ]
         _append_row(ws, new_row)
         opened.append(kode)
+    if opened:
+        load_positions.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return opened
 
 
@@ -131,6 +134,8 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
                 round(pnl_rp, 2), round(pnl_pct * 100, 2), status_baru, hari,
             ]])
             closed.append(f"{kode} ({status_baru})")
+    if closed:
+        load_positions.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return closed
 
 
