@@ -35,6 +35,7 @@ def _get_equity_ws():
     return _ensure_worksheet(st.secrets["GOOGLE_SHEET_ID"], EQUITY_SHEET, EQUITY_HEADERS)
 
 
+@st.cache_data(ttl=30, show_spinner=False)  # cache 30 detik - cegah 429 quota exceeded Google Sheets
 def load_equity() -> pd.DataFrame:
     ws = _get_equity_ws()
     records = ws.get_all_records()
@@ -49,6 +50,7 @@ def add_equity_snapshot(tanggal: str, sekuritas: str, total_equity: float, cash:
         [tanggal, sekuritas, total_equity, cash, invested, max_risk_pct, max_position_pct],
         value_input_option="USER_ENTERED",
     )
+    load_equity.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return True, f"Snapshot equity {sekuritas} pada {tanggal} tersimpan."
 
 
@@ -61,6 +63,7 @@ def delete_equity_row(tanggal: str, sekuritas: str) -> tuple[bool, str]:
         return False, "Snapshot tidak ditemukan."
     sheet_row = match.index[0] + 2
     ws.delete_rows(sheet_row)
+    load_equity.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return True, "Snapshot dihapus."
 
 
