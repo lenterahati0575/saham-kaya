@@ -1194,9 +1194,6 @@ st.caption(
     "Bukan rekomendasi keuangan. Selalu lakukan riset & kelola risiko sendiri."
 )
 
-"""
-Gunakan @st.cache_data untuk mengurangi frekuensi request ke Google Sheets
-                                                                        """
 import streamlit as st
 
 # Cache brokers selama 60 detik
