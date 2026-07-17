@@ -1193,3 +1193,7 @@ st.caption(
     "⚠️ Data diambil dari Yahoo Finance (yfinance), bukan API resmi - bisa berhenti/berubah sewaktu-waktu. "
     "Bukan rekomendasi keuangan. Selalu lakukan riset & kelola risiko sendiri."
 )
+
+"""
+Gunakan @st.cache_data untuk mengurangi frekuensi request ke Google Sheets
+                                                                        """
