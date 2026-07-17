@@ -1197,3 +1197,21 @@ st.caption(
 """
 Gunakan @st.cache_data untuk mengurangi frekuensi request ke Google Sheets
                                                                         """
+import streamlit as st
+
+# Cache brokers selama 60 detik
+@st.cache_data(ttl=60)
+def get_brokers():
+    return rj.load_brokers()
+
+# Cache positions selama 60 detik  
+@st.cache_data(ttl=60)
+def get_positions():
+    return rj.load_positions()
+
+# Ganti pemanggilan langsung jadi cached:
+# ❌ brokers_now = rj.load_brokers()
+# ✅ brokers_now = get_brokers()
+
+# ❌ positions = rj.load_positions()
+# ✅ positions = get_positions()
