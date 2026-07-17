@@ -62,6 +62,7 @@ def _get_broker_ws():
     return _ensure_worksheet(st.secrets["GOOGLE_SHEET_ID"], BROKER_SHEET, BROKER_HEADERS, DEFAULT_BROKERS)
 
 
+@st.cache_data(ttl=30, show_spinner=False)  # cache 30 detik - cegah 429 quota exceeded Google Sheets
 def load_brokers() -> pd.DataFrame:
     ws = _get_broker_ws()
     records = ws.get_all_records()
@@ -80,8 +81,10 @@ def add_broker(nama: str, biaya_beli_pct: float, biaya_jual_pct: float):
         ws.update(f"B{cell.row}:C{cell.row}", [[biaya_beli_pct, biaya_jual_pct]])
     else:
         ws.append_row([nama, biaya_beli_pct, biaya_jual_pct], value_input_option="USER_ENTERED")
+    load_brokers.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
 
 
+@st.cache_data(ttl=30, show_spinner=False)  # cache 30 detik - cegah 429 quota exceeded Google Sheets
 def load_trades() -> pd.DataFrame:
     ws = _get_trades_ws()
     records = ws.get_all_records()
@@ -99,6 +102,7 @@ def open_trade(tanggal_entry: str, sekuritas: str, saham: str, setup: str,
     row = [no, tanggal_entry, sekuritas, saham.upper(), setup, entry, sl, target, lot,
            "", "", "", "", "", "OPEN", catatan]
     ws.append_row(row, value_input_option="USER_ENTERED")
+    load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return no
 
 
@@ -130,6 +134,7 @@ def close_trade(no: int, tanggal_exit: str, exit_price: float):
     ws.update(f"J{sheet_row}:O{sheet_row}", [[
         tanggal_exit, exit_price, round(biaya, 2), round(net_pl, 2), round(return_pct, 2), status,
     ]])
+    load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return True, f"Trade #{no} ditutup: {status} ({return_pct:+.2f}%)"
 
 
@@ -142,6 +147,7 @@ def delete_trade(no: int) -> tuple[bool, str]:
         return False, "Nomor trade tidak ditemukan."
     sheet_row = row_match.index[0] + 2  # +2: header + 0-based index
     ws.delete_rows(sheet_row)
+    load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return True, f"Trade #{no} dihapus."
 
 
@@ -175,6 +181,7 @@ def edit_trade(no: int, tanggal_entry: str, sekuritas: str, saham: str, setup: s
 
     full_row = [no, tanggal_entry, sekuritas, saham.upper(), setup, entry, sl, target, lot] + exit_row + [catatan]
     ws.update(f"A{sheet_row}:P{sheet_row}", [full_row])
+    load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return True, f"Trade #{no} berhasil diperbarui."
 
 
@@ -276,5 +283,3 @@ def equity_curve(trades: pd.DataFrame) -> pd.DataFrame:
     return closed[["Tanggal Exit_dt", "Net P/L (Rp)_num", "Kumulatif (Rp)"]].rename(
         columns={"Tanggal Exit_dt": "Tanggal Exit", "Net P/L (Rp)_num": "Net P/L (Rp)"}
     )
-
-
