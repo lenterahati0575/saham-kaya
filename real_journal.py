@@ -277,43 +277,4 @@ def equity_curve(trades: pd.DataFrame) -> pd.DataFrame:
         columns={"Tanggal Exit_dt": "Tanggal Exit", "Net P/L (Rp)_num": "Net P/L (Rp)"}
     )
 
-"""
-Tambahkan retry dengan exponential backoff dan jeda antar request
-"""
-import time
-from functools import wraps
-from gspread.exceptions import APIError
 
-def retry_on_rate_limit(max_retries=3, base_delay=2):
-    """Decorator untuk retry kalau kena rate limit 429"""
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except APIError as e:
-                    if "429" in str(e) and attempt < max_retries - 1:
-                        delay = base_delay * (2 ** attempt)  # 2s, 4s, 8s
-                        time.sleep(delay)
-                        continue
-                    raise
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
-
-# Terapkan decorator ke fungsi yang akses Google Sheets
-@retry_on_rate_limit(max_retries=3)
-def _get_worksheet():
-    # ... kode existing ...
-    pass
-
-@retry_on_rate_limit(max_retries=3)
-def load_brokers():
-    # ... kode existing ...
-    pass
-
-@retry_on_rate_limit(max_retries=3)
-def load_positions():
-    # ... kode existing ...
-    pass
