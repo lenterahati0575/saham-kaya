@@ -18,33 +18,23 @@ st.set_page_config(page_title="IDX Screener Dashboard", page_icon="📈", layout
 
 
 def embed_tradingview_chart(kode: str, height: int = 520):
-    """Chart TradingView LIVE tertanam LANGSUNG di halaman (bukan link ke tab baru) -
-    solusi paling pasti untuk 'buka di tab yang sama' karena memang tidak ada navigasi
-    sama sekali, chart-nya muncul di tempat."""
+    """Chart TradingView LIVE tertanam LANGSUNG di halaman (bukan link ke tab baru).
+
+    Sengaja pakai <iframe src="..."> polos, BUKAN <script>TradingView.widget(...)</script>.
+    Pendekatan script sempat dicoba tapi sering gagal render blank di dalam iframe Streamlit
+    (komponen Streamlit sendiri dirender di dalam iframe, jadi widget TradingView jadi
+    iframe-di-dalam-iframe yang bergantung pada timing eksekusi script - rawan gagal).
+    Iframe langsung tidak punya masalah timing seperti itu, jadi jauh lebih pasti muncul."""
+    src = (
+        f"https://s.tradingview.com/widgetembed/?symbol=IDX%3A{kode}"
+        f"&interval=D&theme=dark&style=1&locale=id&toolbar_bg=%230e1117"
+        f"&hide_top_toolbar=0&allow_symbol_change=1&save_image=0"
+    )
     html = f"""
-    <div class="tradingview-widget-container">
-      <div id="tv_chart_{kode}"></div>
-      <script src="https://s3.tradingview.com/tv.js"></script>
-      <script>
-      new TradingView.widget({{
-        "width": "100%",
-        "height": {height},
-        "symbol": "IDX:{kode}",
-        "interval": "D",
-        "timezone": "Asia/Jakarta",
-        "theme": "dark",
-        "style": "1",
-        "locale": "id",
-        "toolbar_bg": "#0e1117",
-        "enable_publishing": false,
-        "hide_top_toolbar": false,
-        "allow_symbol_change": true,
-        "container_id": "tv_chart_{kode}"
-      }});
-      </script>
-    </div>
+    <iframe src="{src}" width="100%" height="{height}" frameborder="0"
+            allowtransparency="true" scrolling="no"></iframe>
     """
-    components.html(html, height=height + 20)
+    components.html(html, height=height + 10)
 
 
 def dataframe_with_chart(df_display, kode_col="Kode", height=460, key=None, column_config=None):
@@ -1193,5 +1183,3 @@ st.caption(
     "⚠️ Data diambil dari Yahoo Finance (yfinance), bukan API resmi - bisa berhenti/berubah sewaktu-waktu. "
     "Bukan rekomendasi keuangan. Selalu lakukan riset & kelola risiko sendiri."
 )
-
-
