@@ -915,13 +915,41 @@ with t_real:
             st.markdown("**Daftar Sekuritas & Biaya Transaksi**")
             st.caption("Tiap broker beda fee - isi sesuai yang tertera di aplikasi sekuritas Bro masing-masing.")
             brokers_now = rj.load_brokers()
-            st.dataframe(brokers_now, use_container_width=True, hide_index=True)
+            def _flag_high_fee(val):
+                try:
+                    return "background-color:#7f1d1d; color:white; font-weight:600;" if float(val) > 1.0 else ""
+                except (ValueError, TypeError):
+                    return ""
+            styler_brokers = brokers_now.style
+            fee_cols = ["Biaya Beli (%)", "Biaya Jual (%)"]
+            if hasattr(styler_brokers, "map"):
+                styler_brokers = styler_brokers.map(_flag_high_fee, subset=fee_cols)
+            else:
+                styler_brokers = styler_brokers.applymap(_flag_high_fee, subset=fee_cols)
+            st.dataframe(styler_brokers, use_container_width=True, hide_index=True)
+            if (pd.to_numeric(brokers_now["Biaya Beli (%)"], errors="coerce") > 1.0).any() or \
+               (pd.to_numeric(brokers_now["Biaya Jual (%)"], errors="coerce") > 1.0).any():
+                st.error(
+                    "🚩 Ada sekuritas dengan fee di atas 1% (ditandai merah) - ini kemungkinan besar "
+                    "salah input (mis. '15' padahal maksudnya '0.15'). Trade yang sudah dihitung pakai "
+                    "fee salah ini perlu dikoreksi ulang lewat tab Edit/Hapus setelah fee-nya dibetulkan."
+                )
 
             st.markdown("**Tambah / Update Sekuritas**")
+            st.caption("⚠️ Isi dalam bentuk PERSEN kecil, mis. **0.15** untuk 0,15% (bukan ketik '15'). "
+                       "Fee broker IDX pada umumnya 0,1%-0,3% - kalau lebih dari 1%, cek ulang dulu.")
             bc1, bc2, bc3 = st.columns(3)
             nama_broker_in = bc1.text_input("Nama Sekuritas", key="nama_broker_rj")
-            biaya_beli_in2 = bc2.number_input("Biaya Beli (%)", min_value=0.0, value=0.15, step=0.01, key="bb_broker")
-            biaya_jual_in2 = bc3.number_input("Biaya Jual (%)", min_value=0.0, value=0.25, step=0.01, key="bj_broker")
+            biaya_beli_in2 = bc2.number_input("Biaya Beli (%)", min_value=0.0, max_value=5.0,
+                                               value=0.15, step=0.01, key="bb_broker")
+            biaya_jual_in2 = bc3.number_input("Biaya Jual (%)", min_value=0.0, max_value=5.0,
+                                               value=0.25, step=0.01, key="bj_broker")
+            if biaya_beli_in2 > 1.0 or biaya_jual_in2 > 1.0:
+                st.warning(
+                    f"Fee {biaya_beli_in2}% / {biaya_jual_in2}% terlihat sangat tinggi untuk broker IDX "
+                    "(biasanya di bawah 0,3%). Kemungkinan Bro salah ketik (mis. '15' padahal maksud "
+                    "'0.15'). Pastikan benar sebelum simpan."
+                )
             if st.button("💾 Simpan Sekuritas", key="btn_save_broker"):
                 if not nama_broker_in:
                     st.error("Nama sekuritas wajib diisi.")
