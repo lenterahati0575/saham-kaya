@@ -81,14 +81,42 @@ def load_brokers() -> pd.DataFrame:
 def add_broker(nama: str, biaya_beli_pct: float, biaya_jual_pct: float):
     ws = _get_broker_ws()
     existing = load_brokers()
+
     if nama in existing["Sekuritas"].values:
-        # update baris yang sudah ada
+        # Update broker yang sudah ada
         cell = ws.find(nama)
-        ws.update(f"B{cell.row}:C{cell.row}", [[biaya_beli_pct, biaya_jual_pct]])
+        ws.update(
+            f"B{cell.row}:C{cell.row}",
+            [[str(biaya_beli_pct), str(biaya_jual_pct)]],
+            value_input_option="RAW"
+        )
     else:
-        ws.append_row([nama, biaya_beli_pct, biaya_jual_pct], value_input_option="USER_ENTERED")
+        # Tambah broker baru
+        ws.append_row(
+            [nama, str(biaya_beli_pct), str(biaya_jual_pct)],
+            value_input_option="RAW"
+        )
+
     load_brokers.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
 
+def delete_broker(nama: str):
+    """Menghapus sekuritas dari sheet BROKER."""
+    try:
+        ws = _get_broker_ws()
+
+        cell = ws.find(nama)
+        if not cell:
+            return False, "Sekuritas tidak ditemukan."
+
+        ws.delete_rows(cell.row)
+
+        # bersihkan cache
+        load_brokers.clear()
+
+        return True, f"Sekuritas '{nama}' berhasil dihapus."
+
+    except Exception as e:
+        return False, str(e)
 
 @st.cache_data(ttl=30, show_spinner=False)  # cache 30 detik - cegah 429 quota exceeded Google Sheets
 def load_trades() -> pd.DataFrame:
