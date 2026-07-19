@@ -199,6 +199,13 @@ def close_trade(no: int, tanggal_exit: str, exit_price: float):
     biaya_beli_pct = float(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
     biaya_jual_pct = float(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
 
+    st.write("ENTRY =", entry)
+    st.write("EXIT =", exit_price)
+    st.write("LOT =", lot)
+    st.write("LEMBAR =", lembar)
+    st.write("FEE BELI =", biaya_beli_pct)
+    st.write("FEE JUAL =", biaya_jual_pct)
+
     biaya = (entry * lembar * biaya_beli_pct / 100) + (exit_price * lembar * biaya_jual_pct / 100)
     net_pl = (exit_price - entry) * lembar - biaya
     return_pct = (net_pl / (entry * lembar)) * 100 if entry * lembar > 0 else 0
