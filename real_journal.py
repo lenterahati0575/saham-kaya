@@ -97,15 +97,64 @@ def load_brokers() -> pd.DataFrame:
 
 def add_broker(nama: str, biaya_beli_pct: float, biaya_jual_pct: float):
     ws = _get_broker_ws()
-    existing = load_brokers()
-    if nama in existing["Sekuritas"].values:
-        # update baris yang sudah ada
-        cell = ws.find(nama)
-        ws.update(f"B{cell.row}:C{cell.row}", [[biaya_beli_pct, biaya_jual_pct]])
+
+    nama = str(nama).strip()
+    key = nama.lower()
+
+    biaya_beli_pct = normalize_fee(biaya_beli_pct)
+    biaya_jual_pct = normalize_fee(biaya_jual_pct)
+
+    existing = load_brokers().copy()
+    if not existing.empty:
+        existing["_key"] = existing["Sekuritas"].astype(str).str.strip().str.lower()
+        match = existing[existing["_key"] == key]
     else:
-        ws.append_row([nama, biaya_beli_pct, biaya_jual_pct], value_input_option="USER_ENTERED")
+        match = existing
+
+    if not match.empty:
+        cell = ws.find(match.iloc[0]["Sekuritas"])
+        ws.update(f"B{cell.row}:C{cell.row}",
+                  [[biaya_beli_pct, biaya_jual_pct]],
+                  value_input_option="RAW")
+    else:
+        ws.append_row([nama, biaya_beli_pct, biaya_jual_pct],
+                      value_input_option="RAW")
+
     load_brokers.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
 
+
+
+def repair_brokers():
+    """Perbaiki fee lama (15->0.15,25->0.25) dan hapus duplikat broker."""
+    ws = _get_broker_ws()
+    rows = ws.get_all_values()
+    if len(rows) <= 1:
+        return
+
+    cleaned = [rows[0]]
+    seen = set()
+
+    for row in rows[1:]:
+        if not row:
+            continue
+        while len(row) < 3:
+            row.append("")
+        nama = str(row[0]).strip()
+        if not nama:
+            continue
+        key = nama.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        beli = normalize_fee(row[1])
+        jual = normalize_fee(row[2])
+
+        cleaned.append([nama, beli, jual])
+
+    ws.clear()
+    ws.update("A1", cleaned, value_input_option="RAW")
+    load_brokers.clear()
 
 @st.cache_data(ttl=30, show_spinner=False)  # cache 30 detik - cegah 429 quota exceeded Google Sheets
 def load_trades() -> pd.DataFrame:
