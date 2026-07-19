@@ -190,6 +190,12 @@ def close_trade(no: int, tanggal_exit: str, exit_price: float):
     r = row_match.iloc[0]
     sheet_row = row_match.index[0] + 2  # +2: header + 0-based index
 
+    st.write("===== DATA BARIS DARI GOOGLE SHEETS =====")
+    st.write(r)
+    
+    st.write("Entry mentah :", r["Entry (Rp)"], type(r["Entry (Rp)"]))
+    st.write("Lot mentah   :", r["Lot"], type(r["Lot"]))
+
     entry = float(r["Entry (Rp)"])
     lot = float(r["Lot"])
     lembar = lot * 100
