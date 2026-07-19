@@ -98,7 +98,54 @@ def load_trades() -> pd.DataFrame:
     if df.empty:
         df = pd.DataFrame(columns=TRADES_HEADERS)
     return df
+# ============================
+# FUNGSI PERHITUNGAN TRADE
+# ============================
+def _calculate_trade_result(
+    entry: float,
+    exit_price: float,
+    lot: float,
+    biaya_beli_pct: float,
+    biaya_jual_pct: float,
+) -> dict:
 
+    lembar = lot * 100
+
+    biaya_beli = entry * lembar * (biaya_beli_pct / 100)
+    biaya_jual = exit_price * lembar * (biaya_jual_pct / 100)
+
+    biaya = biaya_beli + biaya_jual
+
+    net_pl = (exit_price - entry) * lembar - biaya
+
+    return_pct = (
+        (net_pl / (entry * lembar)) * 100
+        if entry * lembar > 0
+        else 0
+    )
+
+    status = (
+        "PROFIT"
+        if net_pl > 0
+        else "LOSS"
+        if net_pl < 0
+        else "BREAKEVEN"
+    )
+
+    return {
+        "biaya": biaya,
+        "net_pl": net_pl,
+        "return_pct": return_pct,
+        "status": status,
+    }
+
+
+def open_trade(
+    tanggal_entry: str,
+    sekuritas: str,
+    saham: str,
+    ...
+)
 
 def open_trade(tanggal_entry: str, sekuritas: str, saham: str, setup: str,
                 entry: float, sl: float, target: float, lot: int, catatan: str = ""):
