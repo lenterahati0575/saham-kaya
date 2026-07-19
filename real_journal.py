@@ -62,7 +62,6 @@ def _get_broker_ws():
     return _ensure_worksheet(st.secrets["GOOGLE_SHEET_ID"], BROKER_SHEET, BROKER_HEADERS, DEFAULT_BROKERS)
 
 
-@st.cache_data(ttl=30, show_spinner=False)  # cache 30 detik - cegah 429 quota exceeded Google Sheets
 def load_brokers() -> pd.DataFrame:
     ws = _get_broker_ws()
     records = ws.get_all_records()
@@ -75,30 +74,14 @@ def load_brokers() -> pd.DataFrame:
 def add_broker(nama: str, biaya_beli_pct: float, biaya_jual_pct: float):
     ws = _get_broker_ws()
     existing = load_brokers()
-    match = existing[existing["Sekuritas"].astype(str).str.strip() == nama.strip()]
-    if not match.empty:
-        # update baris yang sudah ada - pakai index dari dataframe, BUKAN ws.find() yang rapuh
-        # (ws.find() bisa return None walau datanya ada, misal beda spasi/whitespace)
-        sheet_row = match.index[0] + 2  # +2: header + index 0-based -> baris sheet 1-based
-        ws.update(f"A{sheet_row}:C{sheet_row}", [[nama.strip(), biaya_beli_pct, biaya_jual_pct]])
+    if nama in existing["Sekuritas"].values:
+        # update baris yang sudah ada
+        cell = ws.find(nama)
+        ws.update(f"B{cell.row}:C{cell.row}", [[biaya_beli_pct, biaya_jual_pct]])
     else:
-        ws.append_row([nama.strip(), biaya_beli_pct, biaya_jual_pct], value_input_option="USER_ENTERED")
-    load_brokers.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
+        ws.append_row([nama, biaya_beli_pct, biaya_jual_pct], value_input_option="USER_ENTERED")
 
 
-def delete_broker(nama: str) -> tuple[bool, str]:
-    ws = _get_broker_ws()
-    existing = load_brokers()
-    match = existing[existing["Sekuritas"].astype(str).str.strip() == nama.strip()]
-    if match.empty:
-        return False, f"Sekuritas '{nama}' tidak ditemukan."
-    sheet_row = match.index[0] + 2
-    ws.delete_rows(sheet_row)
-    load_brokers.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
-    return True, f"Sekuritas '{nama}' dihapus."
-
-
-@st.cache_data(ttl=30, show_spinner=False)  # cache 30 detik - cegah 429 quota exceeded Google Sheets
 def load_trades() -> pd.DataFrame:
     ws = _get_trades_ws()
     records = ws.get_all_records()
@@ -106,18 +89,6 @@ def load_trades() -> pd.DataFrame:
     if df.empty:
         df = pd.DataFrame(columns=TRADES_HEADERS)
     return df
-
-
-def _calculate_trade_result(entry: float, exit_price: float, lot: float,
-                             biaya_beli_pct: float, biaya_jual_pct: float) -> dict:
-    """Rumus inti Biaya/Net P/L/Return%/Status - dipakai oleh close_trade() dan edit_trade(),
-    dan bisa dipanggil langsung untuk verifikasi (lihat tab Kelola Sekuritas > Tes Formula)."""
-    lembar = lot * 100
-    biaya = (entry * lembar * biaya_beli_pct / 100) + (exit_price * lembar * biaya_jual_pct / 100)
-    net_pl = (exit_price - entry) * lembar - biaya
-    return_pct = (net_pl / (entry * lembar)) * 100 if entry * lembar > 0 else 0
-    status = "PROFIT" if net_pl > 0 else ("LOSS" if net_pl < 0 else "BREAKEVEN")
-    return {"biaya": biaya, "net_pl": net_pl, "return_pct": return_pct, "status": status}
 
 
 def open_trade(tanggal_entry: str, sekuritas: str, saham: str, setup: str,
@@ -128,7 +99,6 @@ def open_trade(tanggal_entry: str, sekuritas: str, saham: str, setup: str,
     row = [no, tanggal_entry, sekuritas, saham.upper(), setup, entry, sl, target, lot,
            "", "", "", "", "", "OPEN", catatan]
     ws.append_row(row, value_input_option="USER_ENTERED")
-    load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return no
 
 
@@ -152,13 +122,14 @@ def close_trade(no: int, tanggal_exit: str, exit_price: float):
     biaya_beli_pct = float(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
     biaya_jual_pct = float(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
 
-    r_calc = _calculate_trade_result(entry, exit_price, lot, biaya_beli_pct, biaya_jual_pct)
-    biaya, net_pl, return_pct, status = r_calc["biaya"], r_calc["net_pl"], r_calc["return_pct"], r_calc["status"]
+    biaya = (entry * lembar * biaya_beli_pct / 100) + (exit_price * lembar * biaya_jual_pct / 100)
+    net_pl = (exit_price - entry) * lembar - biaya
+    return_pct = (net_pl / (entry * lembar)) * 100 if entry * lembar > 0 else 0
+    status = "PROFIT" if net_pl > 0 else ("LOSS" if net_pl < 0 else "BREAKEVEN")
 
     ws.update(f"J{sheet_row}:O{sheet_row}", [[
         tanggal_exit, exit_price, round(biaya, 2), round(net_pl, 2), round(return_pct, 2), status,
     ]])
-    load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return True, f"Trade #{no} ditutup: {status} ({return_pct:+.2f}%)"
 
 
@@ -171,7 +142,6 @@ def delete_trade(no: int) -> tuple[bool, str]:
         return False, "Nomor trade tidak ditemukan."
     sheet_row = row_match.index[0] + 2  # +2: header + 0-based index
     ws.delete_rows(sheet_row)
-    load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return True, f"Trade #{no} dihapus."
 
 
@@ -194,15 +164,17 @@ def edit_trade(no: int, tanggal_entry: str, sekuritas: str, saham: str, setup: s
         fee_row = brokers[brokers["Sekuritas"] == sekuritas]
         biaya_beli_pct = float(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
         biaya_jual_pct = float(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
-        r_calc = _calculate_trade_result(entry, exit_price, lot, biaya_beli_pct, biaya_jual_pct)
-        exit_row = [tanggal_exit, exit_price, round(r_calc["biaya"], 2), round(r_calc["net_pl"], 2),
-                    round(r_calc["return_pct"], 2), r_calc["status"]]
+        lembar = lot * 100
+        biaya = (entry * lembar * biaya_beli_pct / 100) + (exit_price * lembar * biaya_jual_pct / 100)
+        net_pl = (exit_price - entry) * lembar - biaya
+        return_pct = (net_pl / (entry * lembar)) * 100 if entry * lembar > 0 else 0
+        status = "PROFIT" if net_pl > 0 else ("LOSS" if net_pl < 0 else "BREAKEVEN")
+        exit_row = [tanggal_exit, exit_price, round(biaya, 2), round(net_pl, 2), round(return_pct, 2), status]
     else:
         exit_row = ["", "", "", "", "", "OPEN"]
 
     full_row = [no, tanggal_entry, sekuritas, saham.upper(), setup, entry, sl, target, lot] + exit_row + [catatan]
     ws.update(f"A{sheet_row}:P{sheet_row}", [full_row])
-    load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return True, f"Trade #{no} berhasil diperbarui."
 
 
