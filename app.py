@@ -857,10 +857,13 @@ with t_real:
                 r5.metric("Net P/L", f"Rp{stats_rj['net_pl']:,.0f}")
 
                 r6, r7, r8, r9 = st.columns(4)
-                r6.metric("Max Profit", f"Rp{stats_rj['max_profit_rp']:,.0f}", f"{stats_rj['max_profit_pct']:+.2f}%")
-                r7.metric("Max Loss", f"Rp{stats_rj['max_loss_rp']:,.0f}", f"{stats_rj['max_loss_pct']:+.2f}%")
-                r8.metric("Avg. Profit", f"Rp{stats_rj['avg_profit_rp']:,.0f}")
-                r9.metric("Avg. Loss", f"Rp{stats_rj['avg_loss_rp']:,.0f}")
+                ada_closed = (stats_rj["win"] + stats_rj["loss"]) > 0
+                r6.metric("Max Profit", f"Rp{stats_rj['max_profit_rp']:,.0f}",
+                          f"{stats_rj['max_profit_pct']:+.2f}%" if ada_closed else None)
+                r7.metric("Max Loss", f"Rp{stats_rj['max_loss_rp']:,.0f}",
+                          f"{stats_rj['max_loss_pct']:+.2f}%" if ada_closed else None)
+                r8.metric("Avg. Profit", f"Rp{stats_rj['avg_profit_rp']:,.0f}" if ada_closed else "Belum ada data")
+                r9.metric("Avg. Loss", f"Rp{stats_rj['avg_loss_rp']:,.0f}" if ada_closed else "Belum ada data")
                 st.metric("Expectancy (rata-rata P/L per trade)", f"Rp{stats_rj['expectancy']:,.0f}")
 
                 st.divider()
@@ -913,21 +916,98 @@ with t_real:
         # --- Kelola Sekuritas ---
         with sub4:
             st.markdown("**Daftar Sekuritas & Biaya Transaksi**")
+
+            with st.expander("🧪 Tes Formula (klik untuk cek apakah kode yang aktif sudah benar)"):
+                st.caption(
+                    "Tes ini memanggil LANGSUNG fungsi dari file real_journal.py yang ter-deploy "
+                    "(bukan hitung terpisah) - supaya benar-benar membuktikan versi kode yang aktif. "
+                    "Contoh baku: Entry Rp458, Exit Rp494, Lot 10, fee 0.15%/0.25%. "
+                    "Kalau kode yang aktif BENAR, hasilnya harus PROFIT +Rp34.078 (+7.44%)."
+                )
+                _t = rj._calculate_trade_result(458, 494, 10, 0.15, 0.25)
+                _formula_ok = abs(_t["biaya"] - 1922) < 1
+                tcol1, tcol2, tcol3 = st.columns(3)
+                tcol1.metric("Biaya (harus Rp1.922)", f"Rp{_t['biaya']:,.0f}")
+                tcol2.metric("Net P/L (harus +Rp34.078)", f"Rp{_t['net_pl']:,.0f}")
+                tcol3.metric("Return % (harus +7.44%)", f"{_t['return_pct']:+.2f}%")
+                if _formula_ok:
+                    st.success(
+                        "✅ BENAR - file real_journal.py yang aktif di deployment ini sudah versi yang "
+                        "benar. Kalau trade real Bro masih salah, berarti itu trade LAMA yang perlu "
+                        "di-edit ulang (bukan file kodenya lagi)."
+                    )
+                else:
+                    st.error(
+                        "❌ SALAH - file real_journal.py yang AKTIF DI DEPLOYMENT INI masih versi lama/"
+                        "salah, walaupun mungkin sudah di-upload ulang. Coba: (1) hapus dulu file "
+                        "real_journal.py di GitHub (jangan cuma edit/timpa), (2) upload file baru dari "
+                        "awal, (3) di Streamlit Cloud, buka Manage app > titik tiga > Reboot app supaya "
+                        "tidak ada versi lama yang ke-cache."
+                    )
             st.caption("Tiap broker beda fee - isi sesuai yang tertera di aplikasi sekuritas Bro masing-masing.")
             brokers_now = rj.load_brokers()
-            st.dataframe(brokers_now, use_container_width=True, hide_index=True)
+            def _flag_high_fee(val):
+                try:
+                    return "background-color:#7f1d1d; color:white; font-weight:600;" if float(val) > 1.0 else ""
+                except (ValueError, TypeError):
+                    return ""
+            styler_brokers = brokers_now.style
+            fee_cols = ["Biaya Beli (%)", "Biaya Jual (%)"]
+            if hasattr(styler_brokers, "map"):
+                styler_brokers = styler_brokers.map(_flag_high_fee, subset=fee_cols)
+            else:
+                styler_brokers = styler_brokers.applymap(_flag_high_fee, subset=fee_cols)
+            st.dataframe(styler_brokers, use_container_width=True, hide_index=True)
+            if (pd.to_numeric(brokers_now["Biaya Beli (%)"], errors="coerce") > 1.0).any() or \
+               (pd.to_numeric(brokers_now["Biaya Jual (%)"], errors="coerce") > 1.0).any():
+                st.error(
+                    "🚩 Ada sekuritas dengan fee di atas 1% (ditandai merah) - ini kemungkinan besar "
+                    "salah input (mis. '15' padahal maksudnya '0.15'). Trade yang sudah dihitung pakai "
+                    "fee salah ini perlu dikoreksi ulang lewat tab Edit/Hapus setelah fee-nya dibetulkan."
+                )
 
             st.markdown("**Tambah / Update Sekuritas**")
+            st.caption("⚠️ Isi dalam bentuk PERSEN kecil, mis. **0.15** untuk 0,15% (bukan ketik '15'). "
+                       "Fee broker IDX pada umumnya 0,1%-0,3% - kalau lebih dari 1%, cek ulang dulu.")
             bc1, bc2, bc3 = st.columns(3)
             nama_broker_in = bc1.text_input("Nama Sekuritas", key="nama_broker_rj")
-            biaya_beli_in2 = bc2.number_input("Biaya Beli (%)", min_value=0.0, value=0.15, step=0.01, key="bb_broker")
-            biaya_jual_in2 = bc3.number_input("Biaya Jual (%)", min_value=0.0, value=0.25, step=0.01, key="bj_broker")
+            biaya_beli_in2 = bc2.number_input("Biaya Beli (%)", min_value=0.0, max_value=5.0,
+                                               value=0.15, step=0.01, key="bb_broker")
+            biaya_jual_in2 = bc3.number_input("Biaya Jual (%)", min_value=0.0, max_value=5.0,
+                                               value=0.25, step=0.01, key="bj_broker")
+            if biaya_beli_in2 > 1.0 or biaya_jual_in2 > 1.0:
+                st.warning(
+                    f"Fee {biaya_beli_in2}% / {biaya_jual_in2}% terlihat sangat tinggi untuk broker IDX "
+                    "(biasanya di bawah 0,3%). Kemungkinan Bro salah ketik (mis. '15' padahal maksud "
+                    "'0.15'). Pastikan benar sebelum simpan."
+                )
             if st.button("💾 Simpan Sekuritas", key="btn_save_broker"):
                 if not nama_broker_in:
                     st.error("Nama sekuritas wajib diisi.")
                 else:
                     rj.add_broker(nama_broker_in, biaya_beli_in2, biaya_jual_in2)
                     st.success(f"Sekuritas '{nama_broker_in}' disimpan.")
+
+            st.divider()
+            st.markdown("**Hapus Sekuritas**")
+            brokers_for_delete = rj.load_brokers()
+            if not brokers_for_delete.empty:
+                dc1, dc2 = st.columns([3, 1])
+                nama_hapus = dc1.selectbox(
+                    "Pilih sekuritas yang mau dihapus", options=brokers_for_delete["Sekuritas"].tolist(),
+                    key="pilih_hapus_broker",
+                )
+                konfirmasi_hapus_broker = dc2.checkbox("Yakin hapus?", key="konfirmasi_hapus_broker")
+                if st.button("🗑️ Hapus Sekuritas", key="btn_delete_broker", disabled=not konfirmasi_hapus_broker):
+                    ok_del, msg_del = rj.delete_broker(nama_hapus)
+                    if ok_del:
+                        st.success(msg_del)
+                    else:
+                        st.error(msg_del)
+                st.caption(
+                    "⚠️ Menghapus sekuritas tidak mengubah trade yang sudah tercatat memakai fee sekuritas "
+                    "ini - trade lama tetap tersimpan seperti aslinya."
+                )
 
         # --- Edit / Hapus (koreksi salah input) ---
         with sub5:
