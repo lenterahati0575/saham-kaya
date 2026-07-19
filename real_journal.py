@@ -134,7 +134,14 @@ def add_broker(nama: str, biaya_beli_pct: float, biaya_jual_pct: float):
 @st.cache_data(ttl=30, show_spinner=False)
 def load_trades() -> pd.DataFrame:
     ws = _get_trades_ws()
-    records = ws.get_all_records()
+   st.write("CELL F2")
+st.write(ws.acell("F2").value)
+
+st.write("ROW 2")
+st.write(ws.row_values(2))
+
+st.write("ALL VALUES")
+st.write(ws.get_all_values())
 
     st.write("DATA TRADE DARI GOOGLE SHEETS")
     st.write(records)
