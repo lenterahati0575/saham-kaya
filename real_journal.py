@@ -54,28 +54,7 @@ def _ensure_worksheet(sheet_id: str, name: str, headers: list, default_rows: lis
     return ws
 
 
-def _get_trades_ws():
-    return _ensure_worksheet(st.secrets["GOOGLE_SHEET_ID"], TRADES_SHEET, TRADES_HEADERS)
-
-
-def _get_broker_ws():
-    return _ensure_worksheet(st.secrets["GOOGLE_SHEET_ID"], BROKER_SHEET, BROKER_HEADERS, DEFAULT_BROKERS)
-
-
-@st.cache_data(ttl=30, show_spinner=False)  # cache 30 detik - cegah 429 quota exceeded Google Sheets
-def load_brokers() -> pd.DataFrame:
-    ws = _get_broker_ws()
-    records = ws.get_all_records()
-    df = pd.DataFrame(records)
-    if df.empty:
-        df = pd.DataFrame(DEFAULT_BROKERS, columns=BROKER_HEADERS)
-       # ===== PERBAIKAN =====
-    for col in ["Biaya Beli (%)", "Biaya Jual (%)"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-        df[col] = df[col].apply(
-            lambda x: x / 100 if pd.notna(x) and x >= 1 else x
-        )
-    return df
+def _get_trades_ws(
 
 
 def add_broker(nama: str, biaya_beli_pct: float, biaya_jual_pct: float):
@@ -121,11 +100,24 @@ def delete_broker(nama: str):
 @st.cache_data(ttl=30, show_spinner=False)  # cache 30 detik - cegah 429 quota exceeded Google Sheets
 def load_trades() -> pd.DataFrame:
     ws = _get_trades_ws()
+
     records = ws.get_all_records()
+
+    st.write("=== WORKSHEET ===", ws.title)
+    st.write("=== RAW RECORDS ===")
+    st.write(records)
+
     df = pd.DataFrame(records)
+
+    st.write("=== DATAFRAME ===")
+    st.dataframe(df)
+
     if df.empty:
         df = pd.DataFrame(columns=TRADES_HEADERS)
+
     return df
+
+
 # ============================
 # FUNGSI PERHITUNGAN TRADE
 # ============================
