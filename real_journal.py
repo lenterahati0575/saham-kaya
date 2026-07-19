@@ -70,11 +70,11 @@ def load_brokers() -> pd.DataFrame:
     if df.empty:
         df = pd.DataFrame(DEFAULT_BROKERS, columns=BROKER_HEADERS)
        # ===== PERBAIKAN =====
-    for col in ["Biaya Beli (%)", "Biaya Jual (%)"]:
+    ffor col in ["Biaya Beli (%)", "Biaya Jual (%)"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
-
-        # Kalau Google mengembalikan 15 berarti sebenarnya 0.15%
-        df.loc[df[col] >= 1, col] = df.loc[df[col] >= 1, col] / 100
+        df[col] = df[col].apply(
+            lambda x: x / 100 if pd.notna(x) and x >= 1 else x
+        )
     return df
 
 
