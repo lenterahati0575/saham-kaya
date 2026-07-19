@@ -131,15 +131,18 @@ def add_broker(nama: str, biaya_beli_pct: float, biaya_jual_pct: float):
     load_brokers.clear()
 
 
-@st.cache_data(ttl=30, show_spinner=False)  # cache 30 detik - cegah 429 quota exceeded Google Sheets
+@st.cache_data(ttl=30, show_spinner=False)
 def load_trades() -> pd.DataFrame:
     ws = _get_trades_ws()
     records = ws.get_all_records()
+
+    st.write("DATA TRADE DARI GOOGLE SHEETS")
+    st.write(records)
+
     df = pd.DataFrame(records)
     if df.empty:
         df = pd.DataFrame(columns=TRADES_HEADERS)
     return df
-
 
 def open_trade(tanggal_entry: str, sekuritas: str, saham: str, setup: str,
                 entry: float, sl: float, target: float, lot: int, catatan: str = ""):
