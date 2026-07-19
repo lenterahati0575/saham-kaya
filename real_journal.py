@@ -101,11 +101,9 @@ def delete_broker(nama: str):
 def load_trades() -> pd.DataFrame:
     ws = _get_trades_ws()
     records = ws.get_all_records()
-    df = pd.DataFrame(records)
-
+  df = pd.DataFrame(records)
     if df.empty:
         df = pd.DataFrame(columns=TRADES_HEADERS)
-
     return df
 
 
