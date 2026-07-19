@@ -139,8 +139,6 @@ def _calculate_trade_result(
         "status": status,
     }
 
-)
-
 def open_trade(tanggal_entry: str, sekuritas: str, saham: str, setup: str,
                 entry: float, sl: float, target: float, lot: int, catatan: str = ""):
     ws = _get_trades_ws()
