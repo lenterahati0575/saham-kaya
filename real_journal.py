@@ -100,17 +100,8 @@ def delete_broker(nama: str):
 @st.cache_data(ttl=30, show_spinner=False)  # cache 30 detik - cegah 429 quota exceeded Google Sheets
 def load_trades() -> pd.DataFrame:
     ws = _get_trades_ws()
-
     records = ws.get_all_records()
-
-    st.write("=== WORKSHEET ===", ws.title)
-    st.write("=== RAW RECORDS ===")
-    st.write(records)
-
     df = pd.DataFrame(records)
-
-    st.write("=== DATAFRAME ===")
-    st.dataframe(df)
 
     if df.empty:
         df = pd.DataFrame(columns=TRADES_HEADERS)
