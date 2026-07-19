@@ -1,8 +1,6 @@
 """
-
-Menggunakan koneksi Google Sheets yang sama dengan gsheet_journal.py (satu Service Account,
-satu Sheet ID) - tidak perlu setup ulang kalau jurnal backtest sudah jalan.
-"""
+Jurnal Trading REAL - mencatat transaksi UANG BENERAN Bro, terpisah total dari
+jurnal backtest (POSISI) supaya data simulasi tidak tercampur dengan data riil.
 
 def normalize_fee(value):
     try:
@@ -28,6 +26,18 @@ beberapa perbaikan:
 
 Menggunakan koneksi Google Sheets yang sama dengan gsheet_journal.py (satu Service Account,
 satu Sheet ID) - tidak perlu setup ulang kalau jurnal backtest sudah jalan.
+"""
+
+def normalize_fee(value):
+    try:
+        s=str(value).strip().replace('%','').replace(',','.')
+        fee=float(s)
+        if fee>=10:
+            fee=fee/100.0
+        return fee
+    except Exception:
+        return 0.0
+
 
 
 from datetime import datetime
