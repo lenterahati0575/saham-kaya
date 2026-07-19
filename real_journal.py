@@ -2,17 +2,6 @@
 Jurnal Trading REAL - mencatat transaksi UANG BENERAN Bro, terpisah total dari
 jurnal backtest (POSISI) supaya data simulasi tidak tercampur dengan data riil.
 
-def normalize_fee(value):
-    try:
-        s=str(value).strip().replace('%','').replace(',','.')
-        fee=float(s)
-        if fee>=10:
-            fee=fee/100.0
-        return fee
-    except Exception:
-        return 0.0
-
-
 Konsep diadaptasi dari file referensi Bro (Jurnal_Trading_Pro_Versi_Otomatis.xlsx), dengan
 beberapa perbaikan:
 - Biaya beli/jual dihitung PER SEKURITAS (broker beda, fee beda) - bukan satu angka flat
@@ -27,18 +16,6 @@ beberapa perbaikan:
 Menggunakan koneksi Google Sheets yang sama dengan gsheet_journal.py (satu Service Account,
 satu Sheet ID) - tidak perlu setup ulang kalau jurnal backtest sudah jalan.
 """
-
-def normalize_fee(value):
-    try:
-        s=str(value).strip().replace('%','').replace(',','.')
-        fee=float(s)
-        if fee>=10:
-            fee=fee/100.0
-        return fee
-    except Exception:
-        return 0.0
-
-
 
 from datetime import datetime
 import pandas as pd
@@ -89,10 +66,6 @@ def _get_broker_ws():
 def load_brokers() -> pd.DataFrame:
     ws = _get_broker_ws()
     records = ws.get_all_records()
-
-    st.write("DATA DARI GOOGLE SHEETS")
-    st.write(records)
-
     df = pd.DataFrame(records)
     if df.empty:
         df = pd.DataFrame(DEFAULT_BROKERS, columns=BROKER_HEADERS)
@@ -101,55 +74,51 @@ def load_brokers() -> pd.DataFrame:
 
 def add_broker(nama: str, biaya_beli_pct: float, biaya_jual_pct: float):
     ws = _get_broker_ws()
-
-    nama = str(nama).strip()
-    key = nama.lower()
-
-    biaya_beli_pct = normalize_fee(biaya_beli_pct)
-    biaya_jual_pct = normalize_fee(biaya_jual_pct)
-
-    existing = load_brokers().copy()
-    if not existing.empty:
-        existing["_key"] = existing["Sekuritas"].astype(str).str.strip().str.lower()
-        match = existing[existing["_key"] == key]
-    else:
-        match = existing
-
+    existing = load_brokers()
+    match = existing[existing["Sekuritas"].astype(str).str.strip() == nama.strip()]
     if not match.empty:
-        cell = ws.find(match.iloc[0]["Sekuritas"])
-        ws.update(
-            f"B{cell.row}:C{cell.row}",
-            [[biaya_beli_pct, biaya_jual_pct]],
-            value_input_option="RAW"
-        )
+        # update baris yang sudah ada - pakai index dari dataframe, BUKAN ws.find() yang rapuh
+        # (ws.find() bisa return None walau datanya ada, misal beda spasi/whitespace)
+        sheet_row = match.index[0] + 2  # +2: header + index 0-based -> baris sheet 1-based
+        ws.update(f"A{sheet_row}:C{sheet_row}", [[nama.strip(), biaya_beli_pct, biaya_jual_pct]])
     else:
-        ws.append_row(
-            [nama, biaya_beli_pct, biaya_jual_pct],
-            value_input_option="RAW"
-        )
-
-    load_brokers.clear()
+        ws.append_row([nama.strip(), biaya_beli_pct, biaya_jual_pct], value_input_option="USER_ENTERED")
+    load_brokers.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+def delete_broker(nama: str) -> tuple[bool, str]:
+    ws = _get_broker_ws()
+    existing = load_brokers()
+    match = existing[existing["Sekuritas"].astype(str).str.strip() == nama.strip()]
+    if match.empty:
+        return False, f"Sekuritas '{nama}' tidak ditemukan."
+    sheet_row = match.index[0] + 2
+    ws.delete_rows(sheet_row)
+    load_brokers.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
+    return True, f"Sekuritas '{nama}' dihapus."
+
+
+@st.cache_data(ttl=30, show_spinner=False)  # cache 30 detik - cegah 429 quota exceeded Google Sheets
 def load_trades() -> pd.DataFrame:
     ws = _get_trades_ws()
-   st.write("CELL F2")
-st.write(ws.acell("F2").value)
-
-st.write("ROW 2")
-st.write(ws.row_values(2))
-
-st.write("ALL VALUES")
-st.write(ws.get_all_values())
-
-    st.write("DATA TRADE DARI GOOGLE SHEETS")
-    st.write(records)
-
+    records = ws.get_all_records()
     df = pd.DataFrame(records)
     if df.empty:
         df = pd.DataFrame(columns=TRADES_HEADERS)
     return df
+
+
+def _calculate_trade_result(entry: float, exit_price: float, lot: float,
+                             biaya_beli_pct: float, biaya_jual_pct: float) -> dict:
+    """Rumus inti Biaya/Net P/L/Return%/Status - dipakai oleh close_trade() dan edit_trade(),
+    dan bisa dipanggil langsung untuk verifikasi (lihat tab Kelola Sekuritas > Tes Formula)."""
+    lembar = lot * 100
+    biaya = (entry * lembar * biaya_beli_pct / 100) + (exit_price * lembar * biaya_jual_pct / 100)
+    net_pl = (exit_price - entry) * lembar - biaya
+    return_pct = (net_pl / (entry * lembar)) * 100 if entry * lembar > 0 else 0
+    status = "PROFIT" if net_pl > 0 else ("LOSS" if net_pl < 0 else "BREAKEVEN")
+    return {"biaya": biaya, "net_pl": net_pl, "return_pct": return_pct, "status": status}
+
 
 def open_trade(tanggal_entry: str, sekuritas: str, saham: str, setup: str,
                 entry: float, sl: float, target: float, lot: int, catatan: str = ""):
@@ -180,13 +149,11 @@ def close_trade(no: int, tanggal_exit: str, exit_price: float):
     sekuritas = r["Sekuritas"]
 
     fee_row = brokers[brokers["Sekuritas"] == sekuritas]
-    biaya_beli_pct = normalize_fee(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
-    biaya_jual_pct = normalize_fee(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
+    biaya_beli_pct = float(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
+    biaya_jual_pct = float(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
 
-    biaya = (entry * lembar * biaya_beli_pct / 100) + (exit_price * lembar * biaya_jual_pct / 100)
-    net_pl = (exit_price - entry) * lembar - biaya
-    return_pct = (net_pl / (entry * lembar)) * 100 if entry * lembar > 0 else 0
-    status = "PROFIT" if net_pl > 0 else ("LOSS" if net_pl < 0 else "BREAKEVEN")
+    r_calc = _calculate_trade_result(entry, exit_price, lot, biaya_beli_pct, biaya_jual_pct)
+    biaya, net_pl, return_pct, status = r_calc["biaya"], r_calc["net_pl"], r_calc["return_pct"], r_calc["status"]
 
     ws.update(f"J{sheet_row}:O{sheet_row}", [[
         tanggal_exit, exit_price, round(biaya, 2), round(net_pl, 2), round(return_pct, 2), status,
@@ -225,14 +192,11 @@ def edit_trade(no: int, tanggal_entry: str, sekuritas: str, saham: str, setup: s
     if is_closed:
         brokers = load_brokers()
         fee_row = brokers[brokers["Sekuritas"] == sekuritas]
-        biaya_beli_pct = normalize_fee(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
-        biaya_jual_pct = normalize_fee(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
-        lembar = lot * 100
-        biaya = (entry * lembar * biaya_beli_pct / 100) + (exit_price * lembar * biaya_jual_pct / 100)
-        net_pl = (exit_price - entry) * lembar - biaya
-        return_pct = (net_pl / (entry * lembar)) * 100 if entry * lembar > 0 else 0
-        status = "PROFIT" if net_pl > 0 else ("LOSS" if net_pl < 0 else "BREAKEVEN")
-        exit_row = [tanggal_exit, exit_price, round(biaya, 2), round(net_pl, 2), round(return_pct, 2), status]
+        biaya_beli_pct = float(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
+        biaya_jual_pct = float(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
+        r_calc = _calculate_trade_result(entry, exit_price, lot, biaya_beli_pct, biaya_jual_pct)
+        exit_row = [tanggal_exit, exit_price, round(r_calc["biaya"], 2), round(r_calc["net_pl"], 2),
+                    round(r_calc["return_pct"], 2), r_calc["status"]]
     else:
         exit_row = ["", "", "", "", "", "OPEN"]
 
