@@ -70,7 +70,7 @@ def load_brokers() -> pd.DataFrame:
     if df.empty:
         df = pd.DataFrame(DEFAULT_BROKERS, columns=BROKER_HEADERS)
        # ===== PERBAIKAN =====
-    ffor col in ["Biaya Beli (%)", "Biaya Jual (%)"]:
+    for col in ["Biaya Beli (%)", "Biaya Jual (%)"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
         df[col] = df[col].apply(
             lambda x: x / 100 if pd.notna(x) and x >= 1 else x
