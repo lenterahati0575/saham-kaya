@@ -114,6 +114,16 @@ def load_trades() -> pd.DataFrame:
     df = pd.DataFrame(records)
     if df.empty:
         df = pd.DataFrame(columns=TRADES_HEADERS)
+        return df
+
+    # ===== PATCH: normalisasi Return % =====
+    if "Return %" in df.columns:
+        df["Return %"] = pd.to_numeric(df["Return %"], errors="coerce")
+
+        # Koreksi data lama yang tersimpan 100x lebih besar
+        mask = df["Return %"].abs() > 100
+        df.loc[mask, "Return %"] = df.loc[mask, "Return %"] / 100.0
+
     return df
 
 
