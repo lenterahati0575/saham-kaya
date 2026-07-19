@@ -28,6 +28,18 @@ Menggunakan koneksi Google Sheets yang sama dengan gsheet_journal.py (satu Servi
 satu Sheet ID) - tidak perlu setup ulang kalau jurnal backtest sudah jalan.
 """
 
+def normalize_fee(value):
+    try:
+        s=str(value).strip().replace('%','').replace(',','.')
+        fee=float(s)
+        if fee>=10:
+            fee=fee/100.0
+        return fee
+    except Exception:
+        return 0.0
+
+
+
 from datetime import datetime
 import pandas as pd
 import streamlit as st
@@ -89,12 +101,8 @@ def add_broker(nama: str, biaya_beli_pct: float, biaya_jual_pct: float):
     if nama in existing["Sekuritas"].values:
         # update baris yang sudah ada
         cell = ws.find(nama)
-        biaya_beli_pct=normalize_fee(biaya_beli_pct)
-        biaya_jual_pct=normalize_fee(biaya_jual_pct)
         ws.update(f"B{cell.row}:C{cell.row}", [[biaya_beli_pct, biaya_jual_pct]])
     else:
-        biaya_beli_pct=normalize_fee(biaya_beli_pct)
-        biaya_jual_pct=normalize_fee(biaya_jual_pct)
         ws.append_row([nama, biaya_beli_pct, biaya_jual_pct], value_input_option="USER_ENTERED")
     load_brokers.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
 
