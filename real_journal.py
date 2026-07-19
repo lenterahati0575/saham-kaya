@@ -2,17 +2,6 @@
 Jurnal Trading REAL - mencatat transaksi UANG BENERAN Bro, terpisah total dari
 jurnal backtest (POSISI) supaya data simulasi tidak tercampur dengan data riil.
 
-def normalize_fee(value):
-    try:
-        s=str(value).strip().replace('%','').replace(',','.')
-        fee=float(s)
-        if fee>=10:
-            fee=fee/100.0
-        return fee
-    except Exception:
-        return 0.0
-
-
 Konsep diadaptasi dari file referensi Bro (Jurnal_Trading_Pro_Versi_Otomatis.xlsx), dengan
 beberapa perbaikan:
 - Biaya beli/jual dihitung PER SEKURITAS (broker beda, fee beda) - bukan satu angka flat
@@ -27,18 +16,6 @@ beberapa perbaikan:
 Menggunakan koneksi Google Sheets yang sama dengan gsheet_journal.py (satu Service Account,
 satu Sheet ID) - tidak perlu setup ulang kalau jurnal backtest sudah jalan.
 """
-
-def normalize_fee(value):
-    try:
-        s=str(value).strip().replace('%','').replace(',','.')
-        fee=float(s)
-        if fee>=10:
-            fee=fee/100.0
-        return fee
-    except Exception:
-        return 0.0
-
-
 
 from datetime import datetime
 import pandas as pd
@@ -112,23 +89,8 @@ def load_trades() -> pd.DataFrame:
     ws = _get_trades_ws()
     records = ws.get_all_records()
     df = pd.DataFrame(records)
-
     if df.empty:
-        return pd.DataFrame(columns=TRADES_HEADERS)
-
-    # Normalisasi kolom numerik
-    for col in ["Entry (Rp)", "Stop Loss (Rp)", "Target (Rp)", "Lot",
-                "Exit (Rp)", "Biaya (Rp)", "Net P/L (Rp)", "Return %"]:
-        if col in df.columns:
-            s = (
-                df[col]
-                .astype(str)
-                .str.replace("%", "", regex=False)
-                .str.replace(",", ".", regex=False)
-                .str.strip()
-            )
-            df[col] = pd.to_numeric(s, errors="coerce")
-
+        df = pd.DataFrame(columns=TRADES_HEADERS)
     return df
 
 
@@ -161,8 +123,8 @@ def close_trade(no: int, tanggal_exit: str, exit_price: float):
     sekuritas = r["Sekuritas"]
 
     fee_row = brokers[brokers["Sekuritas"] == sekuritas]
-    biaya_beli_pct = normalize_fee(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
-    biaya_jual_pct = normalize_fee(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
+    biaya_beli_pct = float(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
+    biaya_jual_pct = float(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
 
     biaya = (entry * lembar * biaya_beli_pct / 100) + (exit_price * lembar * biaya_jual_pct / 100)
     net_pl = (exit_price - entry) * lembar - biaya
@@ -206,8 +168,8 @@ def edit_trade(no: int, tanggal_entry: str, sekuritas: str, saham: str, setup: s
     if is_closed:
         brokers = load_brokers()
         fee_row = brokers[brokers["Sekuritas"] == sekuritas]
-        biaya_beli_pct = normalize_fee(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
-        biaya_jual_pct = normalize_fee(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
+        biaya_beli_pct = float(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
+        biaya_jual_pct = float(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
         lembar = lot * 100
         biaya = (entry * lembar * biaya_beli_pct / 100) + (exit_price * lembar * biaya_jual_pct / 100)
         net_pl = (exit_price - entry) * lembar - biaya
