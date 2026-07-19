@@ -89,6 +89,10 @@ def _get_broker_ws():
 def load_brokers() -> pd.DataFrame:
     ws = _get_broker_ws()
     records = ws.get_all_records()
+
+    st.write("DATA DARI GOOGLE SHEETS")
+    st.write(records)
+
     df = pd.DataFrame(records)
     if df.empty:
         df = pd.DataFrame(DEFAULT_BROKERS, columns=BROKER_HEADERS)
