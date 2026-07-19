@@ -112,23 +112,8 @@ def load_trades() -> pd.DataFrame:
     ws = _get_trades_ws()
     records = ws.get_all_records()
     df = pd.DataFrame(records)
-
     if df.empty:
-        return pd.DataFrame(columns=TRADES_HEADERS)
-
-    # Normalisasi kolom numerik
-    for col in ["Entry (Rp)", "Stop Loss (Rp)", "Target (Rp)", "Lot",
-                "Exit (Rp)", "Biaya (Rp)", "Net P/L (Rp)", "Return %"]:
-        if col in df.columns:
-            s = (
-                df[col]
-                .astype(str)
-                .str.replace("%", "", regex=False)
-                .str.replace(",", ".", regex=False)
-                .str.strip()
-            )
-            df[col] = pd.to_numeric(s, errors="coerce")
-
+        df = pd.DataFrame(columns=TRADES_HEADERS)
     return df
 
 
