@@ -139,12 +139,6 @@ def _calculate_trade_result(
         "status": status,
     }
 
-
-def open_trade(
-    tanggal_entry: str,
-    sekuritas: str,
-    saham: str,
-    ...
 )
 
 def open_trade(tanggal_entry: str, sekuritas: str, saham: str, setup: str,
