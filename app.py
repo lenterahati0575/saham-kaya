@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 from screener import (DEFAULT_PARAMS, load_ticker_universe, fetch_price_history, build_screener_table,
-                      build_trade_candidates, classify_daytrading_tipe, fetch_ihsg_history)
+                      build_trade_candidates, classify_daytrading_tipe, fetch_ihsg_history, market_regime)
 from telegram_notify import send_telegram_message, format_watchlist_message
 import gsheet_journal as gj
 import indicators as ind
@@ -15,6 +15,46 @@ import real_journal as rj
 import equity as eq
 
 st.set_page_config(page_title="IDX Screener Dashboard", page_icon="📈", layout="wide")
+
+
+def _check_auth() -> bool:
+    """Gerbang password sederhana. Tanpa ini, siapa saja yang punya link Streamlit bisa
+    melihat Jurnal Real (transaksi uang beneran) dan mengklik tombol buka/tutup posisi di
+    Jurnal Backtest - link Streamlit Community Cloud bersifat publik dan mudah ter-index
+    atau tersebar tanpa sengaja (screenshot, share link ke grup, dll).
+
+    Password disimpan sebagai APP_PASSWORD di Settings > Secrets, TIDAK ditulis di kode ini.
+    Ini proteksi dasar (bukan otentikasi enterprise-grade) - cukup untuk mencegah orang
+    lewat/tidak sengaja membuka link, tapi jangan bagikan password ke siapapun."""
+    app_password = st.secrets.get("APP_PASSWORD", "")
+    if not app_password:
+        st.warning(
+            "⚠️ **Dashboard ini belum terkunci.** `APP_PASSWORD` belum diisi di Settings > "
+            "Secrets, jadi siapa saja yang punya link ini bisa melihat Jurnal Real dan "
+            "menekan tombol buka/tutup posisi. Isi `APP_PASSWORD = \"password-rahasia-anda\"` "
+            "di Secrets untuk mengunci dashboard ini (lihat README bagian 'Kunci Dashboard')."
+        )
+        return True  # tetap boleh lanjut supaya masih bisa dipakai lokal/testing tanpa secrets
+
+    if st.session_state.get("_authenticated", False):
+        return True
+
+    st.title("🔒 IDX Screener Dashboard")
+    st.caption("Dashboard ini berisi data trading pribadi. Masukkan password untuk melanjutkan.")
+    with st.form("_login_form"):
+        pw = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Masuk", type="primary")
+    if submitted:
+        if pw == app_password:
+            st.session_state["_authenticated"] = True
+            st.rerun()
+        else:
+            st.error("Password salah.")
+    return False
+
+
+if not _check_auth():
+    st.stop()
 
 # Auto-select isi number input saat diklik/fokus, supaya ketik langsung menimpa nilai lama
 # (tanpa ini, ketik di field berisi "0.00" akan menambah di sampingnya, mis. jadi "0.00500").
@@ -155,6 +195,16 @@ with st.sidebar:
         help="Fetch data sektor dari Yahoo Finance per saham - butuh waktu tambahan saat "
              "pertama kali (di-cache 7 hari setelahnya, jadi kunjungan berikutnya cepat).",
     )
+    st.divider()
+    st.subheader("🌐 Kondisi Pasar (IHSG)")
+    filter_market = st.checkbox(
+        "Sembunyikan kandidat BUY saat IHSG Bearish", value=False,
+        help="Kalau aktif: begitu Close IHSG di bawah MA50, semua kandidat Top 10 Day/Swing "
+             "dan Kandidat Terbaik disembunyikan sementara (skor saham individual TIDAK "
+             "diubah - cuma tampilannya yang difilter). Ini mengurangi risiko false breakout "
+             "saat pasar keseluruhan sedang downtrend. Kondisi IHSG tetap ditampilkan sebagai "
+             "info walau filter ini mati.",
+    )
 
 params = {
     "min_value_traded": min_vt * 1_000_000_000,
@@ -191,6 +241,42 @@ else:
 
 st.caption(f"Terakhir refresh: {datetime.now().strftime('%d %b %Y, %H:%M')} · "
            f"{len(table)}/{len(tickers)} saham berhasil diambil")
+
+failed_tickers = sorted(set(tickers) - set(price_data.keys()))
+if failed_tickers:
+    with st.expander(f"⚠️ {len(failed_tickers)} saham gagal diambil datanya - klik untuk lihat daftar"):
+        st.caption(
+            "Biasanya karena Yahoo Finance sedang bermasalah untuk kode ini, saham baru IPO "
+            "(riwayat harga belum cukup), atau sedang disuspend. Coba Refresh Data Live lagi "
+            "beberapa saat kemudian."
+        )
+        st.write(", ".join(failed_tickers))
+
+# ---------------- Kondisi Pasar (IHSG) - filter regime opsional ----------------
+ihsg_hist = fetch_ihsg_history()
+regime = market_regime(ihsg_hist)
+if regime["status"] == "BEARISH":
+    st.error(
+        f"📉 **IHSG sedang BEARISH** (Close {regime['close']:,.0f} < MA50 {regime['ma']:,.0f}) - "
+        "potensi false breakout meningkat saat pasar keseluruhan downtrend. Pertimbangkan lebih "
+        "selektif atau kurangi ukuran posisi." +
+        (" Kandidat BUY sedang disembunyikan karena filter pasar aktif." if filter_market else "")
+    )
+elif regime["status"] == "BULLISH":
+    st.success(f"📈 IHSG BULLISH (Close {regime['close']:,.0f} > MA50 {regime['ma']:,.0f})")
+
+market_ok = not (filter_market and regime["status"] == "BEARISH")
+
+# ---------------- Kandidat trading (dihitung SEKALI, dipakai ulang di semua tab -----------
+# Sebelumnya build_trade_candidates() dipanggil ulang di 4 tempat berbeda (Jurnal Backtest,
+# Top 10, Jurnal Real) dengan parameter yang sama persis - selain boros komputasi, itu juga
+# jadi 4 tempat terpisah yang harus diingat kalau mau menambah filter regime pasar. Sekarang
+# dihitung sekali di sini, filter market_ok diterapkan di satu tempat, lalu dipakai ulang.
+cands_day_all = build_trade_candidates(table, price_data, int(donchian_lb_day), min_rr, top_n=10)
+cands_swing_all = build_trade_candidates(table, price_data, int(donchian_lb), min_rr, top_n=10)
+if not market_ok:
+    cands_day_all = cands_day_all.iloc[0:0]
+    cands_swing_all = cands_swing_all.iloc[0:0]
 
 # ---------------- Kotak Pencarian Cepat ----------------
 st.subheader("🔍 Cari Saham")
@@ -239,6 +325,10 @@ t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_
 # ---------------- TAB 1: kandidat terbaik ----------------
 with t_kandidat:
     picks = table[table["Signal"].isin(["STRONG BUY", "BUY"])].copy()
+    if not market_ok:
+        st.info("🚦 Kandidat BUY disembunyikan sementara karena IHSG Bearish dan filter "
+                 "pasar aktif di sidebar. Matikan filter itu kalau tetap ingin melihatnya.")
+        picks = picks.iloc[0:0]
     if aktifkan_sektor and not picks.empty:
         sektor_pilih_1 = st.multiselect(
             "🏷️ Filter Sektor", options=sorted(picks["Sektor"].dropna().unique().tolist()),
@@ -472,18 +562,16 @@ with t_backtest:
         colb1, colb2, colb3 = st.columns(3)
         with colb1:
             if st.button(f"🟢 Buka Posisi Day Trading ({day_tipe})", use_container_width=True):
-                cands_day = build_trade_candidates(table, price_data, int(donchian_lb_day), min_rr, top_n=10)
                 with st.spinner("Membuka posisi Day Trading..."):
-                    opened = gj.open_positions_from_candidates(cands_day, day_tipe)
+                    opened = gj.open_positions_from_candidates(cands_day_all, day_tipe)
                 if opened:
                     st.success(f"Dibuka: {', '.join(opened)}")
                 else:
                     st.info("Tidak ada posisi baru dibuka.")
         with colb2:
             if st.button("🟢 Buka Posisi Swing Trading", use_container_width=True):
-                cands_swing = build_trade_candidates(table, price_data, int(donchian_lb), min_rr, top_n=10)
                 with st.spinner("Membuka posisi Swing Trading..."):
-                    opened = gj.open_positions_from_candidates(cands_swing, "SWING")
+                    opened = gj.open_positions_from_candidates(cands_swing_all, "SWING")
                 if opened:
                     st.success(f"Dibuka: {', '.join(opened)}")
                 else:
@@ -522,7 +610,7 @@ with t_top10:
 
     day_tipe = classify_daytrading_tipe()
     st.subheader(f"⚡ Top 10 Day Trading (Donchian {int(donchian_lb_day)} hari) — tipe {day_tipe}")
-    cands_day = build_trade_candidates(table, price_data, int(donchian_lb_day), min_rr, top_n=10)
+    cands_day = cands_day_all
     if cands_day.empty:
         st.info("Tidak ada kandidat Day Trading yang lolos RR minimum saat ini. Coba turunkan Min. RR di sidebar.")
     else:
@@ -538,7 +626,7 @@ with t_top10:
 
     st.divider()
     st.subheader(f"🌊 Top 10 Swing Trading (Donchian {int(donchian_lb)} hari)")
-    cands_swing = build_trade_candidates(table, price_data, int(donchian_lb), min_rr, top_n=10)
+    cands_swing = cands_swing_all
     if cands_swing.empty:
         st.info("Tidak ada kandidat Swing Trading yang lolos RR minimum saat ini. Coba turunkan Min. RR di sidebar.")
     else:
@@ -806,8 +894,8 @@ with t_real:
             broker_options = brokers_df["Sekuritas"].tolist() if not brokers_df.empty else ["Lainnya"]
 
             # ---- Pilih cepat dari Top 10 Day/Swing (opsional) - auto-isi form di bawah ----
-            cands_day_rj = build_trade_candidates(table, price_data, int(donchian_lb_day), min_rr, top_n=10)
-            cands_swing_rj = build_trade_candidates(table, price_data, int(donchian_lb), min_rr, top_n=10)
+            cands_day_rj = cands_day_all
+            cands_swing_rj = cands_swing_all
             top10_gabung = []
             for _, r10 in cands_day_rj.iterrows():
                 top10_gabung.append({"label": f"⚡ {r10['Saham']} (Day) - Entry {r10['Entry']:,.0f} · "
@@ -1272,6 +1360,49 @@ with t_equity:
                                                margin=dict(l=10, r=10, t=10, b=10),
                                                showlegend=True)
                         st.plotly_chart(fig_pie, use_container_width=True)
+
+                st.divider()
+                st.markdown("**🛡️ Risk Portofolio (Agregat Semua Posisi OPEN)**")
+                st.caption(
+                    "Kalkulator Manajemen Risiko di tab Kalkulator cuma menghitung SATU trade. "
+                    "Ini menjumlahkan risiko dari SEMUA posisi Jurnal Real yang sedang OPEN "
+                    "bersamaan, dibandingkan Total Equity terbaru di atas - supaya kelihatan "
+                    "kalau risiko gabungan sudah kelewat besar walau tiap trade individual "
+                    "terlihat 'aman'."
+                )
+                risk_summary = rj.portfolio_risk_summary(rj.load_trades(), latest_total)
+                if risk_summary["n_open"] == 0:
+                    st.caption("Tidak ada posisi OPEN di Jurnal Real saat ini.")
+                else:
+                    rk1, rk2, rk3 = st.columns(3)
+                    rk1.metric("Total Risiko (Rp)", f"Rp{risk_summary['total_risk_rp']:,.0f}")
+                    rk2.metric("Jumlah Posisi OPEN", risk_summary["n_open"])
+                    pct = risk_summary["pct_of_equity"]
+                    rk3.metric("% dari Total Equity", f"{pct:.2f}%" if pct is not None else "N/A")
+                    if pct is not None and pct > 10:
+                        st.error(
+                            f"🚨 Total risiko gabungan ({pct:.1f}% dari equity) sudah di atas "
+                            "10% - kalau SEMUA posisi kena Stop Loss sekaligus, itu kerugian "
+                            "besar sekaligus. Umumnya disarankan total risiko terbuka di bawah "
+                            "6-10% dari modal (setara 3-5 posisi @1-2% risiko)."
+                        )
+                    elif pct is not None and pct > 6:
+                        st.warning(
+                            f"⚠️ Total risiko gabungan {pct:.1f}% dari equity - masih di area "
+                            "wajar tapi mulai tinggi, perhatikan sebelum buka posisi baru."
+                        )
+                    if risk_summary["n_sl_kosong"] > 0:
+                        st.caption(
+                            f"⚠️ {risk_summary['n_sl_kosong']} posisi OPEN belum diisi Stop Loss "
+                            "- risikonya TIDAK ikut terhitung di atas (bukan diasumsikan 0 risiko "
+                            "sungguhan, cuma tidak bisa dihitung). Lengkapi SL-nya lewat tab "
+                            "Jurnal Real > Edit/Hapus."
+                        )
+                    st.dataframe(
+                        risk_summary["detail"][["Saham", "Sekuritas", "Entry (Rp)", "Stop Loss (Rp)",
+                                                 "Lot", "Risiko (Rp)"]],
+                        use_container_width=True, hide_index=True,
+                    )
 
         # ===== Sub-tab: Catat Snapshot =====
         with sub_catat:

@@ -1,0 +1,44 @@
+name: Auto Backtest IDX Screener
+
+# CATATAN: file ini yang dijelaskan panjang lebar di README ("Auto-Backtest TANPA Buka
+# Dashboard") ternyata belum pernah ter-commit ke repo - jadi sebelum file ini ada,
+# auto_run.py TIDAK PERNAH terjadwal jalan otomatis walau instruksi setup-nya sudah ditulis
+# lengkap. Sekarang jadwalnya aktif sesuai yang dijanjikan README:
+#   09:15 WIB (02:15 UTC) hari kerja - cek sinyal pagi (BPJS), buka posisi Swing baru
+#   14:45 WIB (07:45 UTC) hari kerja - cek sinyal sore (BSJP), cek TP/SL/force-sell
+
+on:
+  schedule:
+    - cron: "15 2 * * 1-5"
+    - cron: "45 7 * * 1-5"
+  workflow_dispatch: {}  # tombol "Run workflow" manual di tab Actions
+
+permissions:
+  contents: read
+
+jobs:
+  auto-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Tulis Streamlit secrets dari GitHub Secrets
+        run: |
+          mkdir -p .streamlit
+          printf '%s' "$STREAMLIT_SECRETS_TOML" > .streamlit/secrets.toml
+        env:
+          STREAMLIT_SECRETS_TOML: ${{ secrets.STREAMLIT_SECRETS_TOML }}
+
+      - name: Jalankan auto_run.py (auto-buy/auto-sell backtest)
+        run: python auto_run.py

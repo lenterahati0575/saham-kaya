@@ -18,6 +18,9 @@ veto crash, Donchian 20D Breakout).
 | `equity.py` | Tracking modal/equity per sekuritas + perbandingan IHSG |
 | `auto_run.py` | Runner auto-backtest terjadwal (dipanggil GitHub Actions, bukan dashboard) |
 | `.github/workflows/auto_backtest.yml` | Jadwal otomatis (GitHub Actions, gratis) |
+| `.github/workflows/tests.yml` | Menjalankan `tests/` otomatis tiap push/PR (GitHub Actions, gratis) |
+| `backtest.py` | Backtest HISTORIS rule skor (walk-forward, terpisah dari Jurnal Backtest yang forward-testing) |
+| `tests/` | Unit test (pytest) untuk screener, kalkulator, indikator, jurnal real, dan backtest engine |
 | `telegram_notify.py` | Kirim watchlist/ringkasan ke Telegram |
 | `tickers_idx.csv` | Daftar 615 kode saham (dari file Excel Bro) |
 | `requirements.txt` | Daftar library yang dibutuhkan |
@@ -31,6 +34,25 @@ veto crash, Donchian 20D Breakout).
 4. Klik **"New app"** → pilih repository yang tadi dibuat → Main file path: `app.py` → **Deploy**
 5. Tunggu 1-3 menit, dashboard akan dapat URL publik seperti
    `https://nama-app-anda.streamlit.app` — bisa dibuka di HP maupun laptop, browser apa saja.
+
+## 🔒 Kunci Dashboard (WAJIB kalau dashboard sudah dipakai untuk uang riil)
+
+**PENTING**: link Streamlit Community Cloud bersifat PUBLIK. Siapa saja yang punya link ini
+bisa melihat Jurnal Real (transaksi uang beneran Bro) dan menekan tombol buka/tutup posisi
+di Jurnal Backtest, kalau dashboard tidak dikunci. Untuk mengunci:
+
+1. Di Streamlit Cloud: buka app → **Settings > Secrets**, tambahkan:
+   ```toml
+   APP_PASSWORD = "ganti-dengan-password-rahasia-anda"
+   ```
+2. Simpan, app otomatis restart. Sekarang dashboard akan minta password sebelum bisa dipakai.
+3. Kalau `APP_PASSWORD` belum diisi, dashboard tetap bisa diakses (supaya tidak mengunci diri
+   sendiri secara tidak sengaja saat masih tahap coba-coba) - tapi akan tampil warning jelas
+   di halaman utama sampai Bro mengisinya.
+
+Catatan: ini proteksi dasar (satu password dibagi bersama, dicek di sisi aplikasi), BUKAN
+sistem login multi-user. Cukup untuk mencegah orang lain yang kebetulan menemukan link,
+tapi jangan bagikan password ke siapapun yang tidak Bro percaya penuh.
 
 ## Aktifkan Notifikasi Telegram (Opsional)
 
@@ -197,6 +219,32 @@ log lengkap tersimpan meski Bro tutup halamannya.
   pemberitahuan ke akun Bro - jadi tetap tahu kalau ada yang error.
 - Jadwal di atas pakai UTC (`15 2 * * 1-5` = 09:15 WIB). Kalau mau ubah jam, edit file
   `.github/workflows/auto_backtest.yml`, ingat WIB = UTC+7.
+
+## Backtest Historis (Validasi Rule Skor)
+
+Beda dengan Jurnal Backtest di atas (yang forward-testing - mulai mencatat sinyal dari
+sekarang ke depan), `backtest.py` menguji rule skor `screener.py` terhadap data HISTORIS
+(mundur ke belakang) untuk menjawab: seberapa akurat sebenarnya sinyal STRONG BUY/BUY ini
+kalau diuji ke banyak saham & banyak titik waktu di masa lalu?
+
+Jalankan lokal (butuh koneksi internet ke Yahoo Finance, JANGAN dijalankan otomatis di
+dashboard supaya tidak boros quota):
+
+```bash
+pip install -r requirements.txt
+python backtest.py --tickers BBCA,TLKM,ADRO,ASII,BMRI --years 3 --forward-days 10
+```
+
+Atau uji ke lebih banyak saham sekaligus (`--n` = jumlah saham pertama dari `tickers_idx.csv`):
+
+```bash
+python backtest.py --n 200 --years 3 --forward-days 10
+```
+
+Output berupa tabel ringkasan Win Rate & rata-rata return per jenis Signal (STRONG BUY, BUY,
+HOLD, dst.), plus file CSV detail tiap titik sinyal yang diuji. Mekanisme walk-forward-nya
+sudah diuji lewat unit test (`tests/test_backtest.py`) untuk memastikan tidak ada lookahead
+bias - skor di titik waktu manapun HANYA dihitung dari data sampai titik itu.
 
 ## Cara Kerja Fitur Trading
 
