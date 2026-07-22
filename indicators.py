@@ -65,6 +65,13 @@ def _rsi(close: pd.Series, period: int = 14) -> pd.Series:
     avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
     rsi = 100 - (100 / (1 + rs))
+    # Kasus tepi ditemukan lewat unit test: kalau avg_loss = 0 (tidak ada penurunan SAMA
+    # SEKALI dalam window, mis. saham lagi ARA/limit-up beruntun), avg_gain/NaN di atas
+    # jadi NaN, lalu fillna(50) polos akan salah menganggap itu "netral" - padahal
+    # seharusnya RSI = 100 (paling overbought). Dibedakan dari kasus benar-benar flat
+    # (avg_gain=0 DAN avg_loss=0) yang memang netral (RSI=50).
+    rsi = rsi.where(~((avg_loss == 0) & (avg_gain > 0)), 100.0)
+    rsi = rsi.where(~((avg_loss == 0) & (avg_gain == 0)), 50.0)
     return rsi.fillna(50)
 
 

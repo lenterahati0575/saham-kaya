@@ -206,6 +206,52 @@ def edit_trade(no: int, tanggal_entry: str, sekuritas: str, saham: str, setup: s
     return True, f"Trade #{no} berhasil diperbarui."
 
 
+def open_positions_risk(trades: pd.DataFrame) -> pd.DataFrame:
+    """Risiko (Rp) tiap posisi OPEN = (Entry - Stop Loss) x Lot x 100 lembar.
+
+    KENAPA INI PENTING: Kalkulator Manajemen Risiko di tab Kalkulator cuma menghitung risiko
+    SATU trade pada satu waktu. Tidak ada yang menjumlahkan risiko dari SEMUA posisi yang
+    sedang OPEN bersamaan - jadi Bro bisa saja sudah membuka 5-6 posisi yang masing-masing
+    "aman" secara individual (1-2% modal), tapi totalnya sudah jauh melebihi toleransi risiko
+    portofolio tanpa disadari. Fungsi ini menjumlahkan semuanya. Dipakai di tab Equity >
+    Risk Portofolio bersama Total Equity terbaru untuk menghitung % risiko agregat.
+
+    CATATAN: kalau Stop Loss belum diisi (0) untuk suatu trade, risikonya TIDAK bisa dihitung
+    (dianggap 0 di total, bukan diabaikan diam-diam) - baris itu ditandai di kolom
+    'SL Belum Diisi' supaya kelihatan kalau agregat ini kemungkinan under-estimate."""
+    cols = ["Saham", "Sekuritas", "Entry (Rp)", "Stop Loss (Rp)", "Lot", "Risiko (Rp)", "SL Belum Diisi"]
+    if trades.empty or "Status" not in trades.columns:
+        return pd.DataFrame(columns=cols)
+    open_t = trades[trades["Status"] == "OPEN"].copy()
+    if open_t.empty:
+        return pd.DataFrame(columns=cols)
+
+    entry = pd.to_numeric(open_t["Entry (Rp)"], errors="coerce").fillna(0)
+    sl = pd.to_numeric(open_t["Stop Loss (Rp)"], errors="coerce").fillna(0)
+    lot = pd.to_numeric(open_t["Lot"], errors="coerce").fillna(0)
+    sl_kosong = sl <= 0
+    risiko = ((entry - sl).clip(lower=0)) * lot * 100
+    risiko = risiko.where(~sl_kosong, 0)
+
+    open_t["Risiko (Rp)"] = risiko
+    open_t["SL Belum Diisi"] = sl_kosong
+    return open_t[cols]
+
+
+def portfolio_risk_summary(trades: pd.DataFrame, total_equity: float | None) -> dict:
+    """Ringkasan risiko portofolio agregat: total Rp yang dipertaruhkan dari semua posisi
+    OPEN, dan berapa % itu dari Total Equity terbaru (kalau ada data Equity)."""
+    detail = open_positions_risk(trades)
+    total_risk_rp = float(detail["Risiko (Rp)"].sum()) if not detail.empty else 0.0
+    n_open = len(detail)
+    n_sl_kosong = int(detail["SL Belum Diisi"].sum()) if not detail.empty else 0
+    pct = (total_risk_rp / total_equity * 100) if total_equity and total_equity > 0 else None
+    return {
+        "detail": detail, "total_risk_rp": total_risk_rp, "n_open": n_open,
+        "n_sl_kosong": n_sl_kosong, "pct_of_equity": pct,
+    }
+
+
 def compute_stats(trades: pd.DataFrame) -> dict:
     empty = {"total": 0, "open": 0, "win": 0, "loss": 0, "winrate": 0,
              "net_pl": 0, "profit_factor": 0, "expectancy": 0,
