@@ -307,10 +307,22 @@ with t_kandidat:
         )
         if sektor_pilih_1:
             picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
-            
-    # === FILTER SEDERHANA (TANPA QUALITY) ===
-    if not picks.empty:
-        st.caption("💡 **Tips:** Fokus pada saham dengan Score tinggi dan Status Breakout = BREAKOUT")
+    
+    # === FILTER QUALITY RATING ===
+    if not picks.empty and "Quality" in picks.columns:
+        available_quality = sorted(picks["Quality"].unique().tolist())
+        quality_filter = st.multiselect(
+            "🎯 Filter Quality Rating",
+            options=available_quality,
+            default=available_quality,  # Tampilkan semua yang tersedia
+            help="HIGH = Akumulasi + Trend kuat + Momentum positif\n"
+                 "MODERATE = Salah satu indikator lemah\n"
+                 "LOW = Faktor-faktor lemah, hati-hati"
+        )
+        if quality_filter:
+            picks = picks[picks["Quality"].isin(quality_filter)]
+        
+        st.caption("💡 **Tips:** Fokus pada saham dengan **Score tinggi**, **Status Breakout = BREAKOUT**, dan **Quality = ✅ HIGH**")
 
     if picks.empty:
         st.info("Tidak ada saham yang lolos filter saat ini. Coba longgarkan parameter di sidebar.")
@@ -321,10 +333,17 @@ with t_kandidat:
         show["Value Traded (Rp)"] = picks["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
         show["Volume Ratio"] = picks["Volume Ratio"].map(lambda x: f"{x:.1f}x")
         
-        kolom_tampil = ["Kode", "Nama", "Signal", "Score", "Harga", "Perubahan %",
-                         "Volume Ratio", "Value Traded (Rp)", "Status Breakout"]
+        # === KOLOM YANG AKAN DITAMPILKAN (SUDAH TERMASUK QUALITY) ===
+        kolom_tampil = [
+            "Kode", "Nama", "Signal", "Score", "Quality", "Quality Score", 
+            "Trend", "Smart Money", "Momentum", "Harga", "Perubahan %",
+            "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
+        ]
         if aktifkan_sektor:
             kolom_tampil.insert(2, "Sektor")
+        
+        # Pastikan hanya kolom yang benar-benar ada yang ditampilkan
+        kolom_tampil = [col for col in kolom_tampil if col in show.columns]
         
         dataframe_with_chart(show[kolom_tampil], kode_col="Kode", height=460, key="df_kandidat")
         st.download_button(
