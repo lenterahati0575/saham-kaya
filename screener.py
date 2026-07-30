@@ -10,7 +10,7 @@ IDX_Screener_Bot_diperbaiki.xlsx supaya hasil web dashboard dan Excel konsisten:
   sesuai prinsip 4-Weeks Rule Richard Donchian)
 
 TAMBAHAN: Quality Validator dengan analisis Akumulasi/Distribusi, Trend Strength, 
-dan Consecutive Higher Closes.
+Consecutive Higher Closes, dan Rekomendasi Trading Otomatis.
 """
 
 import pandas as pd
@@ -30,13 +30,13 @@ DEFAULT_PARAMS = {
 
 
 # ============================================================================
-# QUALITY VALIDATOR FUNCTIONS (INTEGRASI BARU)
+# QUALITY VALIDATOR FUNCTIONS
 # ============================================================================
 
 def _detect_accumulation_distribution(df: pd.DataFrame, period: int = 20) -> dict:
     """
     Deteksi fase Akumulasi atau Distribusi menggunakan metode profesional.
-    Kombinasi: Price Action + Volume + Close Position
+    Kombinasi: Price Action + Volume + Close Position + OBV
     """
     if len(df) < period:
         return {
@@ -65,18 +65,14 @@ def _detect_accumulation_distribution(df: pd.DataFrame, period: int = 20) -> dic
     close_position = close_position.fillna(0.5)
     avg_close_position = close_position.mean()
     
-    # === 3. HIGHER LOWS vs LOWER HIGHS ===
+    # === 3. HIGHER LOWS ===
     highs = recent["High"].values
     lows = recent["Low"].values
     
     higher_lows = 0
-    lower_highs = 0
-    
     for i in range(1, len(lows)):
         if lows[i] > lows[i-1]:
             higher_lows += 1
-        if highs[i] < highs[i-1]:
-            lower_highs += 1
     
     hl_ratio = higher_lows / (len(lows) - 1) if len(lows) > 1 else 0.5
     
@@ -151,7 +147,7 @@ def _detect_accumulation_distribution(df: pd.DataFrame, period: int = 20) -> dic
 
 def _validate_trend_strength(df: pd.DataFrame, period: int = 10) -> dict:
     """
-    Validasi kekuatan trend menggunakan multi-timeframe analysis.
+    Validasi kekuatan trend menggunakan multi-timeframe MA analysis.
     """
     if len(df) < 50:
         return {"strength": "INSUFFICIENT", "score": 0, "stars": 0}
@@ -233,13 +229,15 @@ def _validate_trend_strength(df: pd.DataFrame, period: int = 10) -> dict:
 def _count_consecutive_higher_closes(df: pd.DataFrame, max_lookback: int = 10) -> dict:
     """
     Hitung jumlah hari berturut-turut dengan close lebih tinggi.
+    Indikator momentum jangka pendek.
     """
     if len(df) < 2:
         return {
             "streak": 0,
             "type": "NONE",
             "strength": "NONE",
-            "score": 0
+            "score": 0,
+            "volume_support": False
         }
     
     closes = df["Close"].tail(max_lookback + 1).values
@@ -293,7 +291,7 @@ def _count_consecutive_higher_closes(df: pd.DataFrame, max_lookback: int = 10) -
             score = 10
             strength = "VERY_WEAK"
     else:
-        strength = "BEARISH"
+        strength = "VERY_WEAK"
         score = 0
     
     return {
@@ -350,8 +348,110 @@ def get_quality_rating(df: pd.DataFrame) -> dict:
     }
 
 
+def get_trade_recommendation(quality: dict) -> dict:
+    """
+    Analisis kombinasi semua faktor untuk memberikan rekomendasi trading.
+    """
+    try:
+        rating = quality.get("rating", "LOW")
+        trend_stars = quality.get("trend_stars", 0)
+        smart_money = quality.get("smart_money_status", "N/A")
+        momentum = quality.get("momentum_strength", "NONE")
+        score = quality.get("score", 0)
+        
+        recommendation = "WAIT"
+        confidence = 0
+        reason = ""
+        color = "#6b7280"
+        emoji = "⏸️"
+        
+        # === KONDISI 1: DAY TRADE ===
+        if (momentum in ["VERY_STRONG", "STRONG"] and 
+            rating == "HIGH" and 
+            smart_money == "ACCUMULATION" and
+            trend_stars >= 2):
+            recommendation = "DAY TRADE"
+            confidence = 90
+            reason = "Momentum kuat + Akumulasi + Trend positif"
+            color = "#16a34a"
+            emoji = "⚡"
+        
+        # === KONDISI 2: SWING TRADE (Ideal) ===
+        elif (rating in ["HIGH", "MODERATE"] and 
+              smart_money == "ACCUMULATION" and
+              trend_stars >= 2):
+            recommendation = "SWING TRADE"
+            confidence = 75
+            reason = "Trend kuat + Akumulasi, momentum perlu konfirmasi"
+            color = "#2563eb"
+            emoji = "🌊"
+        
+        # === KONDISI 3: SWING TRADE (Dengan catatan) ===
+        elif (rating in ["HIGH", "MODERATE"] and 
+              smart_money == "NEUTRAL" and
+              trend_stars >= 2 and
+              momentum in ["STRONG", "MODERATE"]):
+            recommendation = "SWING TRADE"
+            confidence = 60
+            reason = "Trend bagus + Momentum ada, belum ada akumulasi jelas"
+            color = "#3b82f6"
+            emoji = "🌊"
+        
+        # === KONDISI 4: WAIT (Konsolidasi) ===
+        elif (smart_money == "ACCUMULATION" and 
+              (rating == "LOW" or trend_stars < 2)):
+            recommendation = "WAIT"
+            confidence = 50
+            reason = "Ada akumulasi tapi trend/momentum belum konfirmasi"
+            color = "#eab308"
+            emoji = "⏸️"
+        
+        # === KONDISI 5: WAIT (Momentum lemah) ===
+        elif momentum in ["VERY_WEAK", "WEAK"] and rating in ["MODERATE", "LOW"]:
+            recommendation = "WAIT"
+            confidence = 40
+            reason = "Momentum lemah, tunggu konfirmasi"
+            color = "#f59e0b"
+            emoji = "⏸️"
+        
+        # === KONDISI 6: AVOID (Distribusi) ===
+        elif smart_money == "DISTRIBUTION":
+            recommendation = "AVOID"
+            confidence = 80
+            reason = "Institusi sedang distribusi - risiko tinggi!"
+            color = "#dc2626"
+            emoji = "🚫"
+        
+        # === KONDISI 7: WAIT (Default) ===
+        else:
+            recommendation = "WAIT"
+            confidence = 30
+            reason = "Sinyal tidak cukup kuat untuk entry"
+            color = "#6b7280"
+            emoji = "️"
+        
+        return {
+            "recommendation": recommendation,
+            "confidence": confidence,
+            "reason": reason,
+            "color": color,
+            "emoji": emoji,
+            "display": f"{emoji} {recommendation}"
+        }
+        
+    except Exception as e:
+        return {
+            "recommendation": "ERROR",
+            "confidence": 0,
+            "reason": f"Error: {str(e)}",
+            "color": "#dc2626",
+            "emoji": "❌",
+            "display": " ERROR"
+        }
+
+
 # ============================================================================
-# ORIGINAL SCREENER FUNCTIONS (DIPERTAHANKAN)
+# ORIGINAL SCREENER FUNCTIONS
 # ============================================================================
 
 @st.cache_data(show_spinner=False)
@@ -476,7 +576,7 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
         if m is None:
             continue
         
-        # === QUALITY VALIDATION (INTEGRASI BARU) ===
+        # === QUALITY VALIDATION ===
         try:
             if len(df) >= 50:
                 quality = get_quality_rating(df)
@@ -500,14 +600,34 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
                 "momentum_strength": "ERROR"
             }
         
+        # === REKOMENDASI TRADING ===
+        try:
+            rec = get_trade_recommendation(quality)
+        except Exception as e:
+            print(f"Error recommendation for {kode}: {e}")
+            rec = {
+                "recommendation": "ERROR",
+                "confidence": 0,
+                "reason": "Error",
+                "color": "#dc2626",
+                "emoji": "❌",
+                "display": "❌ ERROR"
+            }
+        
         m["Kode"] = kode
         m["Nama"] = name_map.get(kode, "")
         
+        # Kolom quality
         m["Quality"] = f"{quality['emoji']} {quality['rating']}"
         m["Quality Score"] = quality["score"]
         m["Trend"] = "⭐" * quality["trend_stars"]
         m["Smart Money"] = quality["smart_money_status"]
         m["Momentum"] = quality["momentum_strength"]
+        
+        # Kolom rekomendasi
+        m["Rekomendasi"] = rec["display"]
+        m["Confidence"] = f"{rec['confidence']}%"
+        m["Alasan"] = rec["reason"]
         
         rows.append(m)
         
@@ -520,6 +640,7 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
     cols = [
         "Kode", "Nama", "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)",
         "Status Breakout", "Chart", "Layak Likuiditas", "Score", "Signal", 
+        "Rekomendasi", "Confidence", "Alasan",
         "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
         "Donchian High", "Donchian Low", "Avg Volume 20D", "Volume"
     ]
@@ -604,7 +725,7 @@ def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_ihsg_history(period: str = "1y") -> pd.DataFrame:
+def fetch_ihsg_history(period: str = "3mo") -> pd.DataFrame:
     """Ambil histori IHSG (^JKSE) dari Yahoo Finance."""
     try:
         df = yf.download("^JKSE", period=period, interval="1d", progress=False, auto_adjust=False)
