@@ -1,25 +1,19 @@
 """
 Modul screener saham IDX.
 Logika skor di sini SENGAJA dibuat identik dengan sheet SAHAM di
-IDX_Screener_Bot_diperbaiki.xlsx supaya hasil web dashboard dan Excel konsisten:
-- Gate likuiditas (Value Traded = Harga x Avg Volume 20D)
-- Skor momentum berbasis perubahan % (skala desimal, bukan persen bulat)
-- Skor volume ratio (volume hari ini / rata-rata 20 hari)
-- Veto crash (penalti besar untuk penurunan tajam)
-- Bonus/penalti Donchian Breakout 20 hari (TIDAK termasuk candle hari ini)
-- TAMBAHAN BARU: Quality Validator (Trend, Smart Money, Momentum) untuk filter sinyal.
+IDX_Screener_Bot_diperbaiki.xlsx supaya hasil web dashboard dan Excel konsisten.
+TAMBAHAN: Quality Validator (Trend, Smart Money, Momentum) - TANPA scipy.
 """
 
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import streamlit as st
-from scipy import stats  # Diperlukan untuk linear regression (Quality Validator)
 
 DEFAULT_PARAMS = {
-    "min_value_traded": 3_000_000_000,   # Rp 3 miliar/hari - gate likuiditas
-    "crash_veto": -0.05,                 # -5% - ambang veto crash
-    "donchian_lookback": 20,             # 4 minggu bursa (~20 hari)
+    "min_value_traded": 3_000_000_000,
+    "crash_veto": -0.05,
+    "donchian_lookback": 20,
     "score_strong_buy": 7,
     "score_buy": 4,
     "score_sell": -2,
@@ -28,20 +22,35 @@ DEFAULT_PARAMS = {
 
 
 # ==============================================================================
-# QUALITY VALIDATOR FUNCTIONS (Ditambahkan untuk validasi sinyal)
+# QUALITY VALIDATOR FUNCTIONS (TANPA scipy - pakai numpy polyfit)
 # ==============================================================================
 
 def _validate_trend_quality(df: pd.DataFrame, period: int = 10) -> dict:
+    """Validasi kualitas trend menggunakan numpy polyfit (pengganti scipy linregress)."""
     if len(df) < period:
         return {"quality": "INSUFFICIENT", "stars": 0, "score": 0}
     
     closes = df["Close"].tail(period).values
-    x = np.arange(len(closes))
-    slope, intercept, r_value, _, _ = stats.linregress(x, closes)
+    x = np.arange(len(closes), dtype=float)
     
+    # Linear regression dengan numpy polyfit (pengganti scipy.stats.linregress)
+    try:
+        coeffs = np.polyfit(x, closes, 1)
+        slope = coeffs[0]
+        intercept = coeffs[1]
+        
+        # Hitung R-squared manual
+        y_pred = slope * x + intercept
+        ss_res = np.sum((closes - y_pred) ** 2)
+        ss_tot = np.sum((closes - np.mean(closes)) ** 2)
+        r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+    except Exception:
+        return {"quality": "INSUFFICIENT", "stars": 0, "score": 0}
+    
+    # Hitung angle
     angle_degrees = np.degrees(np.arctan(slope / abs(intercept) if intercept != 0 else slope))
-    r_squared = r_value ** 2
     
+    # Cek posisi terhadap MA20
     ma20 = df["Close"].rolling(20).mean().iloc[-1] if len(df) >= 20 else None
     current_price = closes[-1]
     above_ma20 = current_price > ma20 if ma20 else False
@@ -65,6 +74,7 @@ def _validate_trend_quality(df: pd.DataFrame, period: int = 10) -> dict:
 
 
 def _detect_smart_money(df: pd.DataFrame, period: int = 20) -> dict:
+    """Deteksi akumulasi institusi."""
     if len(df) < period:
         return {"status": "INSUFFICIENT", "score": 0}
     
@@ -97,6 +107,7 @@ def _detect_smart_money(df: pd.DataFrame, period: int = 20) -> dict:
 
 
 def _validate_momentum(df: pd.DataFrame, max_lookback: int = 5) -> dict:
+    """Validasi momentum."""
     if len(df) < 2:
         return {"strength": "NONE", "days": 0}
     
@@ -116,6 +127,7 @@ def _validate_momentum(df: pd.DataFrame, max_lookback: int = 5) -> dict:
 
 
 def get_quality_rating(df: pd.DataFrame) -> dict:
+    """Gabungkan semua validasi menjadi satu rating."""
     trend = _validate_trend_quality(df)
     smart_money = _detect_smart_money(df)
     momentum = _validate_momentum(df)
@@ -255,21 +267,22 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
             continue
         
         # === QUALITY VALIDATION (TAMBAHAN BARU) ===
-        if len(df) >= 20:
-            quality = get_quality_rating(df)
-        else:
+        try:
+            if len(df) >= 20:
+                quality = get_quality_rating(df)
+            else:
+                quality = {"rating": "INSUFFICIENT", "emoji": "", "score": 0, "trend_stars": 0, "smart_money_status": "N/A", "momentum_strength": "N/A"}
+        except Exception:
             quality = {"rating": "INSUFFICIENT", "emoji": "", "score": 0, "trend_stars": 0, "smart_money_status": "N/A", "momentum_strength": "N/A"}
         
         m["Kode"] = kode
         m["Nama"] = name_map.get(kode, "")
         
-        # Tambahkan kolom quality ke dalam dictionary 'm'
         m["Quality"] = f"{quality['emoji']} {quality['rating']}"
         m["Quality Score"] = quality["score"]
         m["Trend"] = "⭐" * quality["trend_stars"]
         m["Smart Money"] = quality["smart_money_status"]
         m["Momentum"] = quality["momentum_strength"]
-        # ==========================================
         
         rows.append(m)
         
@@ -279,21 +292,17 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
     out = pd.DataFrame(rows)
     out["Chart"] = out["Kode"].map(tradingview_url)
     
-    # Update urutan kolom untuk menyertakan kolom Quality di posisi yang strategis
     cols = [
         "Kode", "Nama", "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)",
         "Status Breakout", "Chart", "Layak Likuiditas", "Score", "Signal", 
-        "Quality", "Quality Score", "Trend", "Smart Money", "Momentum", # KOLOM BARU
+        "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
         "Donchian High", "Donchian Low", "Avg Volume 20D", "Volume"
     ]
     
-    # Pastikan hanya kolom yang ada yang diurutkan (untuk mencegah error jika ada kolom yang hilang)
     existing_cols = [c for c in cols if c in out.columns]
     out = out[existing_cols].sort_values("Score", ascending=False).reset_index(drop=True)
     return out
 
-
-# ---------------- Trade Candidates: Day Trading (BPJS/BSJP) & Swing (RR > 2:1) ----------------
 
 def classify_daytrading_tipe(now=None) -> str:
     from datetime import datetime
