@@ -297,7 +297,7 @@ t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_
 with t_kandidat:
     picks = table[table["Signal"].isin(["STRONG BUY", "BUY"])].copy()
     if not market_ok:
-        st.info(" Kandidat BUY disembunyikan sementara karena IHSG Bearish dan filter "
+        st.info("🚦 Kandidat BUY disembunyikan sementara karena IHSG Bearish dan filter "
                  "pasar aktif di sidebar. Matikan filter itu kalau tetap ingin melihatnya.")
         picks = picks.iloc[0:0]
     if aktifkan_sektor and not picks.empty:
@@ -308,17 +308,9 @@ with t_kandidat:
         if sektor_pilih_1:
             picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
             
-    # === FILTER QUALITY (SEDERHANA) ===
-    if not picks.empty and "Quality" in picks.columns:
-        available_quality = sorted(picks["Quality"].unique().tolist())
-        quality_filter = st.multiselect(
-            "🎯 Filter Quality Rating",
-            options=available_quality,
-            default=available_quality,
-            help="Pilih rating quality yang ingin ditampilkan"
-        )
-        if quality_filter:
-            picks = picks[picks["Quality"].isin(quality_filter)]
+    # === FILTER SEDERHANA (TANPA QUALITY) ===
+    if not picks.empty:
+        st.caption("💡 **Tips:** Fokus pada saham dengan Score tinggi dan Status Breakout = BREAKOUT")
 
     if picks.empty:
         st.info("Tidak ada saham yang lolos filter saat ini. Coba longgarkan parameter di sidebar.")
@@ -329,15 +321,10 @@ with t_kandidat:
         show["Value Traded (Rp)"] = picks["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
         show["Volume Ratio"] = picks["Volume Ratio"].map(lambda x: f"{x:.1f}x")
         
-        kolom_tampil = [
-            "Kode", "Nama", "Signal", "Score", "Quality", "Quality Score", 
-            "Trend", "Smart Money", "Momentum", "Harga", "Perubahan %",
-            "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
-        ]
+        kolom_tampil = ["Kode", "Nama", "Signal", "Score", "Harga", "Perubahan %",
+                         "Volume Ratio", "Value Traded (Rp)", "Status Breakout"]
         if aktifkan_sektor:
             kolom_tampil.insert(2, "Sektor")
-        
-        kolom_tampil = [col for col in kolom_tampil if col in show.columns]
         
         dataframe_with_chart(show[kolom_tampil], kode_col="Kode", height=460, key="df_kandidat")
         st.download_button(
@@ -346,7 +333,7 @@ with t_kandidat:
         )
 
         st.divider()
-        st.subheader(" Kirim ke Telegram")
+        st.subheader("📲 Kirim ke Telegram")
         bot_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
         chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "")
         msg_preview = format_watchlist_message(table)
