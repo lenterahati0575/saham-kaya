@@ -18,21 +18,19 @@ st.set_page_config(page_title="IDX Screener Dashboard", page_icon="📈", layout
 
 
 def _check_auth() -> bool:
-    """Gerbang password sederhana."""
     app_password = st.secrets.get("APP_PASSWORD", "")
     if not app_password:
         st.warning(
             "⚠️ **Dashboard ini belum terkunci.** `APP_PASSWORD` belum diisi di Settings > "
-            "Secrets, jadi siapa saja yang punya link ini bisa melihat Jurnal Real dan "
-            "menekan tombol buka/tutup posisi. Isi `APP_PASSWORD = \"password-rahasia-anda\"` "
-            "di Secrets untuk mengunci dashboard ini (lihat README bagian 'Kunci Dashboard')."
+            "Secrets. Isi `APP_PASSWORD = \"password-rahasia-anda\"` "
+            "di Secrets untuk mengunci dashboard ini."
         )
         return True
 
     if st.session_state.get("_authenticated", False):
         return True
 
-    st.title("🔒 IDX Screener Dashboard")
+    st.title(" IDX Screener Dashboard")
     st.caption("Dashboard ini berisi data trading pribadi. Masukkan password untuk melanjutkan.")
     with st.form("_login_form"):
         pw = st.text_input("Password", type="password")
@@ -62,7 +60,7 @@ components.html("""
                 }
             });
         }
-    } catch (err) { /* diam saja kalau browser memblokir akses cross-frame */ }
+    } catch (err) { }
 })();
 </script>
 """, height=0)
@@ -134,8 +132,80 @@ div[data-testid="stMetricLabel"] {
 st.title("📈 IDX Screener Dashboard")
 st.caption("Data live Yahoo Finance · Gate likuiditas + Donchian 20D Breakout · Gratis & mobile-friendly")
 
+# ============================================================
+# 📖 PANDUAN PRAKTIS DI HALAMAN UTAMA
+# ============================================================
+with st.expander(" **PANDUAN PRAKTIS CARA MENGGUNAKAN DASHBOARD** (Klik untuk baca)", expanded=False):
+    st.markdown("""
+    ### 🎯 **Untuk Pemula - Langkah Demi Langkah:**
+    
+    #### **1️ Mulai dari Tab "🏆 Kandidat Terbaik"**
+    - Filter otomatis sudah diset untuk menampilkan saham **STRONG BUY** dan **BUY**
+    - **Quality Rating** menunjukkan kualitas sinyal:
+      - ✅ **HIGH** = Trend kuat + Akumulasi institusi + Momentum tinggi → **AMAN ENTRY**
+      - ️ **MODERATE** = Salah satu indikator lemah → **ENTRY DENGAN LOT KECIL**
+      - ❌ **LOW** = Trend lemah/tanpa konfirmasi → **HINDARI**
+    
+    #### **2️⃣ Perhatikan Kolom "Smart Money"**
+    - 🟢 **ACCUMULATING** = Institusi sedang beli (paling aman!)
+    - 🟡 **NEUTRAL** = Tidak ada sinyal jelas
+    - 🔴 **DISTRIBUTING** = Institusi sedang jual (berisiko tinggi!)
+    
+    #### **3️⃣ Kombinasi Ideal untuk Entry:**
+    ```
+    ✅ STRONG BUY + Quality HIGH + ACCUMULATING = SINYAL TERBAIK
+    ️ STRONG BUY + Quality MODERATE + NEUTRAL = BOLEH ENTRY (lot kecil)
+    ❌ STRONG BUY + Quality LOW + DISTRIBUTING = HINDARI (bull trap!)
+    ```
+    
+    #### **4️⃣ Gunakan Tab "📉 Grafik Saham"**
+    - Klik salah satu saham di tabel untuk melihat chart
+    - Pilih mode **TradingView Live** untuk analisis teknikal lengkap
+    
+    #### **5️ Kelola Risiko di Tab "📒 Jurnal Backtest"**
+    - Klik tombol ** Buka Posisi** untuk mencatat entry
+    - Sistem akan otomatis hitung TP (Take Profit) dan SL (Stop Loss)
+    - Klik **🔴 Cek TP/SL** untuk close posisi otomatis
+    
+    ---
+    
+    ### ⛔ **YANG HARUS DIHINDARI:**
+    -  Entry tanpa cek **Quality Rating** (bisa kena false breakout)
+    - ❌ Entry saat **Smart Money = DISTRIBUTING** (institusi sedang exit)
+    - ❌ Gunakan lot terlalu besar (maksimal 20% modal per saham)
+    - ❌ Tidak pasang Stop Loss (selalu gunakan SL!)
+    
+    ### 💰 **Manajemen Risiko:**
+    - Risiko maksimal per transaksi: **1-2% dari total modal**
+    - Risk:Reward Ratio minimal: **1:2** (potensi profit 2x risiko)
+    - Diversifikasi: Maksimal **5-7 saham** dalam portofolio
+    """)
+    
+    st.divider()
+
 # ---------------- Sidebar: parameter ----------------
 with st.sidebar:
+    # === PANDUAN SIDEBAR ===
+    with st.expander("⚙️ **Panduan Parameter Sidebar**", expanded=False):
+        st.markdown("""
+        **Gate Likuiditas:**
+        - Min. Value Traded: Minimal nilai transaksi harian
+        - Default Rp3 miliar (anti saham gorengan)
+        
+        **Crash Veto:**
+        - Saham yang turun lebih dari ini otomatis di-skip
+        - Default -5% (hindari saham yang sedang jatuh)
+        
+        **Donchian Lookback:**
+        - Jumlah hari untuk hitung breakout
+        - Day Trading: 10 hari (lebih sensitif)
+        - Swing Trading: 20 hari (lebih stabil)
+        
+        **Risk:Reward Ratio:**
+        - Minimal rasio profit:rugi yang diinginkan
+        - Default 2.0 (profit 2x risiko)
+        """)
+    
     st.header("⚙️ Parameter Filter")
     min_vt = st.number_input(
         "Min. Value Traded (Rp miliar/hari)", min_value=0.0, value=3.0, step=0.5,
@@ -173,7 +243,7 @@ with st.sidebar:
              "pertama kali (di-cache 7 hari setelahnya, jadi kunjungan berikutnya cepat).",
     )
     st.divider()
-    st.subheader("🌐 Kondisi Pasar (IHSG)")
+    st.subheader(" Kondisi Pasar (IHSG)")
     filter_market = st.checkbox(
         "Sembunyikan kandidat BUY saat IHSG Bearish", value=False,
         help="Kalau aktif: begitu Close IHSG di bawah MA50, semua kandidat Top 10 Day/Swing "
@@ -291,12 +361,23 @@ c5.metric("Skip (Ilikuid)", int((table["Signal"] == "SKIP (ILIKUID)").sum()))
 st.divider()
 
 t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk = st.tabs([
-    "🏆 Kandidat Terbaik", "📋 Semua Saham", "📉 Grafik Saham", "📒 Jurnal Backtest",
+    "🏆 Kandidat Terbaik", " Semua Saham", "📉 Grafik Saham", "📒 Jurnal Backtest",
     "🎯 Top 10 Day/Swing", "💼 Jurnal Real", "💰 Equity", "🚀 Performance", "🧮 Kalkulator"
 ])
 
 # ---------------- TAB 1: kandidat terbaik ----------------
 with t_kandidat:
+    # === PANDUAN CEPAT ===
+    st.markdown("""
+    **💡 Cara Baca Tabel:**
+    - **Score** = Skor breakout (makin tinggi makin baik)
+    - **Quality** = Kualitas sinyal secara keseluruhan
+    - **Trend** = Kekuatan trend (⭐⭐⭐ = sangat kuat)
+    - **Smart Money** = Aktivitas institusi (ACCUMULATING = mereka sedang beli)
+    """)
+    
+    st.divider()
+    
     picks = table[table["Signal"].isin(["STRONG BUY", "BUY"])].copy()
     if not market_ok:
         st.info("🚦 Kandidat BUY disembunyikan sementara karena IHSG Bearish dan filter "
@@ -304,27 +385,48 @@ with t_kandidat:
         picks = picks.iloc[0:0]
     if aktifkan_sektor and not picks.empty:
         sektor_pilih_1 = st.multiselect(
-            "🏷️ Filter Sektor", options=sorted(picks["Sektor"].dropna().unique().tolist()),
+            "️ Filter Sektor", options=sorted(picks["Sektor"].dropna().unique().tolist()),
             key="sektor_tab1",
         )
         if sektor_pilih_1:
             picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
             
-    # === TAMBAHAN: FILTER QUALITY RATING ===
+    # === FILTER QUALITY + SMART MONEY ===
     if not picks.empty and "Quality" in picks.columns:
         st.markdown("### 🎯 Filter Kualitas Sinyal")
-        quality_filter = st.multiselect(
-            "Pilih Rating Quality",
-            options=["✅ HIGH", "⚠️ MODERATE", "❌ LOW", "INSUFFICIENT"],
-            default=["✅ HIGH", "⚠️ MODERATE"],
-            help="HIGH = Trend kuat + Akumulasi + Momentum tinggi (Aman entry)\n"
-                 "MODERATE = Salah satu indikator lemah (Entry dengan lot kecil)\n"
-                 "LOW = Trend lemah/tanpa konfirmasi (Hindari/Wait and see)"
-        )
-        if quality_filter:
-            picks = picks[picks["Quality"].isin(quality_filter)]
-        st.caption("💡 **Tips Pemula:** Fokus pada saham dengan rating **✅ HIGH**. Hindari yang **❌ LOW** untuk mengurangi risiko false breakout.")
-    # =======================================
+        
+        col_f1, col_f2 = st.columns(2)
+        
+        with col_f1:
+            quality_filter = st.multiselect(
+                "1️⃣ Rating Quality",
+                options=["✅ HIGH", "⚠️ MODERATE", " LOW"],
+                default=["✅ HIGH", "️ MODERATE"],
+                help="HIGH = Trend kuat + Momentum tinggi\n"
+                     "MODERATE = Salah satu indikator lemah\n"
+                     "LOW = Trend lemah/tanpa konfirmasi"
+            )
+            if quality_filter:
+                picks = picks[picks["Quality"].isin(quality_filter)]
+        
+        with col_f2:
+            smart_money_filter = st.multiselect(
+                "2️⃣ Smart Money (Akumulasi Institusi)",
+                options=["ACCUMULATING", "NEUTRAL", "DISTRIBUTING"],
+                default=["ACCUMULATING", "NEUTRAL"],
+                help="ACCUMULATING = Institusi sedang beli (paling aman)\n"
+                     "NEUTRAL = Tidak ada sinyal jelas\n"
+                     "DISTRIBUTING = Institusi sedang jual (berisiko!)"
+            )
+            if smart_money_filter:
+                picks = picks[picks["Smart Money"].isin(smart_money_filter)]
+        
+        st.caption("""
+        💡 **Tips Pemula:** 
+        - **Paling Aman:** STRONG BUY + ✅ HIGH + ACCUMULATING = Sinyal kuat dari semua sisi
+        - **Hati-hati:** STRONG BUY + ❌ LOW + DISTRIBUTING = Kemungkinan bull trap (breakout palsu)
+        - Filter di atas otomatis menyembunyikan saham dengan Smart Money = DISTRIBUTING
+        """)
 
     if picks.empty:
         st.info("Tidak ada saham yang lolos filter saat ini. Coba longgarkan parameter di sidebar.")
@@ -335,7 +437,6 @@ with t_kandidat:
         show["Value Traded (Rp)"] = picks["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
         show["Volume Ratio"] = picks["Volume Ratio"].map(lambda x: f"{x:.1f}x")
         
-        # === TAMBAHAN: KOLOM QUALITY DI TABEL ===
         kolom_tampil = [
             "Kode", "Nama", "Signal", "Score", "Quality", "Quality Score", 
             "Trend", "Smart Money", "Momentum", "Harga", "Perubahan %",
@@ -344,9 +445,7 @@ with t_kandidat:
         if aktifkan_sektor:
             kolom_tampil.insert(2, "Sektor")
         
-        # Pastikan hanya kolom yang benar-benar ada yang ditampilkan (mencegah error)
         kolom_tampil = [col for col in kolom_tampil if col in show.columns]
-        # ========================================
         
         dataframe_with_chart(show[kolom_tampil], kode_col="Kode", height=460, key="df_kandidat")
         st.download_button(
@@ -403,7 +502,6 @@ with t_semua:
     view_display["Value Traded (Rp)"] = view["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
     view_display["Volume Ratio"] = view["Volume Ratio"].map(lambda x: f"{x:.1f}x")
     
-    # === TAMBAHAN: KOLOM QUALITY DI TABEL SEMUA SAHAM ===
     kolom_tampil2 = [
         "Kode", "Nama", "Signal", "Score", "Quality", "Quality Score", 
         "Trend", "Smart Money", "Momentum", "Harga", "Perubahan %",
@@ -413,17 +511,51 @@ with t_semua:
         kolom_tampil2.insert(2, "Sektor")
     
     kolom_tampil2 = [col for col in kolom_tampil2 if col in view_display.columns]
-    # ====================================================
     
     dataframe_with_chart(view_display[kolom_tampil2], kode_col="Kode", height=520, key="df_semua")
     st.caption(f"Menampilkan {len(view)} dari {len(table)} saham")
     st.download_button(
-        "⬇️ Download CSV", view_display[kolom_tampil2].to_csv(index=False).encode("utf-8"),
+        "️ Download CSV", view_display[kolom_tampil2].to_csv(index=False).encode("utf-8"),
         file_name=f"semua_saham_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv",
     )
 
 # ---------------- TAB 3: grafik candlestick ----------------
 with t_grafik:
+    # === PANDUAN CARA BACA GRAFIK ===
+    with st.expander("📊 **Panduan Cara Baca Grafik**"):
+        st.markdown("""
+        ###  **Indikator di Grafik:**
+        
+        **Garis Donchian:**
+        -  **Garis Hijau (atas)** = Donchian High (resistance 20 hari)
+        - 🔴 **Garis Merah (bawah)** = Donchian Low (support 20 hari)
+        - **Breakout** = Harga close DI ATAS garis hijau
+        
+        **Moving Averages:**
+        - 🟡 **Kuning** = MA5 (trend sangat pendek)
+        - 🔵 **Biru** = MA20 (trend pendek)
+        - 🟣 **Ungu** = MA50 (trend menengah)
+        
+        **Swing Points:**
+        - 🟢 **HH (Higher High)** = Puncak lebih tinggi (bullish)
+        - 🟢 **HL (Higher Low)** = Lembah lebih tinggi (bullish)
+        -  **LH (Lower High)** = Puncak lebih rendah (bearish)
+        - 🔴 **LL (Lower Low)** = Lembah lebih rendah (bearish)
+        
+        ### ✅ **Kapan Entry?**
+        1. Harga breakout di atas Donchian High
+        2. Volume tinggi (di atas rata-rata)
+        3. Trend naik (HH-HL pattern)
+        4. Di atas MA20 dan MA50
+        
+        ###  **Kapan Exit?**
+        - **Take Profit** = Saat harga sentuh target (Donchian High + lebar channel)
+        - **Stop Loss** = Saat harga turun di bawah Donchian Low
+        - **Force Sell** = Sudah 10 hari (Swing) atau 1-2 hari (Day Trading)
+        """)
+    
+    st.divider()
+    
     pilih = st.selectbox("Pilih saham", options=table["Kode"].tolist())
     if pilih in price_data:
         df_full = price_data[pilih]
@@ -554,8 +686,47 @@ with t_grafik:
     else:
         st.info("Data grafik untuk saham ini belum tersedia di batch saat ini.")
 
-# ---------------- TAB 4: Jurnal Backtest (Google Sheets) ----------------
+# ---------------- TAB 4: Jurnal Backtest ----------------
 with t_backtest:
+    # === PANDUAN AUTO BUY/SELL ===
+    with st.expander("🤖 **Panduan Auto Buy/Sell System**"):
+        st.markdown("""
+        ### 🟢 **Cara Buka Posisi:**
+        
+        **Day Trading (BPJS/BSJP):**
+        - **BPJS** = Beli Pagi (sebelum jam 13:00), Jual Sore
+        - **BSJP** = Beli Sore (setelah jam 13:00), Jual Besok Pagi
+        - Klik tombol ** Buka Posisi Day Trading**
+        
+        **Swing Trading:**
+        - Hold 3-10 hari
+        - Klik tombol **🟢 Buka Posisi Swing Trading**
+        
+        ### 🔴 **Cara Close Posisi:**
+        
+        **Otomatis (Recommended):**
+        - Sistem akan otomatis close saat:
+          1. Harga sentuh **TP (Take Profit)** → WIN
+          2. Harga sentuh **SL (Stop Loss)** → LOSS
+          3. Sudah lewat **max hari** → FORCE SELL
+        - Klik tombol **🔴 Cek TP/SL & Force-Sell** setiap hari
+        
+        **Manual:**
+        - Buka tab **💼 Jurnal Real** → **🔓 Tutup Posisi**
+        
+        ### 📊 **Aturan Force-Sell:**
+        - **BPJS**: Maksimal 1 hari
+        - **BSJP**: Maksimal 2 hari
+        - **SWING**: Maksimal 10 hari
+        
+        ### 💡 **Tips:**
+        - Jangan biarkan posisi open terlalu lama tanpa dicek
+        - Selalu cek tombol **🔴 Cek TP/SL** minimal 1x sehari
+        - Win rate target: 60%+ (dari backtest)
+        """)
+    
+    st.divider()
+    
     if not gj.is_configured():
         st.warning(
             "Jurnal backtest belum terhubung ke Google Sheets. Isi `gcp_service_account` dan "
@@ -589,7 +760,7 @@ with t_backtest:
                     with st.spinner("Membuka posisi Day Trading..."):
                         st.write(f"📋 Kandidat tersedia: {len(cands_day_all)}")
                         if cands_day_all.empty:
-                            st.warning("⚠️ Tidak ada kandidat Day Trading - mungkin belum ada yang lolos filter")
+                            st.warning("️ Tidak ada kandidat Day Trading - mungkin belum ada yang lolos filter")
                         else:
                             opened = gj.open_positions_from_candidates(cands_day_all, day_tipe)
                             if opened:
@@ -610,7 +781,7 @@ with t_backtest:
                         st.write(f"📋 Kandidat tersedia: {len(cands_swing_all)}")
                         
                         if cands_swing_all.empty:
-                            st.warning("⚠️ **Tidak ada kandidat Swing Trading!**")
+                            st.warning("️ **Tidak ada kandidat Swing Trading!**")
                             st.info("""
                             Kemungkinan penyebab:
                             1. Belum ada saham yang lolos screening untuk Swing
@@ -650,7 +821,7 @@ with t_backtest:
                         positions = gj.load_positions()
                         open_positions = positions[positions["Status"] == "OPEN"] if not positions.empty else pd.DataFrame()
                         
-                        st.write(f"📋 Total posisi: {len(positions)}")
+                        st.write(f" Total posisi: {len(positions)}")
                         st.write(f"🟢 Posisi OPEN: {len(open_positions)}")
                         
                         if open_positions.empty:
@@ -731,7 +902,7 @@ with t_top10:
         show_day = show_day.drop(columns=["Chart"], errors="ignore")
         dataframe_with_chart(show_day, kode_col="Saham", height=400, key="df_top10_day")
         st.download_button(
-            "⬇️ Download CSV", show_day.to_csv(index=False).encode("utf-8"),
+            "️ Download CSV", show_day.to_csv(index=False).encode("utf-8"),
             file_name=f"top10_daytrading_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv",
             key="dl_day",
         )
@@ -816,7 +987,7 @@ with t_kalk:
                 st.error(r2["error"])
             else:
                 if r2["dibatasi_modal"]:
-                    st.warning("⚠️ Ukuran posisi ideal melebihi modal - dibatasi otomatis ke total modal yang ada.")
+                    st.warning("️ Ukuran posisi ideal melebihi modal - dibatasi otomatis ke total modal yang ada.")
                 rc1, rc2, rc3 = st.columns(3)
                 rc1.metric("Resiko (Rp)", f"Rp{r2['resiko_rp']:,.0f}")
                 rc2.metric("Maksimal Beli (Rp)", f"Rp{r2['maksimal_beli_rp']:,.0f}")
@@ -864,8 +1035,8 @@ with t_kalk:
             if "error" in ra:
                 st.error(ra["error"])
             else:
-                badge = "🟢 AVERAGE DOWN" if ra["tipe"] == "AVERAGE DOWN" else (
-                    "🔴 AVERAGE UP" if ra["tipe"] == "AVERAGE UP" else "⚪ HARGA SAMA")
+                badge = " AVERAGE DOWN" if ra["tipe"] == "AVERAGE DOWN" else (
+                    " AVERAGE UP" if ra["tipe"] == "AVERAGE UP" else "⚪ HARGA SAMA")
                 st.markdown(f"**{badge}**")
                 rac1, rac2, rac3 = st.columns(3)
                 rac1.metric("Harga Rata-Rata Baru", f"Rp{ra['avg_baru']:,.2f}", f"{ra['selisih_pct']:+.2f}%")
@@ -994,7 +1165,7 @@ with t_real:
         )
     else:
         sub1, sub2, sub3, sub4, sub5 = st.tabs(
-            ["➕ Catat Trade", "🔓 Tutup Posisi", "📊 Performance Real", "⚙️ Sekuritas", "✏️ Edit/Hapus"]
+            ["➕ Catat Trade", " Tutup Posisi", "📊 Performance Real", "⚙️ Sekuritas", "✏️ Edit/Hapus"]
         )
 
         with sub1:
@@ -1006,7 +1177,7 @@ with t_real:
             cands_swing_rj = cands_swing_all
             top10_gabung = []
             for _, r10 in cands_day_rj.iterrows():
-                top10_gabung.append({"label": f"⚡ {r10['Saham']} (Day) - Entry {r10['Entry']:,.0f} · "
+                top10_gabung.append({"label": f" {r10['Saham']} (Day) - Entry {r10['Entry']:,.0f} · "
                                                f"SL {r10['Stop Loss']:,.0f} · TP {r10['Target']:,.0f}",
                                       "saham": r10["Saham"], "entry": r10["Entry"],
                                       "sl": r10["Stop Loss"], "target": r10["Target"]})
@@ -1371,7 +1542,7 @@ with t_equity:
             "Isi `gcp_service_account` dan `GOOGLE_SHEET_ID` di Settings > Secrets."
         )
     else:
-        sub_ringkasan, sub_catat, sub_riwayat = st.tabs(["📊 Ringkasan", "➕ Catat Snapshot", "📋 Riwayat"])
+        sub_ringkasan, sub_catat, sub_riwayat = st.tabs(["📊 Ringkasan", "➕ Catat Snapshot", " Riwayat"])
 
         equity_df = eq.load_equity()
 
@@ -1559,7 +1730,7 @@ with t_equity:
                 )
 
                 st.divider()
-                st.markdown("**🗑️ Hapus Snapshot**")
+                st.markdown("**️ Hapus Snapshot**")
                 del1, del2 = st.columns(2)
                 del_tgl = del1.selectbox("Tanggal", options=sorted(equity_df["Tanggal"].unique(), reverse=True), key="del_eq_tgl")
                 opsi_broker_del = equity_df[equity_df["Tanggal"] == del_tgl]["Sekuritas"].tolist()
@@ -1574,6 +1745,6 @@ with t_equity:
 
 st.divider()
 st.caption(
-    "⚠️ Data diambil dari Yahoo Finance (yfinance), bukan API resmi - bisa berhenti/berubah sewaktu-waktu. "
+    "️ Data diambil dari Yahoo Finance (yfinance), bukan API resmi - bisa berhenti/berubah sewaktu-waktu. "
     "Bukan rekomendasi keuangan. Selalu lakukan riset & kelola risiko sendiri."
 )
