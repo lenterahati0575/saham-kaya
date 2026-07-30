@@ -18,14 +18,7 @@ st.set_page_config(page_title="IDX Screener Dashboard", page_icon="📈", layout
 
 
 def _check_auth() -> bool:
-    """Gerbang password sederhana. Tanpa ini, siapa saja yang punya link Streamlit bisa
-    melihat Jurnal Real (transaksi uang beneran) dan mengklik tombol buka/tutup posisi di
-    Jurnal Backtest - link Streamlit Community Cloud bersifat publik dan mudah ter-index
-    atau tersebar tanpa sengaja (screenshot, share link ke grup, dll).
-
-    Password disimpan sebagai APP_PASSWORD di Settings > Secrets, TIDAK ditulis di kode ini.
-    Ini proteksi dasar (bukan otentikasi enterprise-grade) - cukup untuk mencegah orang
-    lewat/tidak sengaja membuka link, tapi jangan bagikan password ke siapapun."""
+    """Gerbang password sederhana."""
     app_password = st.secrets.get("APP_PASSWORD", "")
     if not app_password:
         st.warning(
@@ -34,7 +27,7 @@ def _check_auth() -> bool:
             "menekan tombol buka/tutup posisi. Isi `APP_PASSWORD = \"password-rahasia-anda\"` "
             "di Secrets untuk mengunci dashboard ini (lihat README bagian 'Kunci Dashboard')."
         )
-        return True  # tetap boleh lanjut supaya masih bisa dipakai lokal/testing tanpa secrets
+        return True
 
     if st.session_state.get("_authenticated", False):
         return True
@@ -56,12 +49,6 @@ def _check_auth() -> bool:
 if not _check_auth():
     st.stop()
 
-# Auto-select isi number input saat diklik/fokus, supaya ketik langsung menimpa nilai lama
-# (tanpa ini, ketik di field berisi "0.00" akan menambah di sampingnya, mis. jadi "0.00500").
-# Dipasang lewat components.html (bukan st.markdown) karena <script> di st.markdown tidak
-# dieksekusi browser (browser sengaja mengabaikan script yang di-inject lewat innerHTML) -
-# components.html merender di iframe yang scriptnya bisa jalan, lalu menyentuh
-# window.parent.document supaya efeknya kena ke halaman utama Streamlit, bukan iframe-nya sendiri.
 components.html("""
 <script>
 (function() {
@@ -82,13 +69,6 @@ components.html("""
 
 
 def embed_tradingview_chart(kode: str, height: int = 520):
-    """Chart TradingView LIVE tertanam LANGSUNG di halaman (bukan link ke tab baru).
-
-    Sengaja pakai <iframe src="..."> polos, BUKAN <script>TradingView.widget(...)</script>.
-    Pendekatan script sempat dicoba tapi sering gagal render blank di dalam iframe Streamlit
-    (komponen Streamlit sendiri dirender di dalam iframe, jadi widget TradingView jadi
-    iframe-di-dalam-iframe yang bergantung pada timing eksekusi script - rawan gagal).
-    Iframe langsung tidak punya masalah timing seperti itu, jadi jauh lebih pasti muncul."""
     src = (
         f"https://s.tradingview.com/widgetembed/?symbol=IDX%3A{kode}"
         f"&interval=D&theme=dark&style=1&locale=id&toolbar_bg=%230e1117"
@@ -102,9 +82,6 @@ def embed_tradingview_chart(kode: str, height: int = 520):
 
 
 def dataframe_with_chart(df_display, kode_col="Kode", height=460, key=None, column_config=None):
-    """Tabel yang bisa DIKLIK BARISNYA untuk memunculkan chart TradingView di bawahnya -
-    langsung di halaman yang sama, bukan tab baru (menggantikan LinkColumn yang selalu
-    dipaksa browser buka tab baru karena tabel Streamlit dirender dalam iframe ter-sandbox)."""
     event = st.dataframe(
         df_display, use_container_width=True, hide_index=True, height=height,
         on_select="rerun", selection_mode="single-row", key=key,
@@ -252,7 +229,7 @@ if failed_tickers:
         )
         st.write(", ".join(failed_tickers))
 
-# ---------------- Kondisi Pasar (IHSG) - filter regime opsional ----------------
+# ---------------- Kondisi Pasar (IHSG) ----------------
 ihsg_hist = fetch_ihsg_history()
 regime = market_regime(ihsg_hist)
 if regime["status"] == "BEARISH":
@@ -267,11 +244,7 @@ elif regime["status"] == "BULLISH":
 
 market_ok = not (filter_market and regime["status"] == "BEARISH")
 
-# ---------------- Kandidat trading (dihitung SEKALI, dipakai ulang di semua tab -----------
-# Sebelumnya build_trade_candidates() dipanggil ulang di 4 tempat berbeda (Jurnal Backtest,
-# Top 10, Jurnal Real) dengan parameter yang sama persis - selain boros komputasi, itu juga
-# jadi 4 tempat terpisah yang harus diingat kalau mau menambah filter regime pasar. Sekarang
-# dihitung sekali di sini, filter market_ok diterapkan di satu tempat, lalu dipakai ulang.
+# ---------------- Kandidat trading ----------------
 cands_day_all = build_trade_candidates(table, price_data, int(donchian_lb_day), min_rr, top_n=10)
 cands_swing_all = build_trade_candidates(table, price_data, int(donchian_lb), min_rr, top_n=10)
 if not market_ok:
@@ -336,6 +309,23 @@ with t_kandidat:
         )
         if sektor_pilih_1:
             picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
+            
+    # === TAMBAHAN: FILTER QUALITY RATING ===
+    if not picks.empty and "Quality" in picks.columns:
+        st.markdown("### 🎯 Filter Kualitas Sinyal")
+        quality_filter = st.multiselect(
+            "Pilih Rating Quality",
+            options=["✅ HIGH", "⚠️ MODERATE", "❌ LOW", "INSUFFICIENT"],
+            default=["✅ HIGH", "⚠️ MODERATE"],
+            help="HIGH = Trend kuat + Akumulasi + Momentum tinggi (Aman entry)\n"
+                 "MODERATE = Salah satu indikator lemah (Entry dengan lot kecil)\n"
+                 "LOW = Trend lemah/tanpa konfirmasi (Hindari/Wait and see)"
+        )
+        if quality_filter:
+            picks = picks[picks["Quality"].isin(quality_filter)]
+        st.caption("💡 **Tips Pemula:** Fokus pada saham dengan rating **✅ HIGH**. Hindari yang **❌ LOW** untuk mengurangi risiko false breakout.")
+    # =======================================
+
     if picks.empty:
         st.info("Tidak ada saham yang lolos filter saat ini. Coba longgarkan parameter di sidebar.")
     else:
@@ -344,10 +334,20 @@ with t_kandidat:
         show["Perubahan %"] = (picks["Perubahan %"] * 100).map(lambda x: f"{x:+.2f}%")
         show["Value Traded (Rp)"] = picks["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
         show["Volume Ratio"] = picks["Volume Ratio"].map(lambda x: f"{x:.1f}x")
-        kolom_tampil = ["Kode", "Nama", "Signal", "Score", "Harga", "Perubahan %",
-                         "Volume Ratio", "Value Traded (Rp)", "Status Breakout"]
+        
+        # === TAMBAHAN: KOLOM QUALITY DI TABEL ===
+        kolom_tampil = [
+            "Kode", "Nama", "Signal", "Score", "Quality", "Quality Score", 
+            "Trend", "Smart Money", "Momentum", "Harga", "Perubahan %",
+            "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
+        ]
         if aktifkan_sektor:
             kolom_tampil.insert(2, "Sektor")
+        
+        # Pastikan hanya kolom yang benar-benar ada yang ditampilkan (mencegah error)
+        kolom_tampil = [col for col in kolom_tampil if col in show.columns]
+        # ========================================
+        
         dataframe_with_chart(show[kolom_tampil], kode_col="Kode", height=460, key="df_kandidat")
         st.download_button(
             "⬇️ Download CSV", show[kolom_tampil].to_csv(index=False).encode("utf-8"),
@@ -402,10 +402,19 @@ with t_semua:
     view_display["Perubahan %"] = (view["Perubahan %"] * 100).map(lambda x: f"{x:+.2f}%")
     view_display["Value Traded (Rp)"] = view["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
     view_display["Volume Ratio"] = view["Volume Ratio"].map(lambda x: f"{x:.1f}x")
-    kolom_tampil2 = ["Kode", "Nama", "Signal", "Score", "Harga", "Perubahan %",
-                      "Volume Ratio", "Value Traded (Rp)", "Status Breakout", "Layak Likuiditas"]
+    
+    # === TAMBAHAN: KOLOM QUALITY DI TABEL SEMUA SAHAM ===
+    kolom_tampil2 = [
+        "Kode", "Nama", "Signal", "Score", "Quality", "Quality Score", 
+        "Trend", "Smart Money", "Momentum", "Harga", "Perubahan %",
+        "Volume Ratio", "Value Traded (Rp)", "Status Breakout", "Layak Likuiditas"
+    ]
     if aktifkan_sektor:
         kolom_tampil2.insert(2, "Sektor")
+    
+    kolom_tampil2 = [col for col in kolom_tampil2 if col in view_display.columns]
+    # ====================================================
+    
     dataframe_with_chart(view_display[kolom_tampil2], kode_col="Kode", height=520, key="df_semua")
     st.caption(f"Menampilkan {len(view)} dari {len(table)} saham")
     st.download_button(
@@ -413,7 +422,7 @@ with t_semua:
         file_name=f"semua_saham_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv",
     )
 
-# ---------------- TAB 3: grafik candlestick + Donchian + MA + Technical Indicators + Swing HL ----------------
+# ---------------- TAB 3: grafik candlestick ----------------
 with t_grafik:
     pilih = st.selectbox("Pilih saham", options=table["Kode"].tolist())
     if pilih in price_data:
@@ -433,7 +442,6 @@ with t_grafik:
             sh, sl_pts = ind.find_swing_points(df_full, order=3)
             swing_df = ind.classify_swings(sh, sl_pts)
         else:
-            # ===== Grafik full-width (Plotly + Donchian + MA + Swing HL) =====
             fig = go.Figure()
             fig.add_trace(go.Candlestick(
                 x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"],
@@ -477,7 +485,6 @@ with t_grafik:
 
         st.divider()
 
-        # ===== Panel MA + Technical Indicators, full-width DI BAWAH grafik =====
         if len(df_full) >= 50:
             ma_table, ma_sum = ind.moving_averages_panel(df_full)
             ti_table, ti_sum = ind.technical_indicators_panel(df_full)
@@ -515,9 +522,9 @@ with t_grafik:
 
             def _style_table(df_in, subset_cols, color_fn=_color_action):
                 styler = df_in.style
-                if hasattr(styler, "map"):  # pandas >= 2.1
+                if hasattr(styler, "map"):
                     return styler.map(color_fn, subset=subset_cols)
-                return styler.applymap(color_fn, subset=subset_cols)  # pandas lama
+                return styler.applymap(color_fn, subset=subset_cols)
 
             mcol, tcol = st.columns(2)
             with mcol:
@@ -556,7 +563,6 @@ with t_backtest:
             "'Setup Google Sheets untuk Jurnal Backtest'."
         )
     else:
-        # Test koneksi
         try:
             test_conn = gj.load_positions()
             st.success(f"✅ Google Sheets terhubung - {len(test_conn)} posisi tercatat")
@@ -568,7 +574,6 @@ with t_backtest:
         st.caption(f"Waktu sekarang WIB terdeteksi sebagai tipe **{day_tipe}** untuk Day Trading "
                    f"({'Beli Pagi, rencana Jual Sore' if day_tipe=='BPJS' else 'Beli Sore, rencana Jual besok Pagi'}).")
         
-        # Debug info kandidat
         st.write(f"⚡ **Kandidat Day Trading tersedia:** {len(cands_day_all)}")
         st.write(f"📊 **Kandidat Swing Trading tersedia:** {len(cands_swing_all)}")
         
@@ -578,7 +583,6 @@ with t_backtest:
         
         colb1, colb2, colb3 = st.columns(3)
         
-        # ===== BUTTON 1: Buka Posisi Day Trading =====
         with colb1:
             if st.button(f"🟢 Buka Posisi Day Trading ({day_tipe})", use_container_width=True, key="btn_open_day"):
                 try:
@@ -599,9 +603,8 @@ with t_backtest:
                     import traceback
                     st.code(traceback.format_exc())
         
-        # ===== BUTTON 2: Buka Posisi Swing Trading =====
         with colb2:
-            if st.button("🟢Buka Posisi Swing Trading", use_container_width=True, key="btn_open_swing"):
+            if st.button("🟢 Buka Posisi Swing Trading", use_container_width=True, key="btn_open_swing"):
                 try:
                     with st.spinner("Membuka posisi Swing Trading..."):
                         st.write(f"📋 Kandidat tersedia: {len(cands_swing_all)}")
@@ -638,18 +641,16 @@ with t_backtest:
                     import traceback
                     st.code(traceback.format_exc())
         
-        # ===== BUTTON 3: Cek TP/SL & Force-Sell =====
         with colb3:
             if st.button("🔴 Cek TP/SL & Force-Sell", use_container_width=True, key="btn_check_close"):
                 try:
                     price_lookup = dict(zip(table["Kode"], table["Harga"]))
                     with st.spinner("Mengecek posisi OPEN..."):
                         
-                        # Load posisi
                         positions = gj.load_positions()
                         open_positions = positions[positions["Status"] == "OPEN"] if not positions.empty else pd.DataFrame()
                         
-                        st.write(f" Total posisi: {len(positions)}")
+                        st.write(f"📋 Total posisi: {len(positions)}")
                         st.write(f"🟢 Posisi OPEN: {len(open_positions)}")
                         
                         if open_positions.empty:
@@ -658,12 +659,10 @@ with t_backtest:
                             st.write("**📊 Posisi yang dicek:**")
                             debug_df = open_positions[["Saham", "Harga Beli", "TP", "SL", "Tipe", "Lot", "Tanggal Open"]].copy()
                             
-                            # Tambah kolom harga sekarang
                             debug_df["Harga Sekarang"] = debug_df["Saham"].map(
                                 lambda x: f"Rp{price_lookup.get(x, 0):,.0f}" if x in price_lookup else "N/A"
                             )
                             
-                            # Tambah kolom status
                             def check_status(row):
                                 saham = row["Saham"]
                                 if saham not in price_lookup:
@@ -678,12 +677,11 @@ with t_backtest:
                                 elif sl and current <= sl:
                                     return f"❌ HIT SL"
                                 else:
-                                    return f" HOLD"
+                                    return f"⏳ HOLD"
                             
                             debug_df["Status"] = debug_df.apply(check_status, axis=1)
                             st.dataframe(debug_df, use_container_width=True)
                             
-                            # Panggil fungsi close
                             st.write("\n🔄 **Memproses penutupan posisi...**")
                             closed = gj.auto_close_positions(price_lookup)
                             
@@ -701,7 +699,6 @@ with t_backtest:
 
         st.divider()
         
-        # ===== TAMPILKAN POSISI =====
         positions = gj.load_positions()
         stats = gj.summarize(positions)
         s1, s2, s3, s4, s5 = st.columns(5)
@@ -718,7 +715,7 @@ with t_backtest:
             "di atas tiap buka dashboard, atau jadwalkan lewat Google Apps Script trigger harian."
         )
 
-# ---------------- TAB 5: Top 10 Day Trading & Swing Trading (RR > min_rr) ----------------
+# ---------------- TAB 5: Top 10 Day Trading & Swing Trading ----------------
 with t_top10:
     st.caption(f"Entry = harga sekarang · Stop Loss = Donchian Low (struktural) · "
                f"Target = proyeksi measured-move dari lebar channel Donchian · hanya RR ≥ {min_rr:.1f}:1")
@@ -759,7 +756,6 @@ with t_top10:
 with t_kalk:
     kalk_col1, kalk_col2 = st.columns(2)
 
-    # ===== Kalkulator Profit Saham =====
     with kalk_col1:
         st.subheader("🧮 Kalkulator Profit Saham")
         st.caption("Hitung untung/rugi transaksi, termasuk komisi beli & jual.")
@@ -794,7 +790,6 @@ with t_kalk:
                 st.info(f"💡 **Break Even Price**: Rp{r['bep']:,.2f} — harga jual minimum supaya impas "
                         f"(sudah memperhitungkan komisi beli & jual).")
 
-    # ===== Kalkulator Manajemen Risiko =====
     with kalk_col2:
         st.subheader("🛡️ Kalkulator Manajemen Risiko")
         st.caption("Hitung ukuran posisi ideal berdasar modal & toleransi risiko.")
@@ -903,7 +898,7 @@ with t_kalk:
                 st.caption(f"Hasil akhir: rata-rata jadi **Rp{rs['avg_hasil']:,.2f}** dengan total "
                            f"**{rs['total_lot_hasil']:,.0f} lot**.")
 
-# ---------------- TAB 7: Performance (dihitung dari transaksi riil di sheet POSISI) ----------------
+# ---------------- TAB 7: Performance ----------------
 with t_perf:
     if not gj.is_configured():
         st.warning(
@@ -984,7 +979,7 @@ with t_perf:
                 "sinkron dengan jurnal transaksi tanpa perlu sheet terpisah."
             )
 
-# ---------------- TAB 8: Jurnal Trading REAL (multi-sekuritas, transaksi uang beneran) ----------------
+# ---------------- TAB 8: Jurnal Trading REAL ----------------
 with t_real:
     st.caption(
         "Catatan transaksi UANG BENERAN Bro - terpisah total dari Jurnal Backtest (simulasi) supaya "
@@ -1002,13 +997,11 @@ with t_real:
             ["➕ Catat Trade", "🔓 Tutup Posisi", "📊 Performance Real", "⚙️ Sekuritas", "✏️ Edit/Hapus"]
         )
 
-        # --- Catat trade baru ---
         with sub1:
             st.markdown("**Catat posisi baru (OPEN)**")
             brokers_df = rj.load_brokers()
             broker_options = brokers_df["Sekuritas"].tolist() if not brokers_df.empty else ["Lainnya"]
 
-            # ---- Pilih cepat dari Top 10 Day/Swing (opsional) - auto-isi form di bawah ----
             cands_day_rj = cands_day_all
             cands_swing_rj = cands_swing_all
             top10_gabung = []
@@ -1068,7 +1061,6 @@ with t_real:
                     )
                     st.success(f"Trade #{no} ({saham_in}) berhasil dicatat sebagai OPEN.")
 
-        # --- Tutup posisi ---
         with sub2:
             trades_now = rj.load_trades()
             open_trades = trades_now[trades_now["Status"] == "OPEN"] if not trades_now.empty else pd.DataFrame()
@@ -1100,7 +1092,6 @@ with t_real:
                         else:
                             st.error(msg)
 
-        # --- Performance Real ---
         with sub3:
             trades_all = rj.load_trades()
             stats_rj = rj.compute_stats(trades_all)
@@ -1174,7 +1165,6 @@ with t_real:
                     key="dl_jurnal_real",
                 )
 
-        # --- Kelola Sekuritas ---
         with sub4:
             st.markdown("**Daftar Sekuritas & Biaya Transaksi**")
 
@@ -1270,7 +1260,6 @@ with t_real:
                     "ini - trade lama tetap tersimpan seperti aslinya."
                 )
 
-        # --- Edit / Hapus (koreksi salah input) ---
         with sub5:
             st.caption("Salah input harga/lot/sekuritas? Pilih nomor trade di bawah, koreksi, lalu simpan. "
                        "Kalau memang batal dicatat sama sekali, pakai tombol Hapus.")
@@ -1290,9 +1279,6 @@ with t_real:
                 sudah_closed = row_edit["Status"] != "OPEN"
 
                 def _parse_tanggal_fleksibel(nilai, default=None):
-                    """Coba baca tanggal dari beberapa format yang mungkin tersimpan dari data lama
-                    (YYYY-MM-DD atau DD/MM/YYYY) - supaya data lama yang formatnya beda tetap kebaca,
-                    bukan malah error. Selalu ditulis balik sebagai YYYY-MM-DD yang konsisten."""
                     nilai = str(nilai).strip()
                     if not nilai or nilai.lower() == "nan":
                         return default or datetime.now().date()
@@ -1377,7 +1363,7 @@ with t_real:
                         del st.session_state["confirm_delete_rj"]
                         st.rerun()
 
-# ---------------- TAB: Equity (snapshot modal per sekuritas + perbandingan IHSG) ----------------
+# ---------------- TAB: Equity ----------------
 with t_equity:
     if not gj.is_configured():
         st.warning(
@@ -1389,7 +1375,6 @@ with t_equity:
 
         equity_df = eq.load_equity()
 
-        # ===== Sub-tab: Ringkasan =====
         with sub_ringkasan:
             if equity_df.empty:
                 st.info(
@@ -1427,10 +1412,9 @@ with t_equity:
                 else:
                     port_ret = eq.portfolio_return_pct(total_series)
                     ihsg_ret = ihsg_df[["Close"]].copy()
-                    if ihsg_ret.index.tz is not None:  # jaga-jaga kalau yfinance kembalikan index tz-aware
+                    if ihsg_ret.index.tz is not None:
                         ihsg_ret.index = ihsg_ret.index.tz_localize(None)
                     ihsg_ret["Return %"] = (ihsg_ret["Close"] / ihsg_ret["Close"].iloc[0] - 1) * 100
-                    # potong data IHSG mulai dari tanggal snapshot equity pertama Bro, biar adil dibandingkan
                     tgl_awal = port_ret["Tanggal"].min()
                     ihsg_ret = ihsg_ret[ihsg_ret.index >= tgl_awal]
                     if not ihsg_ret.empty:
@@ -1519,7 +1503,6 @@ with t_equity:
                         use_container_width=True, hide_index=True,
                     )
 
-        # ===== Sub-tab: Catat Snapshot =====
         with sub_catat:
             st.caption(
                 "Isi angka ini dari aplikasi sekuritas Bro (halaman Portfolio/RDN) - Total Equity = "
@@ -1562,7 +1545,6 @@ with t_equity:
                         else:
                             st.error(msg)
 
-        # ===== Sub-tab: Riwayat =====
         with sub_riwayat:
             if equity_df.empty:
                 st.info("Belum ada riwayat snapshot.")
