@@ -619,7 +619,7 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
         
         # Kolom quality
         m["Quality"] = f"{quality['emoji']} {quality['rating']}"
-        m["Quality Score"] = quality["score"]
+        m["Quality Score"] = round(quality["score"], 1)
         m["Trend"] = "⭐" * quality["trend_stars"]
         m["Smart Money"] = quality["smart_money_status"]
         m["Momentum"] = quality["momentum_strength"]
