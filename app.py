@@ -391,30 +391,37 @@ with t_kandidat:
         if sektor_pilih_1:
             picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
             
-       # === FILTER QUALITY + SMART MONEY ===
+          # === FILTER QUALITY + SMART MONEY ===
     if not picks.empty and "Quality" in picks.columns:
         st.markdown("### 🎯 Filter Kualitas Sinyal")
         
         # Dapatkan unique values yang benar-benar ada di data
         available_quality = sorted(picks["Quality"].unique().tolist())
+        available_smart_money = sorted(picks["Smart Money"].unique().tolist()) if "Smart Money" in picks.columns else []
         
-        # Fallback jika tidak ada data
-        if not available_quality:
-            available_quality = ["✅ HIGH", "⚠️ MODERATE", "❌ LOW"]
+        # Cek apakah ada saham berkualitas tinggi
+        has_high = any("HIGH" in q for q in available_quality)
+        has_accumulating = "ACCUMULATING" in available_smart_money
         
-        # Default hanya yang ada di data
-        default_quality = ["✅ HIGH", "️ MODERATE"]
-        default_quality = [x for x in default_quality if x in available_quality]
-        if not default_quality:
-            default_quality = available_quality[:1] if available_quality else []
+        # Tampilkan peringatan jika tidak ada saham berkualitas
+        if not has_high or not has_accumulating:
+            st.warning(f"""
+            ⚠️ **Kondisi Pasar Kurang Menguntungkan Saat Ini!**
+            - Saham dengan rating **✅ HIGH**: {"✅ Ada" if has_high else "❌ Tidak ada"}
+            - Saham dengan **ACCUMULATING**: {"✅ Ada" if has_accumulating else " Tidak ada"}
+            
+            💡 **Saran:** Pertimbangkan untuk **wait and see** atau kurangi ukuran lot. 
+            Pasar sedang tidak memberikan sinyal kuat untuk entry.
+            """)
         
         col_f1, col_f2 = st.columns(2)
         
         with col_f1:
+            # Default: tampilkan SEMUA yang tersedia (biar user pilih sendiri)
             quality_filter = st.multiselect(
                 "1️⃣ Rating Quality",
                 options=available_quality,
-                default=default_quality,
+                default=available_quality,  # Tampilkan semua yang ada
                 help="HIGH = Trend kuat + Momentum tinggi\n"
                      "MODERATE = Salah satu indikator lemah\n"
                      "LOW = Trend lemah/tanpa konfirmasi"
@@ -423,20 +430,10 @@ with t_kandidat:
                 picks = picks[picks["Quality"].isin(quality_filter)]
         
         with col_f2:
-            # Smart Money filter dengan cara yang sama
-            available_smart_money = sorted(picks["Smart Money"].unique().tolist()) if "Smart Money" in picks.columns else []
-            if not available_smart_money:
-                available_smart_money = ["ACCUMULATING", "NEUTRAL", "DISTRIBUTING"]
-            
-            default_smart_money = ["ACCUMULATING", "NEUTRAL"]
-            default_smart_money = [x for x in default_smart_money if x in available_smart_money]
-            if not default_smart_money:
-                default_smart_money = available_smart_money[:1] if available_smart_money else []
-            
             smart_money_filter = st.multiselect(
                 "2️⃣ Smart Money (Akumulasi Institusi)",
                 options=available_smart_money,
-                default=default_smart_money,
+                default=available_smart_money,  # Tampilkan semua yang ada
                 help="ACCUMULATING = Institusi sedang beli (paling aman)\n"
                      "NEUTRAL = Tidak ada sinyal jelas\n"
                      "DISTRIBUTING = Institusi sedang jual (berisiko!)"
@@ -448,8 +445,9 @@ with t_kandidat:
         💡 **Tips Pemula:** 
         - **Paling Aman:** STRONG BUY + ✅ HIGH + ACCUMULATING = Sinyal kuat dari semua sisi
         - **Hati-hati:** STRONG BUY + ❌ LOW + DISTRIBUTING = Kemungkinan bull trap (breakout palsu)
-        - Filter di atas otomatis menyembunyikan saham dengan Smart Money = DISTRIBUTING
+        - Jika hanya LOW/DISTRIBUTING yang tersedia, lebih baik **wait and see**
         """)
+        
     if picks.empty:
         st.info("Tidak ada saham yang lolos filter saat ini. Coba longgarkan parameter di sidebar.")
     else:
