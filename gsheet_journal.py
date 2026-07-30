@@ -1,13 +1,6 @@
 """
-Jurnal backtest POSISI, terhubung ke Google Sheets (sheet 'POSISI' yang sudah ada
-di file IDX_Screener_Bot). Auto-BUY saat Signal = BUY/STRONG BUY, auto-SELL saat
-harga live menyentuh TP atau SL.
-
-SETUP YANG DIBUTUHKAN (lihat README bagian "Setup Google Sheets"):
-1. Google Cloud Service Account + Google Sheets API & Drive API aktif
-2. File credential JSON ditempel ke Streamlit secrets sebagai [gcp_service_account]
-3. Google Sheet (yang berisi tab POSISI) di-share ke email service account, akses Editor
-4. Isi GOOGLE_SHEET_ID di secrets (bagian dari URL sheet: .../d/<GOOGLE_SHEET_ID>/edit)
+Jurnal backtest POSISI, terhubung ke Google Sheets (sheet 'POSISI').
+Auto-BUY saat Signal = BUY/STRONG BUY, auto-SELL saat harga live menyentuh TP atau SL.
 
 STRUKTUR KOLOM (dengan Lot):
 A: Tanggal Open | B: Saham | C: Harga Beli | D: TP | E: SL | F: Tipe | 
@@ -62,7 +55,7 @@ def _get_worksheet():
     return sh.worksheet(SHEET_NAME)
 
 
-@st.cache_data(ttl=30, show_spinner=False)  # cache 30 detik - cegah 429 quota exceeded Google Sheets
+@st.cache_data(ttl=30, show_spinner=False)
 def load_positions() -> pd.DataFrame:
     """Load semua posisi dari Google Sheets ke DataFrame."""
     try:
@@ -73,7 +66,7 @@ def load_positions() -> pd.DataFrame:
             df = pd.DataFrame(columns=HEADERS)
         return df
     except Exception as e:
-        st.error(f"Error load positions: {str(e)}")
+        print(f"Error load positions: {e}")
         return pd.DataFrame(columns=HEADERS)
 
 
@@ -82,7 +75,7 @@ def _append_row(ws, row: list):
     ws.append_row(row, value_input_option="USER_ENTERED")
 
 
-def _find_row_number(ws: object, saham: str, status: str = "OPEN") -> int:
+def _find_row_number(ws, saham: str, status: str = "OPEN") -> int:
     """
     Cari nomor baris di Google Sheet berdasarkan kode saham dan status.
     Return nomor baris (1-based, header = 1) atau None jika tidak ditemukan.
@@ -141,7 +134,6 @@ def open_positions_from_candidates(candidates: pd.DataFrame, tipe: str) -> list[
             
             # Validasi dan auto-swap TP/SL jika terbalik (untuk posisi LONG)
             if tp <= entry and sl >= entry:
-                # TP dan SL terbalik, swap
                 print(f"⚠️ {kode}: TP ({tp}) dan SL ({sl}) terbalik, auto-swap")
                 tp, sl = sl, tp
             
@@ -223,7 +215,6 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
             # Validasi dan auto-swap TP/SL jika terbalik (untuk posisi LONG)
             if tp is not None and sl is not None:
                 if tp <= harga_beli and sl >= harga_beli:
-                    # TP dan SL terbalik, swap
                     print(f"⚠️ {kode}: TP/SL terbalik, auto-swap")
                     tp, sl = sl, tp
             
@@ -248,7 +239,6 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
                     pnl_pct = ((harga_live - harga_beli) / harga_beli) * 100
                     
                     # Update kolom H sampai M (Tanggal Close, Harga Jual, P&L Rp, P&L %, Status, Hari)
-                    # Kolom H=8, I=9, J=10, K=11, L=12, M=13
                     ws.update(f"H{sheet_row}:M{sheet_row}", [[
                         datetime.now().strftime("%Y-%m-%d %H:%M"),  # H: Tanggal Close
                         float(harga_live),                          # I: Harga Jual
@@ -264,7 +254,7 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
                     print(f"❌ Tidak menemukan baris {kode} dengan status OPEN di sheet")
                     
         except Exception as e:
-            print(f" Error proses posisi {row.get('Saham', 'UNKNOWN')}: {e}")
+            print(f"❌ Error proses posisi {row.get('Saham', 'UNKNOWN')}: {e}")
             import traceback
             traceback.print_exc()
             continue
