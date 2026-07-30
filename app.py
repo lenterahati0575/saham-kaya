@@ -556,37 +556,152 @@ with t_backtest:
             "'Setup Google Sheets untuk Jurnal Backtest'."
         )
     else:
+        # Test koneksi
+        try:
+            test_conn = gj.load_positions()
+            st.success(f"✅ Google Sheets terhubung - {len(test_conn)} posisi tercatat")
+        except Exception as e:
+            st.error(f"❌ Error koneksi: {str(e)}")
+            st.stop()
+        
         day_tipe = classify_daytrading_tipe()
         st.caption(f"Waktu sekarang WIB terdeteksi sebagai tipe **{day_tipe}** untuk Day Trading "
                    f"({'Beli Pagi, rencana Jual Sore' if day_tipe=='BPJS' else 'Beli Sore, rencana Jual besok Pagi'}).")
+        
+        # Debug info kandidat
+        st.write(f"⚡ **Kandidat Day Trading tersedia:** {len(cands_day_all)}")
+        st.write(f"📊 **Kandidat Swing Trading tersedia:** {len(cands_swing_all)}")
+        
+        if not cands_swing_all.empty:
+            with st.expander("👁️ Lihat Kandidat Swing Trading"):
+                st.dataframe(cands_swing_all[["Saham", "Entry", "Stop Loss", "Target", "RR"]].head(10))
+        
         colb1, colb2, colb3 = st.columns(3)
+        
+        # ===== BUTTON 1: Buka Posisi Day Trading =====
         with colb1:
-            if st.button(f"🟢 Buka Posisi Day Trading ({day_tipe})", use_container_width=True):
-                with st.spinner("Membuka posisi Day Trading..."):
-                    opened = gj.open_positions_from_candidates(cands_day_all, day_tipe)
-                if opened:
-                    st.success(f"Dibuka: {', '.join(opened)}")
-                else:
-                    st.info("Tidak ada posisi baru dibuka.")
+            if st.button(f"🟢 Buka Posisi Day Trading ({day_tipe})", use_container_width=True, key="btn_open_day"):
+                try:
+                    with st.spinner("Membuka posisi Day Trading..."):
+                        st.write(f"📋 Kandidat tersedia: {len(cands_day_all)}")
+                        if cands_day_all.empty:
+                            st.warning("⚠️ Tidak ada kandidat Day Trading - mungkin belum ada yang lolos filter")
+                        else:
+                            opened = gj.open_positions_from_candidates(cands_day_all, day_tipe)
+                            if opened:
+                                st.success(f"✅ Berhasil dibuka: {', '.join(opened)}")
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                st.warning("⚠️ Tidak ada posisi baru dibuka (semua sudah ada)")
+                except Exception as e:
+                    st.error(f"❌ Error buka Day Trading: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+        
+        # ===== BUTTON 2: Buka Posisi Swing Trading =====
         with colb2:
-            if st.button("🟢 Buka Posisi Swing Trading", use_container_width=True):
-                with st.spinner("Membuka posisi Swing Trading..."):
-                    opened = gj.open_positions_from_candidates(cands_swing_all, "SWING")
-                if opened:
-                    st.success(f"Dibuka: {', '.join(opened)}")
-                else:
-                    st.info("Tidak ada posisi baru dibuka.")
+            if st.button(" Buka Posisi Swing Trading", use_container_width=True, key="btn_open_swing"):
+                try:
+                    with st.spinner("Membuka posisi Swing Trading..."):
+                        st.write(f"📋 Kandidat tersedia: {len(cands_swing_all)}")
+                        
+                        if cands_swing_all.empty:
+                            st.warning("⚠️ **Tidak ada kandidat Swing Trading!**")
+                            st.info("""
+                            Kemungkinan penyebab:
+                            1. Belum ada saham yang lolos screening untuk Swing
+                            2. Filter RR (Risk:Reward) terlalu ketat - coba turunkan di sidebar
+                            3. Donchian lookback terlalu panjang - coba turunkan di sidebar
+                            4. IHSG sedang Bearish dan filter pasar aktif
+                            
+                            **Solusi:**
+                            - Turunkan "Minimum Risk:Reward (RR)" di sidebar (mis. dari 2.0 ke 1.5)
+                            - Refresh data live
+                            - Cek tab "Top 10 Day/Swing" untuk melihat kandidat
+                            """)
+                        else:
+                            st.write("🎯 **Kandidat yang akan dibuka:**")
+                            st.dataframe(cands_swing_all[["Saham", "Entry", "Stop Loss", "Target", "RR"]].head(10))
+                            
+                            opened = gj.open_positions_from_candidates(cands_swing_all, "SWING")
+                            
+                            if opened:
+                                st.success(f"✅ Berhasil dibuka: {', '.join(opened)}")
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                st.warning("⚠️ Tidak ada posisi baru dibuka (semua sudah ada di sheet)")
+                                
+                except Exception as e:
+                    st.error(f"❌ Error buka Swing Trading: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+        
+        # ===== BUTTON 3: Cek TP/SL & Force-Sell =====
         with colb3:
-            if st.button("🔴 Cek TP/SL & Force-Sell", use_container_width=True):
-                price_lookup = dict(zip(table["Kode"], table["Harga"]))
-                with st.spinner("Mengecek posisi OPEN (TP/SL/waktu force-sell)..."):
-                    closed = gj.auto_close_positions(price_lookup)
-                if closed:
-                    st.success(f"Ditutup: {', '.join(closed)}")
-                else:
-                    st.info("Belum ada yang perlu ditutup.")
+            if st.button("🔴 Cek TP/SL & Force-Sell", use_container_width=True, key="btn_check_close"):
+                try:
+                    price_lookup = dict(zip(table["Kode"], table["Harga"]))
+                    with st.spinner("Mengecek posisi OPEN..."):
+                        
+                        # Load posisi
+                        positions = gj.load_positions()
+                        open_positions = positions[positions["Status"] == "OPEN"] if not positions.empty else pd.DataFrame()
+                        
+                        st.write(f" Total posisi: {len(positions)}")
+                        st.write(f"🟢 Posisi OPEN: {len(open_positions)}")
+                        
+                        if open_positions.empty:
+                            st.info("ℹ️ Tidak ada posisi OPEN untuk dicek")
+                        else:
+                            st.write("**📊 Posisi yang dicek:**")
+                            debug_df = open_positions[["Saham", "Harga Beli", "TP", "SL", "Tipe", "Lot", "Tanggal Open"]].copy()
+                            
+                            # Tambah kolom harga sekarang
+                            debug_df["Harga Sekarang"] = debug_df["Saham"].map(
+                                lambda x: f"Rp{price_lookup.get(x, 0):,.0f}" if x in price_lookup else "N/A"
+                            )
+                            
+                            # Tambah kolom status
+                            def check_status(row):
+                                saham = row["Saham"]
+                                if saham not in price_lookup:
+                                    return "⚠️ Harga tidak tersedia"
+                                
+                                current = price_lookup[saham]
+                                tp = float(row["TP"]) if pd.notna(row["TP"]) else None
+                                sl = float(row["SL"]) if pd.notna(row["SL"]) else None
+                                
+                                if tp and current >= tp:
+                                    return f"✅ HIT TP"
+                                elif sl and current <= sl:
+                                    return f"❌ HIT SL"
+                                else:
+                                    return f" HOLD"
+                            
+                            debug_df["Status"] = debug_df.apply(check_status, axis=1)
+                            st.dataframe(debug_df, use_container_width=True)
+                            
+                            # Panggil fungsi close
+                            st.write("\n🔄 **Memproses penutupan posisi...**")
+                            closed = gj.auto_close_positions(price_lookup)
+                            
+                        if closed:
+                            st.success(f"✅ Berhasil ditutup: {', '.join(closed)}")
+                            st.balloons()
+                            st.rerun()
+                        else:
+                            st.info("ℹ️ Belum ada yang perlu ditutup (belum kena TP/SL atau belum waktunya force-sell)")
+                            
+                except Exception as e:
+                    st.error(f"❌ Error cek TP/SL: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
 
         st.divider()
+        
+        # ===== TAMPILKAN POSISI =====
         positions = gj.load_positions()
         stats = gj.summarize(positions)
         s1, s2, s3, s4, s5 = st.columns(5)
