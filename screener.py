@@ -6,14 +6,15 @@ IDX_Screener_Bot_diperbaiki.xlsx supaya hasil web dashboard dan Excel konsisten:
 - Skor momentum berbasis perubahan % (skala desimal, bukan persen bulat)
 - Skor volume ratio (volume hari ini / rata-rata 20 hari)
 - Veto crash (penalti besar untuk penurunan tajam)
-- Bonus/penalti Donchian Breakout 20 hari (TIDAK termasuk candle hari ini,
-  sesuai prinsip 4-Weeks Rule Richard Donchian)
+- Bonus/penalti Donchian Breakout 20 hari (TIDAK termasuk candle hari ini)
+- TAMBAHAN BARU: Quality Validator (Trend, Smart Money, Momentum) untuk filter sinyal.
 """
 
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import streamlit as st
+from scipy import stats  # Diperlukan untuk linear regression (Quality Validator)
 
 DEFAULT_PARAMS = {
     "min_value_traded": 3_000_000_000,   # Rp 3 miliar/hari - gate likuiditas
@@ -26,18 +27,123 @@ DEFAULT_PARAMS = {
 }
 
 
+# ==============================================================================
+# QUALITY VALIDATOR FUNCTIONS (Ditambahkan untuk validasi sinyal)
+# ==============================================================================
+
+def _validate_trend_quality(df: pd.DataFrame, period: int = 10) -> dict:
+    if len(df) < period:
+        return {"quality": "INSUFFICIENT", "stars": 0, "score": 0}
+    
+    closes = df["Close"].tail(period).values
+    x = np.arange(len(closes))
+    slope, intercept, r_value, _, _ = stats.linregress(x, closes)
+    
+    angle_degrees = np.degrees(np.arctan(slope / abs(intercept) if intercept != 0 else slope))
+    r_squared = r_value ** 2
+    
+    ma20 = df["Close"].rolling(20).mean().iloc[-1] if len(df) >= 20 else None
+    current_price = closes[-1]
+    above_ma20 = current_price > ma20 if ma20 else False
+    
+    score = 0
+    if angle_degrees >= 45: score += 40
+    elif angle_degrees >= 30: score += 30
+    elif angle_degrees >= 15: score += 20
+    elif angle_degrees >= 5: score += 10
+    
+    if r_squared >= 0.8: score += 30
+    elif r_squared >= 0.6: score += 20
+    elif r_squared >= 0.4: score += 10
+    
+    if above_ma20: score += 30
+    
+    if score >= 80: return {"quality": "STRONG", "stars": 3, "score": score}
+    elif score >= 50: return {"quality": "MODERATE", "stars": 2, "score": score}
+    elif score >= 25: return {"quality": "WEAK", "stars": 1, "score": score}
+    return {"quality": "NO_TREND", "stars": 0, "score": score}
+
+
+def _detect_smart_money(df: pd.DataFrame, period: int = 20) -> dict:
+    if len(df) < period:
+        return {"status": "INSUFFICIENT", "score": 0}
+    
+    recent = df.tail(period).copy()
+    price_changes = recent["Close"].pct_change().dropna()
+    volume_changes = recent["Volume"].pct_change().dropna()
+    
+    common_idx = price_changes.index.intersection(volume_changes.index)
+    if len(common_idx) >= 5:
+        correlation = price_changes[common_idx].corr(volume_changes[common_idx])
+        vol_price_score = max(0, correlation) * 100
+    else:
+        vol_price_score = 0
+    
+    candle_range = recent["High"] - recent["Low"]
+    candle_range = candle_range.replace(0, np.nan)
+    close_position = (recent["Close"] - recent["Low"]) / candle_range
+    close_position = close_position.fillna(0.5)
+    close_score = close_position.mean() * 100
+    
+    lows = recent["Low"].values
+    higher_lows = sum(1 for i in range(1, len(lows)) if lows[i] > lows[i-1])
+    hl_score = (higher_lows / (len(lows) - 1) if len(lows) > 1 else 0) * 100
+    
+    total_score = (vol_price_score * 0.40) + (close_score * 0.35) + (hl_score * 0.25)
+    
+    if total_score >= 70: return {"status": "ACCUMULATING", "score": total_score}
+    elif total_score >= 50: return {"status": "NEUTRAL", "score": total_score}
+    return {"status": "DISTRIBUTING", "score": total_score}
+
+
+def _validate_momentum(df: pd.DataFrame, max_lookback: int = 5) -> dict:
+    if len(df) < 2:
+        return {"strength": "NONE", "days": 0}
+    
+    closes = df["Close"].tail(max_lookback + 1).values
+    streak = 0
+    for i in range(len(closes) - 1, 0, -1):
+        if closes[i] > closes[i-1]:
+            streak += 1
+        else:
+            break
+            
+    if streak >= 4: return {"strength": "VERY_STRONG", "days": streak}
+    elif streak >= 3: return {"strength": "STRONG", "days": streak}
+    elif streak >= 2: return {"strength": "MODERATE", "days": streak}
+    elif streak >= 1: return {"strength": "WEAK", "days": streak}
+    return {"strength": "NONE", "days": 0}
+
+
+def get_quality_rating(df: pd.DataFrame) -> dict:
+    trend = _validate_trend_quality(df)
+    smart_money = _detect_smart_money(df)
+    momentum = _validate_momentum(df)
+    
+    overall_score = (trend["score"] * 0.40) + (smart_money["score"] * 0.35) + ((momentum["days"] / 5 * 100) * 0.25)
+    
+    if overall_score >= 75:
+        return {"rating": "HIGH", "emoji": "✅", "score": round(overall_score, 1), "trend_stars": trend["stars"], "smart_money_status": smart_money["status"], "momentum_strength": momentum["strength"]}
+    elif overall_score >= 50:
+        return {"rating": "MODERATE", "emoji": "⚠️", "score": round(overall_score, 1), "trend_stars": trend["stars"], "smart_money_status": smart_money["status"], "momentum_strength": momentum["strength"]}
+    else:
+        return {"rating": "LOW", "emoji": "❌", "score": round(overall_score, 1), "trend_stars": trend["stars"], "smart_money_status": smart_money["status"], "momentum_strength": momentum["strength"]}
+
+
+# ==============================================================================
+# FUNGSI SCREENER ASLI (Dipertahankan 100%)
+# ==============================================================================
+
 @st.cache_data(show_spinner=False)
 def load_ticker_universe(path: str = "tickers_idx.csv") -> pd.DataFrame:
     return pd.read_csv(path)
 
 
-@st.cache_data(ttl=900, show_spinner=False)  # cache 15 menit - jangan tembak Yahoo tiap klik
+@st.cache_data(ttl=900, show_spinner=False)
 def fetch_price_history(tickers: list[str], period: str = "1y") -> dict[str, pd.DataFrame]:
-    """Ambil histori harga batch dari Yahoo Finance. Ticker IDX pakai akhiran .JK.
-    Default 1 tahun (bukan 3 bulan) supaya cukup untuk MA200, RSI, MACD, dll di panel Technical Indicators."""
     results: dict[str, pd.DataFrame] = {}
     yf_tickers = [f"{t}.JK" for t in tickers]
-    chunk_size = 80  # batch supaya tidak sekali tembak >600 ticker
+    chunk_size = 80
     for i in range(0, len(yf_tickers), chunk_size):
         chunk = yf_tickers[i : i + chunk_size]
         try:
@@ -60,7 +166,6 @@ def fetch_price_history(tickers: list[str], period: str = "1y") -> dict[str, pd.
 
 
 def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
-    """Hitung metrik & skor untuk satu saham dari histori harga. None jika data tidak cukup."""
     lookback = params["donchian_lookback"]
     if df is None or len(df) < lookback + 2:
         return None
@@ -82,7 +187,6 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
     layak_likuiditas = value_traded >= params["min_value_traded"]
     vol_ratio = (volume / avg_volume20) if avg_volume20 > 0 else 0
 
-    # Donchian 20D - TIDAK termasuk candle hari ini (baris terakhir dibuang dulu)
     hist = df.iloc[-(lookback + 1) : -1]
     donchian_high = float(hist["High"].max())
     donchian_low = float(hist["Low"].min())
@@ -93,12 +197,6 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
     else:
         breakout_status = "NETRAL"
 
-    # Veto crash HARUS jadi hard block sungguhan - sebelumnya cuma penalti -3 poin, yang
-    # artinya saham lagi crash tajam masih bisa "lolos" jadi BUY kalau breakout+volume-nya
-    # cukup tinggi buat menutup penalti itu (mis. -3 breakout+3 volume+3 = tetap net positif).
-    # Itu bertentangan dengan nama fiturnya sendiri ("veto") - veto artinya diskualifikasi,
-    # bukan sekadar poin minus yang bisa di-offset sinyal lain. Sekarang begitu crash_veto
-    # tersentuh, skor langsung di-hard-cap sebelum komponen bonus lain dihitung.
     is_crash = change_pct < params["crash_veto"]
 
     if not layak_likuiditas:
@@ -150,28 +248,54 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
 def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFrame, params: dict) -> pd.DataFrame:
     rows = []
     name_map = dict(zip(names["Kode"], names["Nama"]))
+    
     for kode, df in price_data.items():
         m = compute_metrics(df, params)
         if m is None:
             continue
+        
+        # === QUALITY VALIDATION (TAMBAHAN BARU) ===
+        if len(df) >= 20:
+            quality = get_quality_rating(df)
+        else:
+            quality = {"rating": "INSUFFICIENT", "emoji": "", "score": 0, "trend_stars": 0, "smart_money_status": "N/A", "momentum_strength": "N/A"}
+        
         m["Kode"] = kode
         m["Nama"] = name_map.get(kode, "")
+        
+        # Tambahkan kolom quality ke dalam dictionary 'm'
+        m["Quality"] = f"{quality['emoji']} {quality['rating']}"
+        m["Quality Score"] = quality["score"]
+        m["Trend"] = "⭐" * quality["trend_stars"]
+        m["Smart Money"] = quality["smart_money_status"]
+        m["Momentum"] = quality["momentum_strength"]
+        # ==========================================
+        
         rows.append(m)
+        
     if not rows:
         return pd.DataFrame()
+        
     out = pd.DataFrame(rows)
     out["Chart"] = out["Kode"].map(tradingview_url)
-    cols = ["Kode", "Nama", "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)",
-            "Status Breakout", "Chart", "Layak Likuiditas", "Score", "Signal",
-            "Donchian High", "Donchian Low", "Avg Volume 20D", "Volume"]
-    out = out[cols].sort_values("Score", ascending=False).reset_index(drop=True)
+    
+    # Update urutan kolom untuk menyertakan kolom Quality di posisi yang strategis
+    cols = [
+        "Kode", "Nama", "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)",
+        "Status Breakout", "Chart", "Layak Likuiditas", "Score", "Signal", 
+        "Quality", "Quality Score", "Trend", "Smart Money", "Momentum", # KOLOM BARU
+        "Donchian High", "Donchian Low", "Avg Volume 20D", "Volume"
+    ]
+    
+    # Pastikan hanya kolom yang ada yang diurutkan (untuk mencegah error jika ada kolom yang hilang)
+    existing_cols = [c for c in cols if c in out.columns]
+    out = out[existing_cols].sort_values("Score", ascending=False).reset_index(drop=True)
     return out
 
 
 # ---------------- Trade Candidates: Day Trading (BPJS/BSJP) & Swing (RR > 2:1) ----------------
 
 def classify_daytrading_tipe(now=None) -> str:
-    """BPJS (Beli Pagi Jual Sore) kalau sekarang pagi WIB, BSJP (Beli Sore Jual Pagi) kalau sore/malam."""
     from datetime import datetime
     try:
         from zoneinfo import ZoneInfo
@@ -186,7 +310,6 @@ def tradingview_url(kode: str) -> str:
 
 
 def _donchian_levels(df: pd.DataFrame, lookback: int):
-    """Donchian High/Low dari `lookback` hari SEBELUM hari ini (hari ini tidak dihitung)."""
     if df is None or len(df) < lookback + 2:
         return None, None
     hist = df.iloc[-(lookback + 1) : -1]
@@ -195,11 +318,6 @@ def _donchian_levels(df: pd.DataFrame, lookback: int):
 
 def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int, min_rr: float = 2.0,
                             top_n: int = 10, signal_filter=("STRONG BUY", "BUY")) -> pd.DataFrame:
-    """
-    Entry = harga sekarang. Stop Loss = Donchian Low (lookback) - stop struktural, bukan persen tetap.
-    Target = Donchian High + (Donchian High - Donchian Low) - proyeksi measured-move dari lebar channel.
-    RR = (Target-Entry)/(Entry-SL), difilter RR >= min_rr supaya rasio untung:rugi benar-benar >2:1.
-    """
     rows = []
     picks = table[table["Signal"].isin(signal_filter)]
     for _, r in picks.iterrows():
@@ -233,15 +351,6 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
 
 
 def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
-    """Tentukan kondisi pasar keseluruhan (regime) dari IHSG: BULLISH kalau Close di atas
-    MA(ma_period), BEARISH kalau di bawah, UNKNOWN kalau data belum cukup.
-
-    KENAPA INI PENTING: skor & sinyal di atas semuanya dihitung per-saham, tanpa tahu
-    kondisi pasar secara umum. Saat IHSG downtrend tajam, breakout individual saham jauh
-    lebih sering jadi false signal / bull trap (naik sebentar lalu turun lagi bersama pasar)
-    dibanding saat IHSG uptrend. Fungsi ini TIDAK otomatis mengubah skor saham manapun -
-    dipakai di dashboard sebagai filter OPSIONAL (default mati) supaya Bro yang memutuskan,
-    bukan logika tersembunyi yang mengubah hasil tanpa disadari."""
     if ihsg_df is None or ihsg_df.empty or len(ihsg_df) < ma_period:
         return {"status": "UNKNOWN", "close": None, "ma": None}
     close = float(ihsg_df["Close"].iloc[-1])
@@ -252,10 +361,8 @@ def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
     return {"status": status, "close": close, "ma": ma}
 
 
-@st.cache_data(ttl=3600, show_spinner=False)  # cache 1 jam
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_ihsg_history(period: str = "1y") -> pd.DataFrame:
-    """Ambil histori IHSG (^JKSE) dari Yahoo Finance, dipakai untuk bandingkan performa
-    portofolio (equity) terhadap index pasar secara keseluruhan."""
     try:
         df = yf.download("^JKSE", period=period, interval="1d", progress=False, auto_adjust=False)
         if isinstance(df.columns, pd.MultiIndex):
