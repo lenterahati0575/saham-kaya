@@ -601,7 +601,7 @@ with t_backtest:
         
         # ===== BUTTON 2: Buka Posisi Swing Trading =====
         with colb2:
-            if st.button(" Buka Posisi Swing Trading", use_container_width=True, key="btn_open_swing"):
+            if st.button("🟢Buka Posisi Swing Trading", use_container_width=True, key="btn_open_swing"):
                 try:
                     with st.spinner("Membuka posisi Swing Trading..."):
                         st.write(f"📋 Kandidat tersedia: {len(cands_swing_all)}")
