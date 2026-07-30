@@ -308,21 +308,50 @@ with t_kandidat:
         if sektor_pilih_1:
             picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
     
-    # === FILTER QUALITY RATING ===
-    if not picks.empty and "Quality" in picks.columns:
-        available_quality = sorted(picks["Quality"].unique().tolist())
-        quality_filter = st.multiselect(
-            "🎯 Filter Quality Rating",
-            options=available_quality,
-            default=available_quality,  # Tampilkan semua yang tersedia
-            help="HIGH = Akumulasi + Trend kuat + Momentum positif\n"
-                 "MODERATE = Salah satu indikator lemah\n"
-                 "LOW = Faktor-faktor lemah, hati-hati"
-        )
-        if quality_filter:
-            picks = picks[picks["Quality"].isin(quality_filter)]
+    # === FILTER REKOMENDASI ===
+    if not picks.empty and "Rekomendasi" in picks.columns:
+        st.markdown("### 🎯 Filter Rekomendasi Trading")
         
-        st.caption("💡 **Tips:** Fokus pada saham dengan **Score tinggi**, **Status Breakout = BREAKOUT**, dan **Quality = ✅ HIGH**")
+        col_f1, col_f2 = st.columns(2)
+        
+        with col_f1:
+            rec_filter = st.multiselect(
+                "1️⃣ Rekomendasi Trading",
+                options=sorted(picks["Rekomendasi"].unique().tolist()),
+                default=["⚡ DAY TRADE", "🌊 SWING TRADE"],
+                help="⚡ DAY TRADE = Momentum kuat, cocok untuk trading 1-2 hari\n"
+                     "🌊 SWING TRADE = Trend kuat, cocok untuk hold 3-10 hari\n"
+                     "⏸️ WAIT = Tunggu konfirmasi lebih lanjut\n"
+                     "🚫 AVOID = Hindari, institusi sedang distribusi"
+            )
+            if rec_filter:
+                picks = picks[picks["Rekomendasi"].isin(rec_filter)]
+        
+        with col_f2:
+            # Filter Quality
+            if "Quality" in picks.columns:
+                available_quality = sorted(picks["Quality"].unique().tolist())
+                quality_filter = st.multiselect(
+                    "2️⃣ Quality Rating",
+                    options=available_quality,
+                    default=available_quality,
+                    help="HIGH = Akumulasi + Trend kuat + Momentum positif\n"
+                         "MODERATE = Salah satu indikator lemah\n"
+                         "LOW = Faktor-faktor lemah, hati-hati"
+                )
+                if quality_filter:
+                    picks = picks[picks["Quality"].isin(quality_filter)]
+        
+        # Legend/Panduan
+        st.markdown("""
+        <div style="background: #1f2937; padding: 12px; border-radius: 8px; margin: 10px 0;">
+            <b>📖 Panduan Rekomendasi:</b><br>
+            ⚡ <b style="color: #16a34a;">DAY TRADE</b> = Momentum kuat + Akumulasi + Quality HIGH → Entry sekarang<br>
+            🌊 <b style="color: #2563eb;">SWING TRADE</b> = Trend kuat + Akumulasi → Hold 3-10 hari<br>
+            ⏸️ <b style="color: #eab308;">WAIT</b> = Sinyal belum cukup kuat, pantau dulu<br>
+            🚫 <b style="color: #dc2626;">AVOID</b> = Institusi distribusi, jangan entry!
+        </div>
+        """, unsafe_allow_html=True)
 
     if picks.empty:
         st.info("Tidak ada saham yang lolos filter saat ini. Coba longgarkan parameter di sidebar.")
@@ -333,19 +362,60 @@ with t_kandidat:
         show["Value Traded (Rp)"] = picks["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
         show["Volume Ratio"] = picks["Volume Ratio"].map(lambda x: f"{x:.1f}x")
         
-        # === KOLOM YANG AKAN DITAMPILKAN (SUDAH TERMASUK QUALITY) ===
+        # === KOLOM YANG DITAMPILKAN ===
         kolom_tampil = [
-            "Kode", "Nama", "Signal", "Score", "Quality", "Quality Score", 
-            "Trend", "Smart Money", "Momentum", "Harga", "Perubahan %",
+            "Kode", "Nama", "Signal", "Score", 
+            "Rekomendasi", "Confidence", "Alasan",
+            "Quality", "Quality Score", "Trend", "Smart Money", "Momentum", 
+            "Harga", "Perubahan %",
             "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
         ]
         if aktifkan_sektor:
             kolom_tampil.insert(2, "Sektor")
         
-        # Pastikan hanya kolom yang benar-benar ada yang ditampilkan
+        # Pastikan hanya kolom yang benar-benar ada
         kolom_tampil = [col for col in kolom_tampil if col in show.columns]
         
-        dataframe_with_chart(show[kolom_tampil], kode_col="Kode", height=460, key="df_kandidat")
+        # Tampilkan tabel dengan warna
+        def color_recommendation(val):
+            """Warnai kolom Rekomendasi berdasarkan nilai."""
+            val = str(val)
+            if "DAY TRADE" in val:
+                return "background-color: #16a34a; color: white; font-weight: bold;"
+            elif "SWING TRADE" in val:
+                return "background-color: #2563eb; color: white; font-weight: bold;"
+            elif "AVOID" in val:
+                return "background-color: #dc2626; color: white; font-weight: bold;"
+            elif "WAIT" in val:
+                return "background-color: #eab308; color: black; font-weight: bold;"
+            return ""
+        
+        def color_quality(val):
+            """Warnai kolom Quality."""
+            val = str(val)
+            if "HIGH" in val:
+                return "background-color: #065f46; color: white; font-weight: bold;"
+            elif "MODERATE" in val:
+                return "background-color: #92400e; color: white; font-weight: bold;"
+            elif "LOW" in val:
+                return "background-color: #7f1d1d; color: white; font-weight: bold;"
+            return ""
+        
+        # Apply styling
+        styler = show[kolom_tampil].style
+        if "Rekomendasi" in kolom_tampil:
+            styler = styler.map(color_recommendation, subset=["Rekomendasi"])
+        if "Quality" in kolom_tampil:
+            styler = styler.map(color_quality, subset=["Quality"])
+        
+        st.dataframe(
+            styler,
+            use_container_width=True, 
+            hide_index=True, 
+            height=460,
+            key="df_kandidat"
+        )
+        
         st.download_button(
             "⬇️ Download CSV", show[kolom_tampil].to_csv(index=False).encode("utf-8"),
             file_name=f"kandidat_terbaik_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv",
