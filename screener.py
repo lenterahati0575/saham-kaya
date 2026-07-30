@@ -26,29 +26,37 @@ DEFAULT_PARAMS = {
 # ==============================================================================
 
 def _validate_trend_quality(df: pd.DataFrame, period: int = 10) -> dict:
-    """Validasi kualitas trend menggunakan numpy polyfit (pengganti scipy linregress)."""
+    """Validasi kualitas trend - versi diperbaiki."""
     if len(df) < period:
         return {"quality": "INSUFFICIENT", "stars": 0, "score": 0}
     
     closes = df["Close"].tail(period).values
     x = np.arange(len(closes), dtype=float)
     
-    # Linear regression dengan numpy polyfit (pengganti scipy.stats.linregress)
     try:
         coeffs = np.polyfit(x, closes, 1)
         slope = coeffs[0]
-        intercept = coeffs[1]
         
-        # Hitung R-squared manual
-        y_pred = slope * x + intercept
+        # Hitung R-squared
+        y_pred = slope * x + coeffs[1]
         ss_res = np.sum((closes - y_pred) ** 2)
         ss_tot = np.sum((closes - np.mean(closes)) ** 2)
         r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
     except Exception:
         return {"quality": "INSUFFICIENT", "stars": 0, "score": 0}
     
-    # Hitung angle
-    angle_degrees = np.degrees(np.arctan(slope / abs(intercept) if intercept != 0 else slope))
+    # ✅ PERBAIKAN: Hitung "angle" berdasarkan persentase perubahan
+    # Ini lebih masuk akal daripada slope/intercept
+    if closes[0] > 0:
+        total_change_pct = ((closes[-1] - closes[0]) / closes[0]) * 100
+    else:
+        total_change_pct = 0
+    
+    # Konversi persentase perubahan ke "angle score" (0-90 derajat)
+    # Asumsi: 10% perubahan dalam period hari = 45° (trend kuat)
+    # 5% = 22.5°, 20% = 90° (vertikal)
+    angle_degrees = (total_change_pct / 10.0) * 45
+    angle_degrees = np.clip(angle_degrees, -90, 90)
     
     # Cek posisi terhadap MA20
     ma20 = df["Close"].rolling(20).mean().iloc[-1] if len(df) >= 20 else None
@@ -56,21 +64,25 @@ def _validate_trend_quality(df: pd.DataFrame, period: int = 10) -> dict:
     above_ma20 = current_price > ma20 if ma20 else False
     
     score = 0
-    if angle_degrees >= 45: score += 40
-    elif angle_degrees >= 30: score += 30
-    elif angle_degrees >= 15: score += 20
-    elif angle_degrees >= 5: score += 10
     
+    # Angle score (0-40 points) - berdasarkan persentase perubahan
+    if angle_degrees >= 40: score += 40      # ~9% naik
+    elif angle_degrees >= 25: score += 30    # ~5.5% naik
+    elif angle_degrees >= 15: score += 20    # ~3.3% naik
+    elif angle_degrees >= 5: score += 10     # ~1.1% naik
+    
+    # Consistency score (0-30 points) - R²
     if r_squared >= 0.8: score += 30
     elif r_squared >= 0.6: score += 20
     elif r_squared >= 0.4: score += 10
     
+    # MA20 confirmation (0-30 points)
     if above_ma20: score += 30
     
     if score >= 80: return {"quality": "STRONG", "stars": 3, "score": score}
     elif score >= 50: return {"quality": "MODERATE", "stars": 2, "score": score}
     elif score >= 25: return {"quality": "WEAK", "stars": 1, "score": score}
-    return {"quality": "NO_TREND", "stars": 0, "score": score}
+    return {"quality": "NO_TREND", "stars": 0, "score": 0}
 
 
 def _detect_smart_money(df: pd.DataFrame, period: int = 20) -> dict:
