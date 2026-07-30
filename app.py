@@ -391,17 +391,30 @@ with t_kandidat:
         if sektor_pilih_1:
             picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
             
-    # === FILTER QUALITY + SMART MONEY ===
+       # === FILTER QUALITY + SMART MONEY ===
     if not picks.empty and "Quality" in picks.columns:
         st.markdown("### 🎯 Filter Kualitas Sinyal")
+        
+        # Dapatkan unique values yang benar-benar ada di data
+        available_quality = sorted(picks["Quality"].unique().tolist())
+        
+        # Fallback jika tidak ada data
+        if not available_quality:
+            available_quality = ["✅ HIGH", "⚠️ MODERATE", "❌ LOW"]
+        
+        # Default hanya yang ada di data
+        default_quality = ["✅ HIGH", "️ MODERATE"]
+        default_quality = [x for x in default_quality if x in available_quality]
+        if not default_quality:
+            default_quality = available_quality[:1] if available_quality else []
         
         col_f1, col_f2 = st.columns(2)
         
         with col_f1:
             quality_filter = st.multiselect(
                 "1️⃣ Rating Quality",
-                options=["✅ HIGH", "⚠️ MODERATE", " LOW"],
-                default=["✅ HIGH", "️ MODERATE"],
+                options=available_quality,
+                default=default_quality,
                 help="HIGH = Trend kuat + Momentum tinggi\n"
                      "MODERATE = Salah satu indikator lemah\n"
                      "LOW = Trend lemah/tanpa konfirmasi"
@@ -410,10 +423,20 @@ with t_kandidat:
                 picks = picks[picks["Quality"].isin(quality_filter)]
         
         with col_f2:
+            # Smart Money filter dengan cara yang sama
+            available_smart_money = sorted(picks["Smart Money"].unique().tolist()) if "Smart Money" in picks.columns else []
+            if not available_smart_money:
+                available_smart_money = ["ACCUMULATING", "NEUTRAL", "DISTRIBUTING"]
+            
+            default_smart_money = ["ACCUMULATING", "NEUTRAL"]
+            default_smart_money = [x for x in default_smart_money if x in available_smart_money]
+            if not default_smart_money:
+                default_smart_money = available_smart_money[:1] if available_smart_money else []
+            
             smart_money_filter = st.multiselect(
                 "2️⃣ Smart Money (Akumulasi Institusi)",
-                options=["ACCUMULATING", "NEUTRAL", "DISTRIBUTING"],
-                default=["ACCUMULATING", "NEUTRAL"],
+                options=available_smart_money,
+                default=default_smart_money,
                 help="ACCUMULATING = Institusi sedang beli (paling aman)\n"
                      "NEUTRAL = Tidak ada sinyal jelas\n"
                      "DISTRIBUTING = Institusi sedang jual (berisiko!)"
@@ -427,7 +450,6 @@ with t_kandidat:
         - **Hati-hati:** STRONG BUY + ❌ LOW + DISTRIBUTING = Kemungkinan bull trap (breakout palsu)
         - Filter di atas otomatis menyembunyikan saham dengan Smart Money = DISTRIBUTING
         """)
-
     if picks.empty:
         st.info("Tidak ada saham yang lolos filter saat ini. Coba longgarkan parameter di sidebar.")
     else:
