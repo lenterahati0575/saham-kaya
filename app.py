@@ -950,7 +950,7 @@ with t_real:
         )
         
         # --- Catat trade baru ---
-        with sub1:
+with sub1:
     st.markdown("**Catat posisi baru (OPEN)**")
     brokers_df = rj.load_brokers()
     broker_options = brokers_df["Sekuritas"].tolist() if not brokers_df.empty else ["Lainnya"]
