@@ -960,7 +960,7 @@ with t_real:
             if auto_data:
                 st.success(f"🎯 Auto-fill aktif: **{auto_data['kode']}** ({auto_data['rekomendasi']})")
                 with st.expander("📋 Detail Auto-fill", expanded=True):
-                    st.write(f"**Entry:** Rp{auto_data['entry']:,.0f}")
+                      st.write(f"**Entry:** Rp{auto_data['entry']:,.0f}")
                     st.write(f"**Setup:** {auto_data['setup']}")
                     st.write(f"**Lot:** {auto_data['lot']}")
                 if st.button("🗑️ Batal Auto-fill", key="btn_cancel_autofill"):
@@ -969,16 +969,22 @@ with t_real:
                 st.divider()
                                   
             fc1, fc2, fc3 = st.columns(3)
-            tgl_entry = fc1.date_input("Tanggal Entry", value=datetime.now(), key="tgl_entry_rj")
-            sekuritas_in = fc2.selectbox("Sekuritas", options=broker_options, key="sekuritas_rj")
-            default_saham = auto_data['kode'] if auto_data else ""
-            saham_in = fc3.text_input("Kode Saham", value=default_saham, key="saham_rj").upper()
+            with fc1:
+                tgl_entry = st.date_input("Tanggal Entry", value=datetime.now(), key="tgl_entry_rj")
+            with fc2:
+                sekuritas_in = st.selectbox("Sekuritas", options=broker_options, key="sekuritas_rj")
+            with fc3:
+                default_saham = auto_data['kode'] if auto_data else ""
+                saham_in = st.text_input("Kode Saham", value=default_saham, key="saham_rj").upper()
+    
             fc4, fc5 = st.columns(2)
-            default_setup_idx = rj.SETUP_OPTIONS.index(auto_data['setup']) if auto_data and auto_data['setup'] in rj.SETUP_OPTIONS else 0
-            setup_in = fc4.selectbox("Setup", options=rj.SETUP_OPTIONS, index=default_setup_idx, key="setup_rj")
-            default_lot = auto_data['lot'] if auto_data else 10
-            lot_in2 = fc5.number_input("Lot", min_value=1, value=int(default_lot), step=1, key="lot_rj")
-            
+            with fc4:
+                default_setup_idx = rj.SETUP_OPTIONS.index(auto_data['setup']) if auto_data and auto_data['setup'] in rj.SETUP_OPTIONS else 0
+                setup_in = st.selectbox("Setup", options=rj.SETUP_OPTIONS, index=default_setup_idx, key="setup_rj")
+            with fc5:
+                default_lot = auto_data['lot'] if auto_data else 10
+                lot_in2 = st.number_input("Lot", min_value=1, value=int(default_lot), step=1, key="lot_rj")
+
             
             fc6, fc7, fc8 = st.columns(3)
             with fc6:
