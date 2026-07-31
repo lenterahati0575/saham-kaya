@@ -350,7 +350,8 @@ def get_quality_rating(df: pd.DataFrame) -> dict:
 
 def get_trade_recommendation(quality: dict) -> dict:
     """
-    Analisis kombinasi semua faktor untuk memberikan rekomendasi trading.
+    Rekomendasi trading - versi DIPERBAIKI.
+    SWING TRADE tidak butuh momentum kuat (cukup trend + akumulasi).
     """
     try:
         rating = quality.get("rating", "LOW")
@@ -365,70 +366,70 @@ def get_trade_recommendation(quality: dict) -> dict:
         color = "#6b7280"
         emoji = "⏸️"
         
-        # === KONDISI 1: DAY TRADE ===
-        if (momentum in ["VERY_STRONG", "STRONG"] and 
-            rating == "HIGH" and 
+        # === DAY TRADE: Butuh momentum KUAT ===
+        if (momentum in ["VERY_STRONG", "STRONG", "MODERATE"] and 
+            rating in ["HIGH", "MODERATE"] and 
             smart_money == "ACCUMULATION" and
             trend_stars >= 2):
             recommendation = "DAY TRADE"
-            confidence = 90
-            reason = "Momentum kuat + Akumulasi + Trend positif"
+            confidence = 85
+            reason = "Momentum + Akumulasi + Trend positif"
             color = "#16a34a"
             emoji = "⚡"
         
-        # === KONDISI 2: SWING TRADE (Ideal) ===
+        # === SWING TRADE: TIDAK butuh momentum kuat ===
+        # Cukup: Trend kuat + Akumulasi (momentum bisa lemah = pullback)
         elif (rating in ["HIGH", "MODERATE"] and 
               smart_money == "ACCUMULATION" and
               trend_stars >= 2):
             recommendation = "SWING TRADE"
-            confidence = 75
-            reason = "Trend kuat + Akumulasi, momentum perlu konfirmasi"
+            confidence = 70
+            reason = "Trend kuat + Akumulasi (pullback = peluang entry)"
             color = "#2563eb"
             emoji = "🌊"
         
-        # === KONDISI 3: SWING TRADE (Dengan catatan) ===
+        # === SWING TRADE (dengan catatan) ===
         elif (rating in ["HIGH", "MODERATE"] and 
               smart_money == "NEUTRAL" and
-              trend_stars >= 2 and
-              momentum in ["STRONG", "MODERATE"]):
+              trend_stars >= 2):
             recommendation = "SWING TRADE"
-            confidence = 60
-            reason = "Trend bagus + Momentum ada, belum ada akumulasi jelas"
+            confidence = 55
+            reason = "Trend bagus, akumulasi belum jelas"
             color = "#3b82f6"
             emoji = "🌊"
         
-        # === KONDISI 4: WAIT (Konsolidasi) ===
+        # === WAIT: Akumulasi ada tapi trend lemah ===
         elif (smart_money == "ACCUMULATION" and 
               (rating == "LOW" or trend_stars < 2)):
             recommendation = "WAIT"
-            confidence = 50
-            reason = "Ada akumulasi tapi trend/momentum belum konfirmasi"
+            confidence = 45
+            reason = "Ada akumulasi tapi trend belum konfirmasi"
             color = "#eab308"
             emoji = "⏸️"
         
-        # === KONDISI 5: WAIT (Momentum lemah) ===
+        # === WAIT: Momentum lemah ===
         elif momentum in ["VERY_WEAK", "WEAK"] and rating in ["MODERATE", "LOW"]:
             recommendation = "WAIT"
-            confidence = 40
+            confidence = 35
             reason = "Momentum lemah, tunggu konfirmasi"
             color = "#f59e0b"
             emoji = "⏸️"
         
-        # === KONDISI 6: AVOID (Distribusi) ===
+        # === AVOID: Distribusi ===
         elif smart_money == "DISTRIBUTION":
             recommendation = "AVOID"
             confidence = 80
-            reason = "Institusi sedang distribusi - risiko tinggi!"
+            reason = "Institusi distribusi - risiko tinggi!"
             color = "#dc2626"
             emoji = "🚫"
         
-        # === KONDISI 7: WAIT (Default) ===
+        # === WAIT: Default ===
         else:
             recommendation = "WAIT"
             confidence = 30
-            reason = "Sinyal tidak cukup kuat untuk entry"
+            reason = "Sinyal tidak cukup kuat"
             color = "#6b7280"
-            emoji = "️"
+            emoji = "⏸️"
         
         return {
             "recommendation": recommendation,
@@ -446,9 +447,8 @@ def get_trade_recommendation(quality: dict) -> dict:
             "reason": f"Error: {str(e)}",
             "color": "#dc2626",
             "emoji": "❌",
-            "display": " ERROR"
+            "display": "❌ ERROR"
         }
-
 
 # ============================================================================
 # ORIGINAL SCREENER FUNCTIONS
