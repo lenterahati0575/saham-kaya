@@ -291,7 +291,10 @@ st.divider()
 t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk = st.tabs([
     "🏆 Kandidat Terbaik", "📋 Semua Saham", "📉 Grafik Saham", "📒 Jurnal Backtest",
     "🎯 Top 10 Day/Swing", "💼 Jurnal Real", "💰 Equity", "🚀 Performance", "🧮 Kalkulator"
-])# ---------------- TAB 1: kandidat terbaik (FINAL VERSION) ----------------
+])
+
+
+# ---------------- TAB 1: kandidat terbaik (FINAL VERSION) ----------------
 with t_kandidat:
     # 1. Ambil semua saham dengan signal bagus
     picks = table[table["Signal"].isin(["STRONG BUY", "BUY"])].copy()
@@ -479,7 +482,44 @@ with t_kandidat:
         if "RR" in kolom_tampil:
             styler = styler.map(color_rr, subset=["RR"])
         
-        st.dataframe(styler, use_container_width=True, hide_index=True, height=460, key="df_kandidat_final")
+               # Tampilkan tabel dengan kolom checkbox
+        st.markdown("### 📊 Daftar Saham Terpilih")
+        st.caption("Centang kotak di sebelah kiri untuk melihat chart TradingView")
+        
+        # Tambah kolom pilihan
+        show_with_select = show.copy()
+        show_with_select.insert(0, "Pilih", False)
+        
+        # Tampilkan dengan column_config untuk checkbox
+        column_config = {
+            "Pilih": st.column_config.CheckboxColumn(
+                "Pilih",
+                help="Centang untuk lihat chart",
+                default=False,
+            ),
+            "RR": st.column_config.TextColumn("RR"),
+            "Entry": st.column_config.TextColumn("Entry"),
+            "Target": st.column_config.TextColumn("Target"),
+            "Stop Loss": st.column_config.TextColumn("Stop Loss"),
+        }
+        
+        event = st.dataframe(
+            show_with_select[kolom_tampil + ["Pilih"]],
+            use_container_width=True,
+            hide_index=True,
+            height=460,
+            key="df_kandidat_with_checkbox",
+            column_config=column_config,
+            on_select="rerun",
+            selection_mode="single-row",
+        )
+        
+        # Tampilkan chart untuk saham yang dipilih
+        selected_rows = event.selection.rows if event and hasattr(event, "selection") else []
+        if selected_rows:
+            selected_kode = show_with_select.iloc[selected_rows[0]]["Kode"]
+            st.markdown(f"### 📈 Chart TradingView - {selected_kode}")
+            embed_tradingview_chart(selected_kode, height=500)
         
         st.download_button(
             "⬇️ Download CSV", 
