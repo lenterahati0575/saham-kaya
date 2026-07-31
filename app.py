@@ -582,8 +582,8 @@ st.download_button(
 
 # === TOMBOL CATAT TRADE ===
 st.divider()
-st.markdown("### 📝 Catat Trade dari Kandidat Terbaik")
-st.caption("Pilih saham dari tabel di atas, lalu klik 'Catat Trade' untuk otomatis isi form di Jurnal Real")
+       st.markdown("### 📝 Catat Trade dari Kandidat Terbaik")
+       st.caption("Pilih saham dari tabel di atas, lalu klik 'Catat Trade' untuk otomatis isi form di Jurnal Real")
         
         cat1, cat2, cat3 = st.columns([2, 1, 1])
         
