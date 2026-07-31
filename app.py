@@ -308,31 +308,51 @@ with t_kandidat:
         if sektor_pilih_1:
             picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
     
-    # === FILTER REKOMENDASI ===
-    if not picks.empty and "Rekomendasi" in picks.columns:
-        st.markdown("### 🎯 Filter Rekomendasi Trading")
+    # === HITUNG RR, ENTRY, TARGET, SL ===
+    if not picks.empty:
+        rr_data = []
+        for _, row in picks.iterrows():
+            kode = row["Kode"]
+            df = price_data.get(kode)
+            if df is not None and len(df) >= int(donchian_lb) + 2:
+                dh, dl = _donchian_levels(df, int(donchian_lb))
+                if dh and dl and dl > 0:
+                    entry = float(row["Harga"])
+                    target = dh + (dh - dl)
+                    risk = entry - dl
+                    reward = target - entry
+                    rr = reward / risk if risk > 0 else 0
+                    rr_data.append({
+                        "Kode": kode,
+                        "RR": round(rr, 2),
+                        "Entry": round(entry, 0),
+                        "Target": round(target, 0),
+                        "Stop Loss": round(dl, 0)
+                    })
+                else:
+                    rr_data.append({"Kode": kode, "RR": 0, "Entry": 0, "Target": 0, "Stop Loss": 0})
+            else:
+                rr_data.append({"Kode": kode, "RR": 0, "Entry": 0, "Target": 0, "Stop Loss": 0})
         
-        col_f1, col_f2 = st.columns(2)
+        rr_df = pd.DataFrame(rr_data)
+        picks = picks.merge(rr_df, on="Kode", how="left")
+    
+    # === FILTER ===
+    if not picks.empty and "Rekomendasi" in picks.columns:
+        st.markdown("### 🎯 Filter Trading")
+        
+        col_f1, col_f2, col_f3 = st.columns(3)
         
         with col_f1:
-            # Dynamic default - hanya pilih yang ada di data
             available_rec = sorted(picks["Rekomendasi"].unique().tolist())
-            default_rec = []
-            if " DAY TRADE" in available_rec:
-                default_rec.append("⚡ DAY TRADE")
-            if "🌊 SWING TRADE" in available_rec:
-                default_rec.append("🌊 SWING TRADE")
+            default_rec = [x for x in [" DAY TRADE", "🌊 SWING TRADE"] if x in available_rec]
             if not default_rec:
                 default_rec = available_rec
             
             rec_filter = st.multiselect(
-                "1️⃣ Rekomendasi Trading",
+                "1️⃣ Rekomendasi",
                 options=available_rec,
                 default=default_rec,
-                help="⚡ DAY TRADE = Momentum kuat, cocok untuk trading 1-2 hari\n"
-                     "🌊 SWING TRADE = Trend kuat, cocok untuk hold 3-10 hari\n"
-                     "⏸️ WAIT = Tunggu konfirmasi lebih lanjut\n"
-                     "🚫 AVOID = Hindari, institusi sedang distribusi"
             )
             if rec_filter:
                 picks = picks[picks["Rekomendasi"].isin(rec_filter)]
@@ -340,41 +360,36 @@ with t_kandidat:
         with col_f2:
             if "Quality" in picks.columns:
                 available_quality = sorted(picks["Quality"].unique().tolist())
-                default_quality = []
-                if "✅ HIGH" in available_quality:
-                    default_quality.append("✅ HIGH")
-                if "⚠️ MODERATE" in available_quality:
-                    default_quality.append("️ MODERATE")
+                default_quality = [x for x in ["✅ HIGH", "⚠️ MODERATE"] if x in available_quality]
                 if not default_quality:
                     default_quality = available_quality
                 
                 quality_filter = st.multiselect(
-                    "2️ Quality Rating",
+                    "2️ Quality",
                     options=available_quality,
                     default=default_quality,
-                    help="HIGH = Akumulasi + Trend kuat + Momentum positif\n"
-                         "MODERATE = Salah satu indikator lemah\n"
-                         "LOW = Faktor-faktor lemah, hati-hati"
                 )
                 if quality_filter:
                     picks = picks[picks["Quality"].isin(quality_filter)]
         
-        # Panduan visual
+        with col_f3:
+            # Filter RR menggunakan parameter sidebar
+            if "RR" in picks.columns:
+                picks = picks[picks["RR"] >= min_rr]
+                st.caption(f"✅ Filter: RR ≥ {min_rr}")
+        
+        # Panduan
         st.markdown("""
         <div style="background: #1f2937; padding: 12px; border-radius: 8px; margin: 10px 0;">
-            <b> Panduan Rekomendasi:</b><br>
-            ⚡ <b style="color: #16a34a;">DAY TRADE</b> = Momentum kuat + Akumulasi + Quality HIGH → Entry sekarang<br>
-            🌊 <b style="color: #2563eb;">SWING TRADE</b> = Trend kuat + Akumulasi → Hold 3-10 hari<br>
-            ⏸️ <b style="color: #eab308;">WAIT</b> = Sinyal belum cukup kuat, pantau dulu<br>
-            🚫 <b style="color: #dc2626;">AVOID</b> = Institusi distribusi, jangan entry!<br><br>
-            <b>💡 Tips:</b> Untuk lihat RR (Risk:Reward), buka tab <b>Top 10 Day/Swing</b>
+            <b>📖 Panduan:</b><br>
+            ⚡ <b style="color: #16a34a;">DAY TRADE</b> = Entry sekarang, hold 1-2 hari<br>
+             <b style="color: #2563eb;">SWING TRADE</b> = Hold 3-10 hari<br>
+            <b>💡 Tips:</b> Entry = harga sekarang, Target/SL dihitung dari Donchian levels
         </div>
         """, unsafe_allow_html=True)
-    else:
-        st.caption("💡 **Tips:** Fokus pada saham dengan **Score tinggi**, **Status Breakout = BREAKOUT**, dan **Quality = ✅ HIGH**")
 
     if picks.empty:
-        st.info("Tidak ada saham yang lolos filter saat ini. Coba longgarkan parameter di sidebar.")
+        st.info("Tidak ada saham yang lolos filter.")
     else:
         show = picks.copy()
         show["Harga"] = show["Harga"].map(lambda x: f"Rp{x:,.0f}")
@@ -382,21 +397,27 @@ with t_kandidat:
         show["Value Traded (Rp)"] = picks["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
         show["Volume Ratio"] = picks["Volume Ratio"].map(lambda x: f"{x:.1f}x")
         
-        # === KOLOM YANG DITAMPILKAN (TANPA RR) ===
+        # Format kolom
+        if "RR" in show.columns:
+            show["RR"] = show["RR"].map(lambda x: f"{x:.2f}" if x > 0 else "N/A")
+        if "Target" in show.columns:
+            show["Target"] = show["Target"].map(lambda x: f"Rp{x:,.0f}" if x > 0 else "N/A")
+        if "Stop Loss" in show.columns:
+            show["Stop Loss"] = show["Stop Loss"].map(lambda x: f"Rp{x:,.0f}" if x > 0 else "N/A")
+        
+        # Kolom yang ditampilkan
         kolom_tampil = [
             "Kode", "Nama", "Signal", "Score", 
-            "Rekomendasi", "Confidence", "Alasan",
-            "Quality", "Quality Score", "Trend", "Smart Money", "Momentum", 
-            "Harga", "Perubahan %",
-            "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
+            "Rekomendasi", "RR", "Entry", "Target", "Stop Loss",
+            "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
+            "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
         ]
         if aktifkan_sektor:
             kolom_tampil.insert(2, "Sektor")
         
-        # Pastikan hanya kolom yang benar-benar ada
         kolom_tampil = [col for col in kolom_tampil if col in show.columns]
         
-        # === WARNA KOLOM REKOMENDASI & QUALITY ===
+        # Warna
         def color_recommendation(val):
             val = str(val)
             if "DAY TRADE" in val:
@@ -405,8 +426,6 @@ with t_kandidat:
                 return "background-color: #2563eb; color: white; font-weight: bold;"
             elif "AVOID" in val:
                 return "background-color: #dc2626; color: white; font-weight: bold;"
-            elif "WAIT" in val:
-                return "background-color: #eab308; color: black; font-weight: bold;"
             return ""
         
         def color_quality(val):
@@ -415,47 +434,37 @@ with t_kandidat:
                 return "background-color: #065f46; color: white; font-weight: bold;"
             elif "MODERATE" in val:
                 return "background-color: #92400e; color: white; font-weight: bold;"
-            elif "LOW" in val:
-                return "background-color: #7f1d1d; color: white; font-weight: bold;"
             return ""
         
-        # Apply styling
+        def color_rr(val):
+            try:
+                rr = float(val)
+                if rr >= 3.0:
+                    return "background-color: #16a34a; color: white; font-weight: bold;"
+                elif rr >= 2.0:
+                    return "background-color: #2563eb; color: white; font-weight: bold;"
+                elif rr >= 1.5:
+                    return "background-color: #eab308; color: black; font-weight: bold;"
+                else:
+                    return "background-color: #dc2626; color: white; font-weight: bold;"
+            except:
+                return ""
+        
         styler = show[kolom_tampil].style
         if "Rekomendasi" in kolom_tampil:
             styler = styler.map(color_recommendation, subset=["Rekomendasi"])
         if "Quality" in kolom_tampil:
             styler = styler.map(color_quality, subset=["Quality"])
+        if "RR" in kolom_tampil:
+            styler = styler.map(color_rr, subset=["RR"])
         
-        st.dataframe(
-            styler,
-            use_container_width=True, 
-            hide_index=True, 
-            height=460,
-            key="df_kandidat"
-        )
+        st.dataframe(styler, use_container_width=True, hide_index=True, height=460, key="df_kandidat")
         
         st.download_button(
             "⬇️ Download CSV", show[kolom_tampil].to_csv(index=False).encode("utf-8"),
             file_name=f"kandidat_terbaik_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv",
         )
-
-        st.divider()
-        st.subheader("📲 Kirim ke Telegram")
-        bot_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
-        chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "")
-        msg_preview = format_watchlist_message(table)
-        with st.expander("Lihat preview pesan"):
-            st.text(msg_preview)
-        if st.button("Kirim Watchlist Sekarang", type="primary"):
-            if not bot_token or not chat_id:
-                st.error("Isi TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID di Settings > Secrets terlebih dulu (lihat README).")
-            else:
-                ok, info = send_telegram_message(bot_token, chat_id, msg_preview)
-                if ok:
-                    st.success(info)
-                else:
-                    st.error(info)
-
+        
 # ---------------- TAB 2: semua saham ----------------
 with t_semua:
     colf1, colf2, colf3 = st.columns([2, 1, 1])
