@@ -461,7 +461,9 @@ with t_kandidat:
         
         # Format Quality Score (1 desimal)
         if "Quality Score" in show.columns:
-            show["Quality Score"] = show["Quality Score"].round(1)
+              show["Quality Score"] = show["Quality Score"].map(
+       lambda x: f"{float(x):.1f}" if pd.notnull(x) and x != "" else "-"
+   )
 
         # Format kolom baru
         if "Risiko %" in show.columns:
