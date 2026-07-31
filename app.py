@@ -580,59 +580,7 @@ st.download_button(
     mime="text/csv"
 )
 
-# === TOMBOL CATAT TRADE ===
-st.divider()
-st.markdown("### 📝 Catat Trade dari Kandidat Terbaik")
-st.caption("Pilih saham dari tabel di atas, lalu klik 'Catat Trade' untuk otomatis isi form di Jurnal Real")
-        
-    cat1, cat2, cat3 = st.columns([2, 1, 1])
-        
-        with cat1:
-            pilih_catat = st.selectbox(
-                "Pilih Saham untuk Dicatat:",
-                options=["-- Pilih Saham --"] + show["Kode"].tolist(),
-                key="pilih_catat_kandidat"
-            )
-        
-        with cat2:
-            lot_catat = st.number_input(
-                "Lot",
-                min_value=1,
-                value=10,
-                step=1,
-                key="lot_catat_kandidat"
-            )
-        
-        with cat3:
-            setup_catat = st.selectbox(
-                "Setup",
-                options=rj.SETUP_OPTIONS,
-                index=0,
-                key="setup_catat_kandidat"
-            )
-        
-        if st.button("📝 Catat Trade (Auto-fill Jurnal Real)", type="primary", use_container_width=True, key="btn_catat_kandidat"):
-            if pilih_catat == "-- Pilih Saham --":
-                st.error("️ Pilih saham terlebih dahulu!")
-            else:
-                # Ambil data dari tabel
-                row_data = show[show["Kode"] == pilih_catat].iloc[0]
-                
-                # Simpan ke session state untuk auto-fill di Jurnal Real
-                st.session_state['auto_fill_trade'] = {
-                    'kode': pilih_catat,
-                    'entry': float(row_data.get('Entry', row_data['Harga'])),
-                    'stop_loss': float(row_data.get('Stop Loss', 0)),
-                    'target': float(row_data.get('Target', 0)),
-                    'setup': setup_catat,
-                    'lot': lot_catat,
-                    'rekomendasi': row_data.get('Rekomendasi', ''),
-                    'rr': row_data.get('RR', 0)
-                }
-                
-                st.success(f"✅ Data {pilih_catat} siap dicatat! Silakan buka tab **Jurnal Real** untuk menyimpan.")
-                st.info(f" Entry: Rp{row_data.get('Entry', 0):,.0f} | SL: Rp{row_data.get('Stop Loss', 0):,.0f} | Target: Rp{row_data.get('Target', 0):,.0f} | RR: {row_data.get('RR', 0)}x")
-        
+
 # ---------------- TAB 2: semua saham ----------------
 with t_semua:
     colf1, colf2, colf3 = st.columns([2, 1, 1])
