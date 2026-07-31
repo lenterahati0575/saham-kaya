@@ -967,9 +967,7 @@ with t_real:
                     del st.session_state['auto_fill_trade']
                     st.rerun()
                 st.divider()
-            
-            fc1, fc2, fc3 = st.columns(3)
-            
+                                  
             fc1, fc2, fc3 = st.columns(3)
             with fc1:
                 tgl_entry = st.date_input("Tanggal Entry", value=datetime.now(), key="tgl_entry_rj")
