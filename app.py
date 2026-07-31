@@ -960,7 +960,7 @@ with t_real:
             if auto_data:
                 st.success(f"🎯 Auto-fill aktif: **{auto_data['kode']}** ({auto_data['rekomendasi']})")
                 with st.expander("📋 Detail Auto-fill", expanded=True):
-                      st.write(f"**Entry:** Rp{auto_data['entry']:,.0f}")
+                    st.write(f"**Entry:** Rp{auto_data['entry']:,.0f}")
                     st.write(f"**Setup:** {auto_data['setup']}")
                     st.write(f"**Lot:** {auto_data['lot']}")
                 if st.button("🗑️ Batal Auto-fill", key="btn_cancel_autofill"):
