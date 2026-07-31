@@ -951,64 +951,79 @@ with t_real:
         
         # --- Catat trade baru ---
         with sub1:
-            st.markdown("**Catat posisi baru (OPEN)**")
-            brokers_df = rj.load_brokers()
-            broker_options = brokers_df["Sekuritas"].tolist() if not brokers_df.empty else ["Lainnya"]
-            
-            # === AUTO-FILL DARI KANDIDAT TERBAIK ===
-            auto_data = st.session_state.get('auto_fill_trade', None)
-            if auto_data:
-                st.success(f"🎯 Auto-fill aktif: **{auto_data['kode']}** ({auto_data['rekomendasi']})")
-                with st.expander("📋 Detail Auto-fill", expanded=True):
-                    st.write(f"**Entry:** Rp{auto_data['entry']:,.0f}")
-                    st.write(f"**Setup:** {auto_data['setup']}")
-                    st.write(f"**Lot:** {auto_data['lot']}")
-                if st.button("🗑️ Batal Auto-fill", key="btn_cancel_autofill"):
-                    del st.session_state['auto_fill_trade']
-                    st.rerun()
-                st.divider()
-                                  
-            fc1, fc2, fc3 = st.columns(3)
-            with fc1:
-                tgl_entry = st.date_input("Tanggal Entry", value=datetime.now(), key="tgl_entry_rj")
-            with fc2:
-                sekuritas_in = st.selectbox("Sekuritas", options=broker_options, key="sekuritas_rj")
-            with fc3:
-                default_saham = auto_data['kode'] if auto_data else ""
-                saham_in = st.text_input("Kode Saham", value=default_saham, key="saham_rj").upper()
+    st.markdown("**Catat posisi baru (OPEN)**")
+    brokers_df = rj.load_brokers()
+    broker_options = brokers_df["Sekuritas"].tolist() if not brokers_df.empty else ["Lainnya"]
     
-            fc4, fc5 = st.columns(2)
-            with fc4:
-                default_setup_idx = rj.SETUP_OPTIONS.index(auto_data['setup']) if auto_data and auto_data['setup'] in rj.SETUP_OPTIONS else 0
-                setup_in = st.selectbox("Setup", options=rj.SETUP_OPTIONS, index=default_setup_idx, key="setup_rj")
-            with fc5:
-                default_lot = auto_data['lot'] if auto_data else 10
-                lot_in2 = st.number_input("Lot", min_value=1, value=int(default_lot), step=1, key="lot_rj")
-
-            
-            fc6, fc7, fc8 = st.columns(3)
-            with fc6:
-                default_entry = auto_data['entry'] if auto_data else 0.0
-                entry_in2 = st.number_input("Entry (Rp)", min_value=0.0, value=float(default_entry), step=1.0, key="entry_rj")
-            with fc7:
-                default_sl = auto_data['stop_loss'] if auto_data else 0.0
-                sl_in2 = st.number_input("Stop Loss (Rp)", min_value=0.0, value=float(default_sl), step=1.0, key="sl_rj")
-            with fc8:
-                default_target = auto_data['target'] if auto_data else 0.0
-                target_in2 = st.number_input("Target (Rp)", min_value=0.0, value=float(default_target), step=1.0, key="target_rj")
-            
-            default_catatan = f"Auto-fill dari Kandidat Terbaik - {auto_data['rekomendasi']}" if auto_data else ""
-            catatan_in = st.text_area("Catatan", value=default_catatan, height=70, key="catatan_rj")
-            
-            if st.button("💾 Simpan Trade (OPEN)", type="primary", key="btn_open_rj"):
-                if not saham_in or entry_in2 <= 0:
-                    st.error("Kode saham dan Entry wajib diisi.")
-                else:
-                    no = rj.open_trade(tgl_entry.strftime("%Y-%m-%d"), sekuritas_in, saham_in, setup_in, entry_in2, sl_in2, target_in2, lot_in2, catatan_in)
-                    st.success(f"Trade #{no} ({saham_in}) berhasil dicatat.")
-                    if 'auto_fill_trade' in st.session_state:
-                        del st.session_state['auto_fill_trade']
-                    st.rerun()
+    # === AUTO-FILL DARI KANDIDAT TERBAIK ===
+    auto_data = st.session_state.get('auto_fill_trade', None)
+    
+    if auto_data:
+        st.success(f"🎯 Auto-fill aktif: **{auto_data['kode']}** ({auto_data['rekomendasi']})")
+        with st.expander("📋 Detail Auto-fill", expanded=True):
+            st.write(f"**Entry:** Rp{auto_data['entry']:,.0f}")
+            st.write(f"**Stop Loss:** Rp{auto_data['stop_loss']:,.0f}")
+            st.write(f"**Target:** Rp{auto_data['target']:,.0f}")
+            st.write(f"**RR:** {auto_data['rr']}x")
+            st.write(f"**Setup:** {auto_data['setup']}")
+            st.write(f"**Lot:** {auto_data['lot']}")
+        if st.button("🗑️ Batal Auto-fill", key="btn_cancel_autofill"):
+            del st.session_state['auto_fill_trade']
+            st.rerun()
+        st.divider()
+    
+    # === FORM INPUT ===
+    fc1, fc2, fc3 = st.columns(3)
+    with fc1:
+        tgl_entry = st.date_input("Tanggal Entry", value=datetime.now(), key="tgl_entry_rj")
+    with fc2:
+        sekuritas_in = st.selectbox("Sekuritas", options=broker_options, key="sekuritas_rj")
+    with fc3:
+        # Auto-fill kode saham jika ada
+        default_saham = auto_data['kode'] if auto_data else ""
+        saham_in = st.text_input("Kode Saham", value=default_saham, key="saham_rj").upper()
+    
+    fc4, fc5 = st.columns(2)
+    with fc4:
+        # Auto-fill setup jika ada
+        default_setup_idx = rj.SETUP_OPTIONS.index(auto_data['setup']) if auto_data and auto_data['setup'] in rj.SETUP_OPTIONS else 0
+        setup_in = st.selectbox("Setup", options=rj.SETUP_OPTIONS, index=default_setup_idx, key="setup_rj")
+    with fc5:
+        # Auto-fill lot jika ada
+        default_lot = auto_data['lot'] if auto_data else 10
+        lot_in2 = st.number_input("Lot", min_value=1, value=int(default_lot), step=1, key="lot_rj")
+    
+    fc6, fc7, fc8 = st.columns(3)
+    with fc6:
+        # Auto-fill entry jika ada
+        default_entry = auto_data['entry'] if auto_data else 0.0
+        entry_in2 = st.number_input("Entry (Rp)", min_value=0.0, value=float(default_entry), step=1.0, key="entry_rj")
+    with fc7:
+        # Auto-fill stop loss jika ada
+        default_sl = auto_data['stop_loss'] if auto_data else 0.0
+        sl_in2 = st.number_input("Stop Loss (Rp)", min_value=0.0, value=float(default_sl), step=1.0, key="sl_rj")
+    with fc8:
+        # Auto-fill target jika ada
+        default_target = auto_data['target'] if auto_data else 0.0
+        target_in2 = st.number_input("Target (Rp)", min_value=0.0, value=float(default_target), step=1.0, key="target_rj")
+    
+    # Auto-fill catatan
+    default_catatan = f"Auto-fill dari Kandidat Terbaik - {auto_data['rekomendasi']}" if auto_data else ""
+    catatan_in = st.text_area("Catatan", value=default_catatan, height=70, key="catatan_rj")
+    
+    if st.button("💾 Simpan Trade (OPEN)", type="primary", key="btn_open_rj"):
+        if not saham_in or entry_in2 <= 0:
+            st.error("Kode saham dan Entry wajib diisi.")
+        else:
+            no = rj.open_trade(
+                tgl_entry.strftime("%Y-%m-%d"), sekuritas_in, saham_in, setup_in,
+                entry_in2, sl_in2, target_in2, lot_in2, catatan_in,
+            )
+            st.success(f"Trade #{no} ({saham_in}) berhasil dicatat.")
+            # Reset auto-fill setelah berhasil simpan
+            if 'auto_fill_trade' in st.session_state:
+                del st.session_state['auto_fill_trade']
+            st.rerun()
 
 # =================================================================================
 
