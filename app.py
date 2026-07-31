@@ -291,23 +291,21 @@ st.divider()
 t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk = st.tabs([
     "🏆 Kandidat Terbaik", "📋 Semua Saham", "📉 Grafik Saham", "📒 Jurnal Backtest",
     "🎯 Top 10 Day/Swing", "💼 Jurnal Real", "💰 Equity", "🚀 Performance", "🧮 Kalkulator"
-])
-
-# ---------------- TAB 1: kandidat terbaik (ALL-IN-ONE) ----------------
+])# ---------------- TAB 1: kandidat terbaik (FINAL VERSION) ----------------
 with t_kandidat:
-    # 1. Ambil saham dengan signal bagus
+    # 1. Ambil semua saham dengan signal bagus
     picks = table[table["Signal"].isin(["STRONG BUY", "BUY"])].copy()
     
     if not market_ok:
-        st.info("🚦 Kandidat BUY disembunyikan sementara karena IHSG Bearish dan filter pasar aktif di sidebar.")
+        st.info("🚦 Kandidat BUY disembunyikan sementara karena IHSG Bearish.")
         picks = picks.iloc[0:0]
         
     if aktifkan_sektor and not picks.empty:
-        sektor_pilih_1 = st.multiselect("🏷️ Filter Sektor", options=sorted(picks["Sektor"].dropna().unique().tolist()), key="sektor_tab1")
+        sektor_pilih_1 = st.multiselect("️ Filter Sektor", options=sorted(picks["Sektor"].dropna().unique().tolist()), key="sektor_tab1")
         if sektor_pilih_1:
             picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
     
-    # 2. Hitung RR, Entry, Target, SL secara otomatis & aman (Anti-Error)
+    # 2. Hitung RR dengan Donchian 20D (untuk semua)
     if not picks.empty:
         rr_data = []
         for _, row in picks.iterrows():
@@ -315,7 +313,6 @@ with t_kandidat:
             df = price_data.get(kode)
             try:
                 if df is not None and len(df) >= int(donchian_lb) + 2:
-                    # Hitung Donchian High/Low (tanpa hari ini)
                     hist = df.iloc[-(int(donchian_lb) + 1) : -1]
                     dh = float(hist["High"].max())
                     dl = float(hist["Low"].min())
@@ -329,56 +326,92 @@ with t_kandidat:
                     else:
                         rr, target, dl = 0, 0, 0
                         
-                    rr_data.append({"Kode": kode, "RR": round(rr, 2), "Entry": round(entry, 0), "Target": round(target, 0), "Stop Loss": round(dl, 0)})
+                    rr_data.append({
+                        "Kode": kode, 
+                        "RR": round(rr, 2), 
+                        "Entry": round(entry, 0), 
+                        "Target": round(target, 0), 
+                        "Stop Loss": round(dl, 0),
+                        "Donchian High": round(dh, 0)
+                    })
                 else:
-                    rr_data.append({"Kode": kode, "RR": 0, "Entry": 0, "Target": 0, "Stop Loss": 0})
+                    rr_data.append({"Kode": kode, "RR": 0, "Entry": 0, "Target": 0, "Stop Loss": 0, "Donchian High": 0})
             except:
-                rr_data.append({"Kode": kode, "RR": 0, "Entry": 0, "Target": 0, "Stop Loss": 0})
+                rr_data.append({"Kode": kode, "RR": 0, "Entry": 0, "Target": 0, "Stop Loss": 0, "Donchian High": 0})
         
-        # Gabungkan data RR ke tabel utama
         rr_df = pd.DataFrame(rr_data)
         picks = picks.merge(rr_df, on="Kode", how="left")
     
-    # 3. Filter Interaktif
+    # 3. Filter (LEBIH FLEKSIBEL - tidak terlalu ketat)
     if not picks.empty and "Rekomendasi" in picks.columns:
-        st.markdown("### 🎯 Filter Trading (Pilih Sesuai Gaya Anda)")
+        st.markdown("### 🎯 Filter Trading")
         col_f1, col_f2, col_f3 = st.columns(3)
         
         with col_f1:
             available_rec = sorted(picks["Rekomendasi"].dropna().unique().tolist())
-            default_rec = [x for x in ["⚡ DAY TRADE", "🌊 SWING TRADE"] if x in available_rec]
-            if not default_rec: default_rec = available_rec
+            # Default: tampilkan SEMUA rekomendasi positif
+            default_rec = [x for x in available_rec if "AVOID" not in x and "WAIT" not in x]
+            if not default_rec:
+                default_rec = available_rec
             
-            rec_filter = st.multiselect("1️⃣ Rekomendasi", options=available_rec, default=default_rec)
-            if rec_filter: picks = picks[picks["Rekomendasi"].isin(rec_filter)]
+            rec_filter = st.multiselect(
+                "1️⃣ Rekomendasi",
+                options=available_rec,
+                default=default_rec,
+                help="Pilih gaya trading yang sesuai"
+            )
+            if rec_filter:
+                picks = picks[picks["Rekomendasi"].isin(rec_filter)]
         
         with col_f2:
             if "Quality" in picks.columns:
                 available_q = sorted(picks["Quality"].dropna().unique().tolist())
+                # Default: HIGH + MODERATE
                 default_q = [x for x in ["✅ HIGH", "⚠️ MODERATE"] if x in available_q]
-                if not default_q: default_q = available_q
+                if not default_q:
+                    default_q = available_q
                 
-                q_filter = st.multiselect("2️⃣ Quality Rating", options=available_q, default=default_q)
-                if q_filter: picks = picks[picks["Quality"].isin(q_filter)]
+                q_filter = st.multiselect(
+                    "2️⃣ Quality Rating",
+                    options=available_q,
+                    default=default_q,
+                    help="HIGH = paling aman, MODERATE = cukup baik"
+                )
+                if q_filter:
+                    picks = picks[picks["Quality"].isin(q_filter)]
         
         with col_f3:
-            # Gunakan parameter Min RR dari sidebar secara otomatis
-            if "RR" in picks.columns:
-                picks = picks[picks["RR"] >= min_rr]
-                st.success(f"✅ Filter Aktif: RR ≥ {min_rr}")
+            # RR Filter - TAPI tidak terlalu ketat
+            use_rr_filter = st.checkbox(
+                "Filter RR ≥ 2.0",
+                value=False,  # Default OFF - tampilkan semua dulu
+                help="Aktifkan untuk hanya tampilkan RR ≥ 2.0"
+            )
+            
+            if use_rr_filter and "RR" in picks.columns:
+                picks = picks[picks["RR"] >= 2.0]
+                st.success(f"✅ Filter RR ≥ 2.0 aktif")
+            elif "RR" in picks.columns:
+                st.info(f"️ Menampilkan semua RR (aktifkan filter jika perlu)")
 
+        # Panduan
         st.markdown("""
         <div style="background: #1f2937; padding: 12px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #16a34a;">
             <b>💡 Panduan Cuan Konsisten:</b><br>
-            1. Pilih saham dengan Rekomendasi <b>DAY TRADE</b> atau <b>SWING TRADE</b>.<br>
-            2. Pastikan <b>Quality = ✅ HIGH</b> dan <b>RR ≥ 2.0</b>.<br>
-            3. Entry di harga sekarang, pasang <b>Stop Loss</b> dan <b>Target</b> sesuai kolom di bawah. <b>JANGAN DILANGGAR!</b>
+            1. <b>Prioritas 1:</b> Quality = ✅ HIGH + RR ≥ 2.0 + SWING/DAY TRADE<br>
+            2. <b>Prioritas 2:</b> Quality = ⚠️ MODERATE + RR ≥ 1.5 + SWING TRADE<br>
+            3. <b>Hindari:</b> RR < 1.0 atau AVOID<br>
+            4. <b>Entry</b> di harga sekarang, pasang <b>Stop Loss</b> dan <b>Target</b> sesuai kolom. <b>JANGAN DILANGGAR!</b>
         </div>
         """, unsafe_allow_html=True)
 
-    # 4. Tampilkan Tabel
+    # 4. Sorting - RR tertinggi di atas
+    if not picks.empty and "RR" in picks.columns:
+        picks = picks.sort_values(["RR", "Quality Score"], ascending=[False, False])
+
+    # 5. Tampilkan Tabel
     if picks.empty:
-        st.info("Tidak ada saham yang lolos filter ketat ini. Pertahankan disiplin, jangan memaksakan entry!")
+        st.info("Tidak ada saham yang lolos filter. Coba longgarkan filter di atas.")
     else:
         show = picks.copy()
         show["Harga"] = show["Harga"].map(lambda x: f"Rp{x:,.0f}")
@@ -386,24 +419,26 @@ with t_kandidat:
         show["Value Traded (Rp)"] = picks["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
         show["Volume Ratio"] = picks["Volume Ratio"].map(lambda x: f"{x:.1f}x")
         
-        # Format angka agar rapi
-        for col in ["RR", "Entry", "Target", "Stop Loss"]:
+        # Format RR dengan warna warning
+        for col in ["RR", "Entry", "Target", "Stop Loss", "Donchian High"]:
             if col in show.columns:
                 if col == "RR":
                     show[col] = show[col].map(lambda x: f"{x:.2f}x" if pd.notnull(x) and x > 0 else "-")
                 else:
                     show[col] = show[col].map(lambda x: f"Rp{x:,.0f}" if pd.notnull(x) and x > 0 else "-")
 
-        # Susun kolom agar urut dan logis
+        # Susun kolom - RR dan Entry/Target/SL di depan
         kolom_tampil = [
-            "Kode", "Nama", "Signal", "Score", "Rekomendasi", "RR", 
-            "Entry", "Target", "Stop Loss", "Quality", "Quality Score", 
-            "Trend", "Smart Money", "Momentum", "Harga", "Perubahan %"
+            "Kode", "Nama", "Signal", "Score", 
+            "Rekomendasi", "RR", "Entry", "Target", "Stop Loss",
+            "Quality", "Quality Score", "Trend", "Smart Money", "Momentum", 
+            "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
         ]
-        if aktifkan_sektor: kolom_tampil.insert(2, "Sektor")
+        if aktifkan_sektor:
+            kolom_tampil.insert(2, "Sektor")
         kolom_tampil = [col for col in kolom_tampil if col in show.columns]
         
-        # Fungsi pewarnaan agar mudah dibaca sekilas
+        # Pewarnaan
         def color_rec(val):
             val = str(val)
             if "DAY TRADE" in val: return "background-color: #16a34a; color: white; font-weight: bold;"
@@ -418,13 +453,40 @@ with t_kandidat:
             if "MODERATE" in val: return "background-color: #92400e; color: white; font-weight: bold;"
             return ""
 
+        def color_rr(val):
+            """Warnai RR: hijau=bagus, kuning=cukup, merah=jelek"""
+            try:
+                rr_str = str(val).replace("x", "").strip()
+                if rr_str == "-":
+                    return ""
+                rr = float(rr_str)
+                if rr >= 3.0:
+                    return "background-color: #16a34a; color: white; font-weight: bold;"
+                elif rr >= 2.0:
+                    return "background-color: #2563eb; color: white; font-weight: bold;"
+                elif rr >= 1.5:
+                    return "background-color: #eab308; color: black; font-weight: bold;"
+                else:
+                    return "background-color: #dc2626; color: white; font-weight: bold;"
+            except:
+                return ""
+
         styler = show[kolom_tampil].style
-        if "Rekomendasi" in kolom_tampil: styler = styler.map(color_rec, subset=["Rekomendasi"])
-        if "Quality" in kolom_tampil: styler = styler.map(color_q, subset=["Quality"])
+        if "Rekomendasi" in kolom_tampil:
+            styler = styler.map(color_rec, subset=["Rekomendasi"])
+        if "Quality" in kolom_tampil:
+            styler = styler.map(color_q, subset=["Quality"])
+        if "RR" in kolom_tampil:
+            styler = styler.map(color_rr, subset=["RR"])
         
         st.dataframe(styler, use_container_width=True, hide_index=True, height=460, key="df_kandidat_final")
         
-        st.download_button("⬇️ Download CSV", show[kolom_tampil].to_csv(index=False).encode("utf-8"), file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+        st.download_button(
+            "⬇️ Download CSV", 
+            show[kolom_tampil].to_csv(index=False).encode("utf-8"), 
+            file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", 
+            mime="text/csv"
+        )
         
 # ---------------- TAB 2: semua saham ----------------
 with t_semua:
