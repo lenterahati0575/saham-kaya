@@ -458,6 +458,10 @@ with t_kandidat:
         show["Perubahan %"] = (picks["Perubahan %"] * 100).map(lambda x: f"{x:+.2f}%")
         show["Value Traded (Rp)"] = picks["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
         show["Volume Ratio"] = picks["Volume Ratio"].map(lambda x: f"{x:.1f}x")
+        
+        # Format Quality Score (1 desimal)
+        if "Quality Score" in show.columns:
+            show["Quality Score"] = show["Quality Score"].round(1)
 
         # Format kolom baru
         if "Risiko %" in show.columns:
