@@ -351,8 +351,7 @@ with t_kandidat:
         
         st.success(f"✅ Data {pilih_catat} siap! Buka tab **Jurnal Real**.")
         st.info(f"📊 Entry: Rp{st.session_state['auto_fill_trade']['entry']:,.0f} | SL: Rp{st.session_state['auto_fill_trade']['stop_loss']:,.0f} | Target: Rp{st.session_state['auto_fill_trade']['target']:,.0f}")
-                st.success(f"✅ Data {pilih_catat} siap! Buka tab **Jurnal Real**.")
-                st.info(f"📊 Entry: Rp{float(row_data.get('Entry', 0)):,.0f} | SL: Rp{float(row_data.get('Stop Loss', 0)):,.0f} | Target: Rp{float(row_data.get('Target', 0)):,.0f}")
+               
 
         st.download_button("⬇️ Download CSV", show[kolom_tampil].to_csv(index=False).encode("utf-8"), file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
         
