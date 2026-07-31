@@ -503,30 +503,35 @@ with t_kandidat:
             "Stop Loss": st.column_config.TextColumn("Stop Loss"),
         }
         
-        event = st.dataframe(
-            show_with_select[kolom_tampil + ["Pilih"]],
-            use_container_width=True,
-            hide_index=True,
-            height=460,
-            key="df_kandidat_with_checkbox",
-            column_config=column_config,
-            on_select="rerun",
-            selection_mode="single-row",
-        )
-        
-        # Tampilkan chart untuk saham yang dipilih
-        selected_rows = event.selection.rows if event and hasattr(event, "selection") else []
-        if selected_rows:
-            selected_kode = show_with_select.iloc[selected_rows[0]]["Kode"]
-            st.markdown(f"### 📈 Chart TradingView - {selected_kode}")
-            embed_tradingview_chart(selected_kode, height=500)
-        
-        st.download_button(
-            "⬇️ Download CSV", 
-            show[kolom_tampil].to_csv(index=False).encode("utf-8"), 
-            file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", 
-            mime="text/csv"
-        )
+        # === TAMPILKAN TABEL BERWARNA ===
+st.dataframe(
+    styler,
+    use_container_width=True, 
+    hide_index=True, 
+    height=460,
+    key="df_kandidat_final"
+)
+
+# === CHART TRADINGVIEW ===
+st.divider()
+st.markdown("### 📈 Chart TradingView")
+
+chart_kode = st.selectbox(
+    "Pilih saham untuk melihat chart:",
+    options=["-- Pilih Saham --"] + show["Kode"].tolist(),
+    key="chart_selector"
+)
+
+if chart_kode and chart_kode != "-- Pilih Saham --":
+    embed_tradingview_chart(chart_kode, height=500)
+
+# Download button
+st.download_button(
+    "⬇️ Download CSV", 
+    show[kolom_tampil].to_csv(index=False).encode("utf-8"), 
+    file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", 
+    mime="text/csv"
+)
         
 # ---------------- TAB 2: semua saham ----------------
 with t_semua:
