@@ -349,10 +349,8 @@ with t_kandidat:
                     'rr': clean_number(row_data.get('RR', 0))
         }
         
-        # Tampilkan info dengan aman (pakai .get())
-        auto_data = st.session_state.get('auto_fill_trade', {})
         st.success(f"✅ Data {pilih_catat} siap! Buka tab **Jurnal Real**.")
-        st.info(f"📊 Entry: Rp{auto_data.get('entry', 0):,.0f} | SL: Rp{auto_data.get('stop_loss', 0):,.0f} | Target: Rp{auto_data.get('target', 0):,.0f}")     
+        st.info(f"📊 Entry: Rp{st.session_state['auto_fill_trade']['entry']:,.0f} | SL: Rp{st.session_state['auto_fill_trade']['stop_loss']:,.0f} | Target: Rp{st.session_state['auto_fill_trade']['target']:,.0f}") 
 
         st.download_button("⬇️ Download CSV", show[kolom_tampil].to_csv(index=False).encode("utf-8"), file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
         
