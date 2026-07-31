@@ -978,15 +978,7 @@ with t_real:
             setup_in = fc4.selectbox("Setup", options=rj.SETUP_OPTIONS, index=default_setup_idx, key="setup_rj")
             default_lot = auto_data['lot'] if auto_data else 10
             lot_in2 = fc5.number_input("Lot", min_value=1, value=int(default_lot), step=1, key="lot_rj")
-            fc6, fc7, fc8 = st.columns(3)
-            default_entry = auto_data['entry'] if auto_data else 0.0
-            entry_in2 = fc6.number_input("Entry (Rp)", min_value=0.0, value=float(default_entry), step=1.0, key="entry_rj")
-            default_sl = auto_data['stop_loss'] if auto_data else 0.0
-            sl_in2 = fc7.number_input("Stop Loss (Rp)", min_value=0.0, value=float(default_sl), step=1.0, key="sl_rj")
-            default_target = auto_data['target'] if auto_data else 0.0
-            target_in2 = fc8.number_input("Target (Rp)", min_value=0.0, value=float(default_target), step=1.0, key="target_rj")
-            default_catatan = f"Auto-fill dari Kandidat Terbaik - {auto_data['rekomendasi']}" if auto_data else ""
-            catatan_in = st.text_area("Catatan (opsional)", value=default_catatan, height=70, key="catatan_rj")
+            
             
             fc6, fc7, fc8 = st.columns(3)
             with fc6:
