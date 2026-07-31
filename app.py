@@ -1170,7 +1170,7 @@ with t_equity:
                         st.error(msg)
 
 st.divider()
-st.caption("️ Data diambil dari Yahoo Finance (yfinance), bukan API resmi. Bukan rekomendasi keuangan. Selalu lakukan riset & kelola risiko sendiri.")z
+st.caption("️ Data diambil dari Yahoo Finance (yfinance), bukan API resmi. Bukan rekomendasi keuangan. Selalu lakukan riset & kelola risiko sendiri.")
 
 
 
