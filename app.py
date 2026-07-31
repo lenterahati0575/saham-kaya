@@ -16,6 +16,7 @@ import equity as eq
 
 st.set_page_config(page_title="IDX Screener Dashboard", page_icon="📈", layout="wide")
 
+
 def _check_auth() -> bool:
     app_password = st.secrets.get("APP_PASSWORD", "")
     if not app_password:
@@ -35,6 +36,7 @@ def _check_auth() -> bool:
         else:
             st.error("Password salah.")
     return False
+
 
 if not _check_auth():
     st.stop()
@@ -57,6 +59,7 @@ e.target.select();
 </script>
 """, height=0)
 
+
 def embed_tradingview_chart(kode: str, height: int = 520):
     src = (
         f"https://s.tradingview.com/widgetembed/?symbol=IDX%3A{kode}"
@@ -65,6 +68,7 @@ def embed_tradingview_chart(kode: str, height: int = 520):
     )
     html = f'<iframe src="{src}" width="100%" height="{height}" frameborder="0" allowtransparency="true" scrolling="no"></iframe>'
     components.html(html, height=height + 10)
+
 
 def dataframe_with_chart(df_display, kode_col="Kode", height=460, key=None, column_config=None):
     event = st.dataframe(
@@ -79,6 +83,7 @@ def dataframe_with_chart(df_display, kode_col="Kode", height=460, key=None, colu
         embed_tradingview_chart(kode_selected, height=420)
     else:
         st.caption("💡 Klik salah satu baris di tabel di atas untuk melihat chart TradingView langsung di sini.")
+
 
 st.markdown("""
 <style>
@@ -106,7 +111,7 @@ div[data-testid="stMetricLabel"] {font-size: 0.8rem !important;}
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📈 IDX Screener Dashboard")
+st.title(" IDX Screener Dashboard")
 st.caption("Data live Yahoo Finance · Gate likuiditas + Donchian 20D Breakout · Gratis & mobile-friendly")
 
 # ---------------- Sidebar ----------------
@@ -151,7 +156,7 @@ with st.spinner(f"Mengambil data live untuk {len(tickers)} saham..."):
     table = build_screener_table(price_data, universe, params)
 
 if table.empty:
-    st.warning("Belum ada data yang berhasil diambil. Coba Refresh Data Live lagi.")
+    st.warning("Belum ada data yang berhasil diambil.")
     st.stop()
 
 if aktifkan_sektor:
@@ -161,7 +166,7 @@ if aktifkan_sektor:
 else:
     table["Sektor"] = None
 
-st.caption(f"Terakhir refresh: {datetime.now().strftime('%d %b %Y, %H:%M')} · {len(table)}/{len(tickers)} saham berhasil")
+st.caption(f"Terakhir refresh: {datetime.now().strftime('%d %b %Y, %H:%M')} · {len(table)}/{len(tickers)} saham")
 
 # ---------------- Kondisi Pasar ----------------
 ihsg_hist = fetch_ihsg_history()
@@ -181,12 +186,12 @@ if not market_ok:
 
 # ---------------- Tabs ----------------
 t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk = st.tabs([
-    "🏆 Kandidat Terbaik", "📋 Semua Saham", "📉 Grafik Saham", "📒 Jurnal Backtest",
+    " Kandidat Terbaik", "📋 Semua Saham", "📉 Grafik Saham", "📒 Jurnal Backtest",
     "🎯 Top 10 Day/Swing", "💼 Jurnal Real", "💰 Equity", "🚀 Performance", "🧮 Kalkulator"
 ])
 
 # ============================================================================
-# TAB 1: KANDIDAT TERBAIK
+# TAB 1: KANDIDAT TERBAIK (LENGKAP)
 # ============================================================================
 with t_kandidat:
     picks = table[table["Signal"].isin(["STRONG BUY", "BUY"])].copy()
@@ -198,6 +203,7 @@ with t_kandidat:
         if sektor_pilih_1:
             picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
 
+    # Hitung RR
     if not picks.empty:
         rr_data = []
         for _, row in picks.iterrows():
@@ -209,29 +215,25 @@ with t_kandidat:
                     dh, dl = float(hist["High"].max()), float(hist["Low"].min())
                     entry = float(row["Harga"])
                     rekomendasi = str(row.get("Rekomendasi", ""))
-                    
                     sl_donchian = dl
                     ma20 = float(df["Close"].rolling(20).mean().iloc[-1]) if len(df) >= 20 else dl
                     sl_max = entry * 0.95 if "DAY TRADE" in rekomendasi else entry * 0.90
                     sl_type = "Day (max 5%)" if "DAY TRADE" in rekomendasi else "Swing (max 10%)"
-                    
                     sl_candidates = [x for x in [sl_donchian, ma20, sl_max] if x < entry]
                     stop_loss = max(sl_candidates) if sl_candidates else sl_max
-                    
                     target = dh + (dh - dl)
                     risk = entry - stop_loss
                     reward = target - entry
                     rr = reward / risk if risk > 0 else 0
                     risk_pct = (risk / entry) * 100
-                    
                     rr_data.append({"Kode": kode, "RR": round(rr, 2), "Entry": round(entry, 0), "Target": round(target, 0), "Stop Loss": round(stop_loss, 0), "Risiko %": round(risk_pct, 1), "SL Type": sl_type})
                 else:
                     rr_data.append({"Kode": kode, "RR": 0, "Entry": 0, "Target": 0, "Stop Loss": 0, "Risiko %": 0, "SL Type": ""})
             except Exception:
                 rr_data.append({"Kode": kode, "RR": 0, "Entry": 0, "Target": 0, "Stop Loss": 0, "Risiko %": 0, "SL Type": ""})
-        
         picks = picks.merge(pd.DataFrame(rr_data), on="Kode", how="left")
 
+    # Filter
     if not picks.empty and "Rekomendasi" in picks.columns:
         st.markdown("### 🎯 Filter Trading")
         col_f1, col_f2, col_f3 = st.columns(3)
@@ -239,13 +241,15 @@ with t_kandidat:
             available_rec = sorted(picks["Rekomendasi"].dropna().unique().tolist())
             default_rec = [x for x in available_rec if "AVOID" not in x and "WAIT" not in x] or available_rec
             rec_filter = st.multiselect("1️⃣ Rekomendasi", options=available_rec, default=default_rec)
-            if rec_filter: picks = picks[picks["Rekomendasi"].isin(rec_filter)]
+            if rec_filter:
+                picks = picks[picks["Rekomendasi"].isin(rec_filter)]
         with col_f2:
             if "Quality" in picks.columns:
                 available_q = sorted(picks["Quality"].dropna().unique().tolist())
                 default_q = [x for x in ["✅ HIGH", "⚠️ MODERATE"] if x in available_q] or available_q
                 q_filter = st.multiselect("2️⃣ Quality Rating", options=available_q, default=default_q)
-                if q_filter: picks = picks[picks["Quality"].isin(q_filter)]
+                if q_filter:
+                    picks = picks[picks["Quality"].isin(q_filter)]
         with col_f3:
             use_rr_filter = st.checkbox("Filter RR ≥ 2.0", value=False)
             if use_rr_filter and "RR" in picks.columns:
@@ -273,9 +277,10 @@ with t_kandidat:
                     show[col] = show[col].map(lambda x: f"{x:.2f}x" if pd.notnull(x) and x > 0 else "-")
                 else:
                     show[col] = show[col].map(lambda x: f"Rp{x:,.0f}" if pd.notnull(x) and x > 0 else "-")
-        
+
         kolom_tampil = ["Kode", "Nama", "Signal", "Score", "Rekomendasi", "RR", "Risiko %", "Entry", "Target", "Stop Loss", "SL Type", "Quality", "Quality Score", "Trend", "Smart Money", "Momentum", "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout"]
-        if aktifkan_sektor: kolom_tampil.insert(2, "Sektor")
+        if aktifkan_sektor:
+            kolom_tampil.insert(2, "Sektor")
         kolom_tampil = [col for col in kolom_tampil if col in show.columns]
 
         def color_rec(val):
@@ -297,7 +302,8 @@ with t_kandidat:
                 elif rr >= 2.0: return "background-color: #2563eb; color: white; font-weight: bold;"
                 elif rr >= 1.5: return "background-color: #eab308; color: black; font-weight: bold;"
                 else: return "background-color: #dc2626; color: white; font-weight: bold;"
-            except: return ""
+            except:
+                return ""
 
         styler = show[kolom_tampil].style
         if "Rekomendasi" in kolom_tampil: styler = styler.map(color_rec, subset=["Rekomendasi"])
@@ -316,27 +322,37 @@ with t_kandidat:
             lot_catat = st.number_input("Lot", min_value=1, value=10, step=1, key="lot_catat_kandidat")
         with cat3:
             setup_catat = st.selectbox("Setup", options=rj.SETUP_OPTIONS, index=0, key="setup_catat_kandidat")
-        
-        if st.button("📝 Kirim ke Jurnal Real", type="primary", use_container_width=True, key="btn_catat_kandidat"):
+
+        if st.button(" Kirim ke Jurnal Real", type="primary", use_container_width=True, key="btn_catat_kandidat"):
             if pilih_catat == "-- Pilih Saham --":
                 st.error("⚠️ Pilih saham terlebih dahulu!")
             else:
                 row_data = show[show["Kode"] == pilih_catat].iloc[0]
+                def clean_number(value):
+                    if isinstance(value, (int, float)):
+                        return float(value)
+                    if isinstance(value, str):
+                        cleaned = value.replace("Rp", "").replace(",", "").replace(" ", "").strip()
+                        try:
+                            return float(cleaned)
+                        except:
+                            return 0.0
+                    return 0.0
                 st.session_state['auto_fill_trade'] = {
                     'kode': pilih_catat,
-                    'entry': float(row_data.get('Entry', row_data['Harga'])),
-                    'stop_loss': float(row_data.get('Stop Loss', 0)),
-                    'target': float(row_data.get('Target', 0)),
+                    'entry': clean_number(row_data.get('Entry', row_data['Harga'])),
+                    'stop_loss': clean_number(row_data.get('Stop Loss', 0)),
+                    'target': clean_number(row_data.get('Target', 0)),
                     'setup': setup_catat,
                     'lot': lot_catat,
                     'rekomendasi': row_data.get('Rekomendasi', ''),
-                    'rr': row_data.get('RR', 0)
+                    'rr': clean_number(row_data.get('RR', 0))
                 }
                 st.success(f"✅ Data {pilih_catat} siap! Buka tab **Jurnal Real**.")
-                st.info(f"📊 Entry: Rp{float(row_data.get('Entry', 0)):,.0f} | SL: Rp{float(row_data.get('Stop Loss', 0)):,.0f} | Target: Rp{float(row_data.get('Target', 0)):,.0f}")
+                auto_data = st.session_state.get('auto_fill_trade', {})
+                st.info(f"📊 Entry: Rp{auto_data.get('entry', 0):,.0f} | SL: Rp{auto_data.get('stop_loss', 0):,.0f} | Target: Rp{auto_data.get('target', 0):,.0f}")
 
-        st.download_button("⬇️ Download CSV", show[kolom_tampil].to_csv(index=False).encode("utf-8"), file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
-        
+        st.download_button("️ Download CSV", show[kolom_tampil].to_csv(index=False).encode("utf-8"), file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
         st.divider()
         st.markdown("### 📈 Chart TradingView")
         chart_kode = st.selectbox("Pilih saham untuk melihat chart:", options=["-- Pilih Saham --"] + show["Kode"].tolist(), key="chart_selector")
@@ -348,27 +364,30 @@ with t_kandidat:
 # ============================================================================
 with t_semua:
     colf1, colf2, colf3 = st.columns([2, 1, 1])
-    with colf1: search = st.text_input("Cari kode/nama saham", "")
-    with colf2: sig_filter = st.multiselect("Filter Signal", options=sorted(table["Signal"].unique().tolist()), default=[])
+    with colf1:
+        search = st.text_input("Cari kode/nama saham", "")
+    with colf2:
+        sig_filter = st.multiselect("Filter Signal", options=sorted(table["Signal"].unique().tolist()), default=[])
     with colf3:
         sektor_filter = []
-        if aktifkan_sektor: sektor_filter = st.multiselect("🏷️ Filter Sektor", options=sorted(table["Sektor"].dropna().unique().tolist()), default=[], key="sektor_tab2")
-    
+        if aktifkan_sektor:
+            sektor_filter = st.multiselect("🏷️ Filter Sektor", options=sorted(table["Sektor"].dropna().unique().tolist()), default=[], key="sektor_tab2")
     view = table.copy()
-    if search: view = view[view["Kode"].str.contains(search.upper()) | view["Nama"].str.upper().str.contains(search.upper())]
-    if sig_filter: view = view[view["Signal"].isin(sig_filter)]
-    if sektor_filter: view = view[view["Sektor"].isin(sektor_filter)]
-    
+    if search:
+        view = view[view["Kode"].str.contains(search.upper()) | view["Nama"].str.upper().str.contains(search.upper())]
+    if sig_filter:
+        view = view[view["Signal"].isin(sig_filter)]
+    if sektor_filter:
+        view = view[view["Sektor"].isin(sektor_filter)]
     view_display = view.copy()
     view_display["Harga"] = view_display["Harga"].map(lambda x: f"Rp{x:,.0f}")
     view_display["Perubahan %"] = (view_display["Perubahan %"] * 100).map(lambda x: f"{x:+.2f}%")
     view_display["Value Traded (Rp)"] = view_display["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
     view_display["Volume Ratio"] = view_display["Volume Ratio"].map(lambda x: f"{x:.1f}x")
-    
     kolom_tampil2 = ["Kode", "Nama", "Signal", "Score", "Quality", "Quality Score", "Trend", "Smart Money", "Momentum", "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout", "Layak Likuiditas"]
-    if aktifkan_sektor: kolom_tampil2.insert(2, "Sektor")
+    if aktifkan_sektor:
+        kolom_tampil2.insert(2, "Sektor")
     kolom_tampil2 = [col for col in kolom_tampil2 if col in view_display.columns]
-    
     dataframe_with_chart(view_display[kolom_tampil2], kode_col="Kode", height=520, key="df_semua")
     st.download_button("⬇️ Download CSV", view_display[kolom_tampil2].to_csv(index=False).encode("utf-8"), file_name=f"semua_saham_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
 
@@ -381,8 +400,27 @@ with t_grafik:
         df_full = price_data[pilih]
         df = df_full.tail(90)
         row = table[table["Kode"] == pilih].iloc[0]
-        embed_tradingview_chart(pilih)
-        st.divider()
+        chart_mode = st.radio("Sumber grafik", ["Dashboard (Plotly + Donchian + Swing HL)", "TradingView Live"], horizontal=True, label_visibility="collapsed")
+        if chart_mode.startswith("TradingView"):
+            embed_tradingview_chart(pilih)
+        else:
+            fig = go.Figure()
+            fig.add_trace(go.Candlestick(x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], name=pilih))
+            ma_colors = {5: "#facc15", 20: "#38bdf8", 50: "#a78bfa"}
+            for p, c in ma_colors.items():
+                if len(df_full) >= p:
+                    ma_line = df_full["Close"].rolling(p).mean().tail(90)
+                    fig.add_trace(go.Scatter(x=ma_line.index, y=ma_line, mode="lines", name=f"MA{p}", line=dict(width=1.4, color=c)))
+            fig.add_hline(y=row["Donchian High"], line_dash="dash", line_color="#22c55e", annotation_text=f"Donchian High {int(donchian_lb)}D")
+            fig.add_hline(y=row["Donchian Low"], line_dash="dash", line_color="#ef4444", annotation_text=f"Donchian Low {int(donchian_lb)}D")
+            sh, sl_pts = ind.find_swing_points(df_full, order=3)
+            swing_df = ind.classify_swings(sh, sl_pts)
+            swing_recent = swing_df[swing_df["Tanggal"] >= df.index.min()]
+            for _, sp in swing_recent.iterrows():
+                color = "#22c55e" if sp["Label"] in ("HH", "HL") else "#ef4444"
+                fig.add_annotation(x=sp["Tanggal"], y=sp["Harga"], text=sp["Label"], showarrow=True, arrowhead=1, arrowcolor=color, font=dict(color=color, size=10), ay=-25 if sp["Tipe"] == "H" else 25)
+            fig.update_layout(height=520, template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=30, b=10), title=f"{pilih} — {row['Nama']}", legend=dict(orientation="h", yanchor="bottom", y=1.02))
+            st.plotly_chart(fig, use_container_width=True)
         cols = st.columns(4)
         cols[0].metric("Harga", f"Rp{row['Harga']:,.0f}", f"{row['Perubahan %']*100:+.2f}%")
         cols[1].metric("Signal", row["Signal"])
@@ -394,9 +432,9 @@ with t_grafik:
 # ============================================================================
 with t_backtest:
     if not gj.is_configured():
-        st.warning("Jurnal backtest belum terhubung ke Google Sheets. Isi `gcp_service_account` dan `GOOGLE_SHEET_ID` di Secrets.")
+        st.warning("Jurnal backtest belum terhubung ke Google Sheets.")
     else:
-        st.success(f"✅ Google Sheets terhubung")
+        st.success("✅ Google Sheets terhubung")
         day_tipe = classify_daytrading_tipe()
         st.caption(f"Tipe Day Trading saat ini: **{day_tipe}**")
         colb1, colb2, colb3 = st.columns(3)
@@ -404,19 +442,25 @@ with t_backtest:
             if st.button(f"🟢 Buka Posisi Day Trading ({day_tipe})", use_container_width=True):
                 if not cands_day_all.empty:
                     opened = gj.open_positions_from_candidates(cands_day_all, day_tipe)
-                    if opened: st.success(f"✅ Berhasil dibuka: {', '.join(opened)}"); st.rerun()
+                    if opened:
+                        st.success(f"✅ Berhasil dibuka: {', '.join(opened)}")
+                        st.rerun()
         with colb2:
             if st.button("🟢 Buka Posisi Swing Trading", use_container_width=True):
                 if not cands_swing_all.empty:
                     opened = gj.open_positions_from_candidates(cands_swing_all, "SWING")
-                    if opened: st.success(f"✅ Berhasil dibuka: {', '.join(opened)}"); st.rerun()
+                    if opened:
+                        st.success(f"✅ Berhasil dibuka: {', '.join(opened)}")
+                        st.rerun()
         with colb3:
             if st.button("🔍 Cek TP/SL & Force-Sell", use_container_width=True):
                 price_lookup = dict(zip(table["Kode"], table["Harga"]))
                 closed = gj.auto_close_positions(price_lookup)
-                if closed: st.success(f"✅ Berhasil ditutup: {', '.join(closed)}"); st.rerun()
-                else: st.info("ℹ️ Belum ada yang perlu ditutup.")
-        
+                if closed:
+                    st.success(f"✅ Berhasil ditutup: {', '.join(closed)}")
+                    st.rerun()
+                else:
+                    st.info("ℹ️ Belum ada yang perlu ditutup.")
         positions = gj.load_positions()
         stats = gj.summarize(positions)
         s1, s2, s3, s4, s5 = st.columns(5)
@@ -431,13 +475,13 @@ with t_backtest:
 # TAB 5: TOP 10 DAY/SWING
 # ============================================================================
 with t_top10:
-    st.subheader(f"⚡ Top 10 Day Trading")
+    st.subheader("⚡ Top 10 Day Trading")
     if not cands_day_all.empty:
         show_day = cands_day_all.copy()
         show_day["Nilai Transaksi"] = show_day["Nilai Transaksi"].map(lambda x: f"Rp{x/1e9:,.1f} M")
         dataframe_with_chart(show_day.drop(columns=["Chart"], errors="ignore"), kode_col="Saham", height=400, key="df_top10_day")
     st.divider()
-    st.subheader(f"🌊 Top 10 Swing Trading")
+    st.subheader("🌊 Top 10 Swing Trading")
     if not cands_swing_all.empty:
         show_swing = cands_swing_all.copy()
         show_swing["Nilai Transaksi"] = show_swing["Nilai Transaksi"].map(lambda x: f"Rp{x/1e9:,.1f} M")
@@ -490,16 +534,16 @@ with t_real:
     if not gj.is_configured():
         st.warning("Jurnal Real butuh koneksi Google Sheets.")
     else:
-        sub1, sub2 = st.tabs(["➕ Catat Trade", "🔓 Tutup Posisi"])
+        sub1, sub2, sub3, sub4, sub5 = st.tabs(["➕ Catat Trade", "🔓 Tutup Posisi", "📊 Performance Real", "⚙️ Sekuritas", "✏️ Edit/Hapus"])
+        
         with sub1:
             st.markdown("**Catat posisi baru (OPEN)**")
             brokers_df = rj.load_brokers()
             broker_options = brokers_df["Sekuritas"].tolist() if not brokers_df.empty else ["Lainnya"]
             
-            # === AUTO-FILL DARI KANDIDAT TERBAIK ===
-            auto_data = None
-            if 'auto_fill_trade' in st.session_state:
-                auto_data = st.session_state['auto_fill_trade']
+            # === AUTO-FILL ===
+            auto_data = st.session_state.get('auto_fill_trade', None)
+            if auto_data:
                 st.success(f"🎯 Auto-fill aktif: **{auto_data['kode']}** ({auto_data['rekomendasi']})")
                 with st.expander("📋 Detail Auto-fill", expanded=True):
                     st.write(f"**Entry:** Rp{auto_data['entry']:,.0f} | **SL:** Rp{auto_data['stop_loss']:,.0f} | **Target:** Rp{auto_data['target']:,.0f}")
@@ -509,20 +553,32 @@ with t_real:
                 st.divider()
             
             fc1, fc2, fc3 = st.columns(3)
-            tgl_entry = fc1.date_input("Tanggal Entry", value=datetime.now(), key="tgl_entry_rj")
-            sekuritas_in = fc2.selectbox("Sekuritas", options=broker_options, key="sekuritas_rj")
-            default_saham = auto_data['kode'] if auto_data else ""
-            saham_in = fc3.text_input("Kode Saham", value=default_saham, key="saham_rj").upper()
+            with fc1:
+                tgl_entry = st.date_input("Tanggal Entry", value=datetime.now(), key="tgl_entry_rj")
+            with fc2:
+                sekuritas_in = st.selectbox("Sekuritas", options=broker_options, key="sekuritas_rj")
+            with fc3:
+                default_saham = auto_data['kode'] if auto_data else ""
+                saham_in = st.text_input("Kode Saham", value=default_saham, key="saham_rj").upper()
             
             fc4, fc5 = st.columns(2)
-            default_setup_idx = rj.SETUP_OPTIONS.index(auto_data['setup']) if auto_data and auto_data['setup'] in rj.SETUP_OPTIONS else 0
-            setup_in = fc4.selectbox("Setup", options=rj.SETUP_OPTIONS, index=default_setup_idx, key="setup_rj")
-            lot_in2 = fc5.number_input("Lot", min_value=1, value=auto_data['lot'] if auto_data else 10, step=1, key="lot_rj")
+            with fc4:
+                default_setup_idx = rj.SETUP_OPTIONS.index(auto_data['setup']) if auto_data and auto_data['setup'] in rj.SETUP_OPTIONS else 0
+                setup_in = st.selectbox("Setup", options=rj.SETUP_OPTIONS, index=default_setup_idx, key="setup_rj")
+            with fc5:
+                default_lot = auto_data['lot'] if auto_data else 10
+                lot_in2 = st.number_input("Lot", min_value=1, value=int(default_lot), step=1, key="lot_rj")
             
             fc6, fc7, fc8 = st.columns(3)
-            entry_in2 = fc6.number_input("Entry (Rp)", min_value=0.0, value=auto_data['entry'] if auto_data else 0.0, step=1.0, key="entry_rj")
-            sl_in2 = fc7.number_input("Stop Loss (Rp)", min_value=0.0, value=auto_data['stop_loss'] if auto_data else 0.0, step=1.0, key="sl_rj")
-            target_in2 = fc8.number_input("Target (Rp)", min_value=0.0, value=auto_data['target'] if auto_data else 0.0, step=1.0, key="target_rj")
+            with fc6:
+                default_entry = auto_data['entry'] if auto_data else 0.0
+                entry_in2 = st.number_input("Entry (Rp)", min_value=0.0, value=float(default_entry), step=1.0, key="entry_rj")
+            with fc7:
+                default_sl = auto_data['stop_loss'] if auto_data else 0.0
+                sl_in2 = st.number_input("Stop Loss (Rp)", min_value=0.0, value=float(default_sl), step=1.0, key="sl_rj")
+            with fc8:
+                default_target = auto_data['target'] if auto_data else 0.0
+                target_in2 = st.number_input("Target (Rp)", min_value=0.0, value=float(default_target), step=1.0, key="target_rj")
             
             default_catatan = f"Auto-fill dari Kandidat Terbaik - {auto_data['rekomendasi']}" if auto_data else ""
             catatan_in = st.text_area("Catatan", value=default_catatan, height=70, key="catatan_rj")
@@ -551,8 +607,76 @@ with t_real:
                         st.error("Harga Exit wajib diisi.")
                     else:
                         ok, msg = rj.close_trade(pilih_no, datetime.now().strftime("%Y-%m-%d"), exit_price_in)
-                        if ok: st.success(msg); st.rerun()
-                        else: st.error(msg)
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+        
+        with sub3:
+            trades_all = rj.load_trades()
+            stats_rj = rj.compute_stats(trades_all)
+            if stats_rj["total"] == 0:
+                st.info("Belum ada trade tercatat.")
+            else:
+                r1, r2, r3 = st.columns(3)
+                r1.metric("Win Rate", f"{stats_rj['winrate']:.1f}%")
+                r2.metric("Profit Factor", f"{stats_rj['profit_factor']:.2f}")
+                r3.metric("Total Trade", f"{stats_rj['total']}")
+                st.dataframe(trades_all, use_container_width=True, hide_index=True, height=350)
+        
+        with sub4:
+            st.markdown("**Daftar Sekuritas & Biaya Transaksi**")
+            brokers_now = rj.load_brokers()
+            st.dataframe(brokers_now, use_container_width=True, hide_index=True)
+            bc1, bc2, bc3 = st.columns(3)
+            nama_broker_in = bc1.text_input("Nama Sekuritas", key="nama_broker_rj")
+            biaya_beli_in2 = bc2.number_input("Biaya Beli (%)", min_value=0.0, max_value=5.0, value=0.15, step=0.01, key="bb_broker")
+            biaya_jual_in2 = bc3.number_input("Biaya Jual (%)", min_value=0.0, max_value=5.0, value=0.25, step=0.01, key="bj_broker")
+            if st.button("💾 Simpan Sekuritas", key="btn_save_broker"):
+                if not nama_broker_in:
+                    st.error("Nama sekuritas wajib diisi.")
+                else:
+                    rj.add_broker(nama_broker_in, biaya_beli_in2, biaya_jual_in2)
+                    st.success(f"Sekuritas '{nama_broker_in}' disimpan.")
+        
+        with sub5:
+            st.caption("Salah input harga/lot/sekuritas? Pilih nomor trade di bawah, koreksi, lalu simpan.")
+            trades_edit = rj.load_trades()
+            if trades_edit.empty:
+                st.info("Belum ada trade untuk diedit.")
+            else:
+                pilih_edit_no = st.selectbox("Pilih nomor trade", options=trades_edit["No"].tolist(), key="pilih_edit_no_rj")
+                row_edit = trades_edit[trades_edit["No"] == pilih_edit_no].iloc[0]
+                broker_options_edit = rj.load_brokers()["Sekuritas"].tolist()
+                ec1, ec2, ec3 = st.columns(3)
+                e_tgl_entry = ec1.date_input("Tanggal Entry", value=datetime.now().date(), key="e_tgl")
+                e_sekuritas = ec2.selectbox("Sekuritas", options=broker_options_edit, key="e_sek")
+                e_saham = ec3.text_input("Kode Saham", value=str(row_edit["Saham"]), key="e_saham").upper()
+                ec4, ec5 = st.columns(2)
+                e_setup = ec4.selectbox("Setup", options=rj.SETUP_OPTIONS, key="e_setup")
+                e_lot = ec5.number_input("Lot", min_value=1.0, value=float(row_edit["Lot"] or 1), step=1.0, key="e_lot")
+                ec6, ec7, ec8 = st.columns(3)
+                e_entry = ec6.number_input("Entry (Rp)", min_value=0.0, value=float(row_edit["Entry (Rp)"] or 0), step=1.0, key="e_entry")
+                e_sl = ec7.number_input("Stop Loss (Rp)", min_value=0.0, value=float(row_edit["Stop Loss (Rp)"] or 0), step=1.0, key="e_sl")
+                e_target = ec8.number_input("Target (Rp)", min_value=0.0, value=float(row_edit["Target (Rp)"] or 0), step=1.0, key="e_target")
+                e_catatan = st.text_area("Catatan", value=str(row_edit["Catatan"] or ""), height=70, key="e_catatan")
+                if st.button("💾 Simpan Perubahan", type="primary", key="btn_edit_rj"):
+                    if not e_saham or e_entry <= 0:
+                        st.error("Kode saham dan Entry wajib diisi.")
+                    else:
+                        ok, msg = rj.edit_trade(pilih_edit_no, e_tgl_entry.strftime("%Y-%m-%d"), e_sekuritas, e_saham, e_setup, e_entry, e_sl, e_target, e_lot, e_catatan)
+                        if ok:
+                            st.success(msg)
+                        else:
+                            st.error(msg)
+                if st.button("🗑️ Hapus Trade Ini", key="btn_delete_rj"):
+                    ok, msg = rj.delete_trade(pilih_edit_no)
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
 
 # ============================================================================
 # TAB 9: EQUITY
@@ -561,16 +685,48 @@ with t_equity:
     if not gj.is_configured():
         st.warning("Equity Tracking butuh koneksi Google Sheets.")
     else:
+        sub_ringkasan, sub_catat, sub_riwayat = st.tabs(["📊 Ringkasan", " Catat Snapshot", "📋 Riwayat"])
         equity_df = eq.load_equity()
-        if equity_df.empty:
-            st.info("Belum ada data equity. Isi snapshot pertama di tab 'Catat Snapshot'.")
-        else:
-            total_series = eq.total_equity_over_time(equity_df)
-            latest_total = total_series["Total Equity (Rp)"].iloc[-1] if not total_series.empty else 0
-            first_total = total_series["Total Equity (Rp)"].iloc[0] if not total_series.empty else 0
-            total_return = ((latest_total / first_total - 1) * 100) if first_total > 0 else 0
-            st.metric("Total Equity (Semua Sekuritas)", f"Rp{latest_total:,.0f}", f"{total_return:+.2f}%")
-            st.dataframe(equity_df.sort_values("Tanggal", ascending=False), use_container_width=True, hide_index=True, height=400)
+        with sub_ringkasan:
+            if equity_df.empty:
+                st.info("Belum ada data equity. Isi snapshot pertama di tab 'Catat Snapshot'.")
+            else:
+                total_series = eq.total_equity_over_time(equity_df)
+                latest_total = total_series["Total Equity (Rp)"].iloc[-1] if not total_series.empty else 0
+                first_total = total_series["Total Equity (Rp)"].iloc[0] if not total_series.empty else 0
+                total_return = ((latest_total / first_total - 1) * 100) if first_total > 0 else 0
+                ec1, ec2, ec3 = st.columns(3)
+                ec1.metric("Total Equity (Semua Sekuritas)", f"Rp{latest_total:,.0f}")
+                ec2.metric("Return Sejak Snapshot Pertama", f"{total_return:+.2f}%")
+                ec3.metric("Jumlah Sekuritas Aktif", equity_df["Sekuritas"].nunique())
+                st.dataframe(equity_df.sort_values("Tanggal", ascending=False), use_container_width=True, hide_index=True, height=400)
+        with sub_catat:
+            st.caption("Isi angka ini dari aplikasi sekuritas Bro.")
+            broker_options_eq = rj.load_brokers()["Sekuritas"].tolist()
+            if not broker_options_eq:
+                st.warning("Belum ada sekuritas terdaftar.")
+            else:
+                sc1, sc2 = st.columns(2)
+                s_tanggal = sc1.text_input("Tanggal (YYYY-MM-DD)", value=datetime.now().strftime("%Y-%m-%d"), key="eq_tgl")
+                s_sekuritas = sc2.selectbox("Sekuritas", options=broker_options_eq, key="eq_sek")
+                sc3, sc4, sc5 = st.columns(3)
+                s_total_equity = sc3.number_input("Total Equity (Rp)", min_value=0.0, step=100000.0, key="eq_total")
+                s_cash = sc4.number_input("Cash (Rp)", min_value=0.0, step=100000.0, key="eq_cash")
+                s_invested = sc5.number_input("Invested (Rp)", min_value=0.0, step=100000.0, key="eq_invested")
+                if st.button("💾 Simpan Snapshot", type="primary", key="btn_save_equity"):
+                    if s_total_equity <= 0:
+                        st.error("Total Equity wajib diisi lebih dari 0.")
+                    else:
+                        ok, msg = eq.add_equity_snapshot(s_tanggal, s_sekuritas, s_total_equity, s_cash, s_invested, 2.0, 20.0)
+                        if ok:
+                            st.success(msg)
+                        else:
+                            st.error(msg)
+        with sub_riwayat:
+            if equity_df.empty:
+                st.info("Belum ada riwayat snapshot.")
+            else:
+                st.dataframe(equity_df.sort_values("Tanggal", ascending=False), use_container_width=True, hide_index=True, height=400)
 
 st.divider()
 st.caption("⚠️ Data diambil dari Yahoo Finance. Bukan rekomendasi keuangan. Selalu lakukan riset & kelola risiko sendiri.")
