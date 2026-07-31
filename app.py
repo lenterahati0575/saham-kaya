@@ -349,7 +349,54 @@ with t_kandidat:
         st.dataframe(styler, use_container_width=True, hide_index=True, height=460, key="df_kandidat_final")
 
         st.download_button("⬇️ Download CSV", show[kolom_tampil].to_csv(index=False).encode("utf-8"), file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
-        
+  
+            # === TOMBOL KIRIM KE JURNAL REAL ===
+    st.divider()
+    st.markdown("###  Kirim ke Jurnal Real")
+    st.caption("Pilih saham dari tabel di atas, lalu data akan otomatis terisi di tab Jurnal Real")
+    
+    cat1, cat2, cat3 = st.columns([2, 1, 1])
+    with cat1:
+        pilih_catat = st.selectbox(
+            "Pilih Saham:",
+            options=["-- Pilih Saham --"] + show["Kode"].tolist(),
+            key="pilih_catat_kandidat"
+        )
+    with cat2:
+        lot_catat = st.number_input("Lot", min_value=1, value=10, step=1, key="lot_catat_kandidat")
+    with cat3:
+        setup_catat = st.selectbox("Setup", options=rj.SETUP_OPTIONS, index=0, key="setup_catat_kandidat")
+    
+    if st.button(" Kirim ke Jurnal Real", type="primary", use_container_width=True, key="btn_catat_kandidat"):
+        if pilih_catat == "-- Pilih Saham --":
+            st.error("⚠️ Pilih saham terlebih dahulu!")
+        else:
+            row_data = show[show["Kode"] == pilih_catat].iloc[0]
+            
+            def clean_number(value):
+                if isinstance(value, (int, float)):
+                    return float(value)
+                if isinstance(value, str):
+                    cleaned = value.replace("Rp", "").replace(",", "").replace(" ", "").strip()
+                    try:
+                        return float(cleaned)
+                    except:
+                        return 0.0
+                return 0.0
+            
+            st.session_state['auto_fill_trade'] = {
+                'kode': pilih_catat,
+                'entry': clean_number(row_data.get('Harga', 0)),
+                'stop_loss': 0.0,
+                'target': 0.0,
+                'setup': setup_catat,
+                'lot': lot_catat,
+                'rekomendasi': row_data.get('Signal', ''),
+                'rr': 0.0
+            }
+            
+            st.success(f"✅ Data {pilih_catat} siap! Buka tab **Jurnal Real** untuk menyimpan.")
+      
         st.divider()
         st.markdown("### 📈 Chart TradingView")
         chart_kode = st.selectbox("Pilih saham untuk melihat chart:", options=["-- Pilih Saham --"] + show["Kode"].tolist(), key="chart_selector")
