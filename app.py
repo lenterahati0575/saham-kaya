@@ -322,16 +322,35 @@ with t_kandidat:
                 st.error("⚠️ Pilih saham terlebih dahulu!")
             else:
                 row_data = show[show["Kode"] == pilih_catat].iloc[0]
+        
+                  # === FUNGSI BANTU: Bersihkan format Rp dan koma ===
+                def clean_number(value):
+                    """Hapus 'Rp', koma, dan spasi, lalu convert ke float"""
+                    if isinstance(value, (int, float)):
+                        return float(value)
+                    if isinstance(value, str):
+                        # Hapus 'Rp', koma, spasi
+                        cleaned = value.replace("Rp", "").replace(",", "").replace(" ", "").strip()
+                        try:
+                            return float(cleaned)
+                        except ValueError:
+                            return 0.0
+                    return 0.0
+                # ================================================
+        
                 st.session_state['auto_fill_trade'] = {
                     'kode': pilih_catat,
-                    'entry': float(row_data.get('Entry', row_data['Harga'])),
-                    'stop_loss': float(row_data.get('Stop Loss', 0)),
-                    'target': float(row_data.get('Target', 0)),
+                    'entry': clean_number(row_data.get('Entry', row_data['Harga'])),
+                    'stop_loss': clean_number(row_data.get('Stop Loss', 0)),
+                    'target': clean_number(row_data.get('Target', 0)),
                     'setup': setup_catat,
                     'lot': lot_catat,
                     'rekomendasi': row_data.get('Rekomendasi', ''),
-                    'rr': row_data.get('RR', 0)
-                }
+                    'rr': clean_number(row_data.get('RR', 0))
+        }
+        
+        st.success(f"✅ Data {pilih_catat} siap! Buka tab **Jurnal Real**.")
+        st.info(f"📊 Entry: Rp{st.session_state['auto_fill_trade']['entry']:,.0f} | SL: Rp{st.session_state['auto_fill_trade']['stop_loss']:,.0f} | Target: Rp{st.session_state['auto_fill_trade']['target']:,.0f}")
                 st.success(f"✅ Data {pilih_catat} siap! Buka tab **Jurnal Real**.")
                 st.info(f"📊 Entry: Rp{float(row_data.get('Entry', 0)):,.0f} | SL: Rp{float(row_data.get('Stop Loss', 0)):,.0f} | Target: Rp{float(row_data.get('Target', 0)):,.0f}")
 
