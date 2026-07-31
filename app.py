@@ -949,6 +949,7 @@ with t_real:
             ["➕ Catat Trade", "🔓 Tutup Posisi", " Performance Real", "⚙️ Sekuritas", "✏️ Edit/Hapus"]
         )
         
+        # --- Catat trade baru ---
         with sub1:
             st.markdown("**Catat posisi baru (OPEN)**")
             brokers_df = rj.load_brokers()
@@ -959,11 +960,15 @@ with t_real:
             if auto_data:
                 st.success(f"🎯 Auto-fill aktif: **{auto_data['kode']}** ({auto_data['rekomendasi']})")
                 with st.expander("📋 Detail Auto-fill", expanded=True):
-                    st.write(f"**Entry:** Rp{auto_data['entry']:,.0f} | **SL:** Rp{auto_data['stop_loss']:,.0f} | **Target:** Rp{auto_data['target']:,.0f}")
-                if st.button("️ Batal Auto-fill", key="btn_cancel_autofill"):
+                    st.write(f"**Entry:** Rp{auto_data['entry']:,.0f}")
+                    st.write(f"**Setup:** {auto_data['setup']}")
+                    st.write(f"**Lot:** {auto_data['lot']}")
+                if st.button("🗑️ Batal Auto-fill", key="btn_cancel_autofill"):
                     del st.session_state['auto_fill_trade']
                     st.rerun()
                 st.divider()
+            
+            fc1, fc2, fc3 = st.columns(3)
             
             fc1, fc2, fc3 = st.columns(3)
             with fc1:
