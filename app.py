@@ -308,7 +308,7 @@ with t_kandidat:
         if sektor_pilih_1:
             picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
     
-    # 2. Hitung RR dengan Donchian 20D (untuk semua)
+       # 2. Hitung RR dengan Stop Loss yang berbeda untuk Day/Swing
     if not picks.empty:
         rr_data = []
         for _, row in picks.iterrows():
@@ -316,31 +316,68 @@ with t_kandidat:
             df = price_data.get(kode)
             try:
                 if df is not None and len(df) >= int(donchian_lb) + 2:
+                    # Donchian High/Low
                     hist = df.iloc[-(int(donchian_lb) + 1) : -1]
                     dh = float(hist["High"].max())
                     dl = float(hist["Low"].min())
                     
                     entry = float(row["Harga"])
-                    if dl > 0 and entry > dl:
-                        target = dh + (dh - dl)
-                        risk = entry - dl
-                        reward = target - entry
-                        rr = reward / risk if risk > 0 else 0
+                    rekomendasi = row.get("Rekomendasi", "")
+                    
+                    # === STOP LOSS BERDASARKAN TIPE TRADING ===
+                    
+                    # Opsi 1: Donchian Low (support struktural)
+                    sl_donchian = dl
+                    
+                    # Opsi 2: MA20 (support dinamis)
+                    if len(df) >= 20:
+                        ma20 = float(df["Close"].rolling(20).mean().iloc[-1])
                     else:
-                        rr, target, dl = 0, 0, 0
-                        
+                        ma20 = dl
+                    
+                    # Opsi 3: Batas maksimal risiko (berbeda Day vs Swing)
+                    if "DAY TRADE" in str(rekomendasi):
+                        # Day Trading: maksimal 5% risiko
+                        sl_max = entry * 0.95
+                        sl_type = "Day (max 5%)"
+                    else:
+                        # Swing Trading: maksimal 10% risiko
+                        sl_max = entry * 0.90
+                        sl_type = "Swing (max 10%)"
+                    
+                    # Pilih stop loss yang paling TINGGI (paling dekat dengan entry)
+                    sl_candidates = [x for x in [sl_donchian, ma20, sl_max] if x < entry]
+                    stop_loss = max(sl_candidates) if sl_candidates else sl_max
+                    
+                    # Hitung target dan RR
+                    target = dh + (dh - dl)
+                    risk = entry - stop_loss
+                    reward = target - entry
+                    rr = reward / risk if risk > 0 else 0
+                    
+                    # Hitung persentase risiko
+                    risk_pct = (risk / entry) * 100
+                    
                     rr_data.append({
                         "Kode": kode, 
                         "RR": round(rr, 2), 
                         "Entry": round(entry, 0), 
                         "Target": round(target, 0), 
-                        "Stop Loss": round(dl, 0),
-                        "Donchian High": round(dh, 0)
+                        "Stop Loss": round(stop_loss, 0),
+                        "Risiko %": round(risk_pct, 1),
+                        "SL Type": sl_type
                     })
                 else:
-                    rr_data.append({"Kode": kode, "RR": 0, "Entry": 0, "Target": 0, "Stop Loss": 0, "Donchian High": 0})
-            except:
-                rr_data.append({"Kode": kode, "RR": 0, "Entry": 0, "Target": 0, "Stop Loss": 0, "Donchian High": 0})
+                    rr_data.append({
+                        "Kode": kode, "RR": 0, "Entry": 0, "Target": 0, 
+                        "Stop Loss": 0, "Risiko %": 0, "SL Type": ""
+                    })
+            except Exception as e:
+                print(f"Error calculating RR for {kode}: {e}")
+                rr_data.append({
+                    "Kode": kode, "RR": 0, "Entry": 0, "Target": 0, 
+                    "Stop Loss": 0, "Risiko %": 0, "SL Type": ""
+                })
         
         rr_df = pd.DataFrame(rr_data)
         picks = picks.merge(rr_df, on="Kode", how="left")
@@ -421,7 +458,11 @@ with t_kandidat:
         show["Perubahan %"] = (picks["Perubahan %"] * 100).map(lambda x: f"{x:+.2f}%")
         show["Value Traded (Rp)"] = picks["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
         show["Volume Ratio"] = picks["Volume Ratio"].map(lambda x: f"{x:.1f}x")
-        
+
+        # Format kolom baru
+        if "Risiko %" in show.columns:
+            show["Risiko %"] = show["Risiko %"].map(lambda x: f"{x:.1f}%" if pd.notnull(x) else "-")
+      
         # Format RR dengan warna warning
         for col in ["RR", "Entry", "Target", "Stop Loss", "Donchian High"]:
             if col in show.columns:
@@ -433,7 +474,7 @@ with t_kandidat:
         # Susun kolom - RR dan Entry/Target/SL di depan
         kolom_tampil = [
             "Kode", "Nama", "Signal", "Score", 
-            "Rekomendasi", "RR", "Entry", "Target", "Stop Loss",
+            "Rekomendasi", "RR", "Risiko %", "Entry", "Target", "Stop Loss", "SL Type",
             "Quality", "Quality Score", "Trend", "Smart Money", "Momentum", 
             "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
         ]
