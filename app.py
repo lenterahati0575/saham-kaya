@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 from screener import (DEFAULT_PARAMS, load_ticker_universe, fetch_price_history, build_screener_table,
-                      build_trade_candidates, classify_daytrading_tipe, fetch_ihsg_history, market_regime, _donchian_levels)
+                      build_trade_candidates, classify_daytrading_tipe, fetch_ihsg_history, market_regime)
 from telegram_notify import send_telegram_message, format_watchlist_message
 import gsheet_journal as gj
 import indicators as ind
