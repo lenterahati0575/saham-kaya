@@ -170,10 +170,10 @@ if not market_ok:
     cands_day_all = cands_day_all.iloc[0:0]
     cands_swing_all = cands_swing_all.iloc[0:0]
 
-# ---------------- Tabs ----------------
-t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk = st.tabs([
-    "🏆 Kandidat Terbaik", " Semua Saham", "📉 Grafik Saham", "📒 Jurnal Backtest",
-    "🎯 Top 10 Day/Swing", "💼 Jurnal Real", "💰 Equity", "🚀 Performance", "🧮 Kalkulator"
+t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest = st.tabs([
+    "🏆 Kandidat", "📋 Semua", "📉 Grafik", "📒 Backtest",
+    "🎯 Top 10", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
+    "🧮 Kalkulator", "📊 Fundamental", "🏛️ Investasi"
 ])
 
 # ============================================================================
