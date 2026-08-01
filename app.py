@@ -1093,13 +1093,13 @@ with t_real:
                     st.dataframe(rj.performance_by_setup(trades_all), use_container_width=True, hide_index=True)
                     st.divider()
 
-                    st.divider()
-
                 # =========================================================================
                 # ⬇️ TAMBAHAN: GRAFIK PERBANDINGAN PORTOFOLIO vs IHSG
                 # =========================================================================
                 try:
-                    closed = trades_all[trades_all["Status"] == "CLOSE"].copy()
+                    # --- Filter trade yang sudah tertutup (bukan OPEN) ---
+                    # Di Jurnal Real status bisa: PROFIT / LOSS / FORCE SELL / CLOSE
+                    closed = trades_all[~trades_all["Status"].isin(["OPEN"])].copy()
 
                     # --- Deteksi nama kolom otomatis (fleksibel, case-insensitive) ---
                     def find_col(candidates, df_cols):
@@ -1109,19 +1109,19 @@ with t_real:
                                 return matches[0]
                         return None
 
-                    pl_col      = find_col(["net p/l", "p/l", "profit", "pnl"], closed.columns)
-                    entry_col   = find_col(["entry"], closed.columns)
-                    lot_col     = find_col(["lot"], closed.columns)
+                    pl_col       = find_col(["net p/l", "p/l", "profit", "pnl"], closed.columns)
+                    entry_col    = find_col(["entry"], closed.columns)
+                    lot_col      = find_col(["lot"], closed.columns)
                     tgl_exit_col = find_col(["tanggal exit", "tgl exit"], closed.columns)
 
-                    # Debug: tampilkan kolom yang terdeteksi (bisa dihapus nanti kalau sudah yakin)
-                      st.caption(f"🔍 Kolom terdeteksi: P/L={pl_col}, Entry={entry_col}, Lot={lot_col}, TglExit={tgl_exit_col}")
+                    # Debug (aman, tidak bikin IndentationError)
+                    # st.caption(f"🔍 Kolom: P/L={pl_col}, Entry={entry_col}, Lot={lot_col}, TglExit={tgl_exit_col} | Closed={len(closed)} baris")
 
                     if not all([pl_col, entry_col, lot_col, tgl_exit_col]):
                         missing = [n for n, v in zip(["P/L","Entry","Lot","Tgl Exit"], [pl_col, entry_col, lot_col, tgl_exit_col]) if not v]
-                        st.caption(f"⚠️ Kolom tidak ditemukan: {missing} — grafik perbandingan dilewati.")
+                        st.caption(f"⚠️ Kolom tidak ditemukan: {missing} — grafik dilewati.")
                     elif closed.empty:
-                        st.caption("ℹ️ Belum ada trade CLOSED — grafik perbandingan muncul setelah ada transaksi tertutup.")
+                        st.caption("ℹ️ Belum ada trade tertutup — grafik muncul setelah ada transaksi dengan status PROFIT/LOSS.")
                     else:
                         # Konversi tanggal
                         closed[tgl_exit_col] = pd.to_datetime(closed[tgl_exit_col])
@@ -1144,7 +1144,6 @@ with t_real:
                         fd = closed[tgl_exit_col].min()
                         ld = closed[tgl_exit_col].max()
 
-                        # Hapus timezone kalau ada (supaya perbandingan aman)
                         ihsg_cmp = ihsg_hist.copy()
                         if ihsg_cmp.index.tz is not None:
                             ihsg_cmp.index = ihsg_cmp.index.tz_localize(None)
@@ -1152,7 +1151,7 @@ with t_real:
                         ihsg_range = ihsg_cmp[(ihsg_cmp.index >= fd) & (ihsg_cmp.index <= ld)]
 
                         if ihsg_range.empty or len(ihsg_range) < 2:
-                            st.info("ℹ️ Data IHSG tidak mencukupi untuk periode trade — grafik perbandingan dilewati.")
+                            st.info(f"ℹ️ Data IHSG tidak tersedia untuk periode {fd.date()} s/d {ld.date()} — grafik dilewati.")
                         else:
                             ihsg_base = float(ihsg_range["Close"].iloc[0])
                             ihsg_range["IHSG_Return_%"] = ((ihsg_range["Close"] / ihsg_base) - 1) * 100
@@ -1190,11 +1189,10 @@ with t_real:
                             )
                             st.plotly_chart(fig_cmp, use_container_width=True)
 
-                            # Ringkasan outperformance
+                            # Ringkasan
                             lp = closed["Port_Return_%"].iloc[-1]
                             li = ihsg_range["IHSG_Return_%"].iloc[-1]
                             delta = lp - li
-
                             if delta > 0:
                                 st.success(
                                     f"🚀 Portofolio mengungguli IHSG sebesar **{delta:+.2f}%** "
