@@ -1779,7 +1779,7 @@ with t_equity:
                 st.warning("Belum ada sekuritas terdaftar - tambahkan dulu di tab Jurnal Real > Sekuritas.")
             else:
                 sc1, sc2 = st.columns(2)
-               s_tanggal = sc1.date_input("Tanggal", value=datetime.now(), key="eq_tgl")
+                s_tanggal = sc1.date_input("Tanggal", value=datetime.now(), key="eq_tgl")
                 s_sekuritas = sc2.selectbox("Sekuritas", options=broker_options_eq, key="eq_sek")
 
                 sc3, sc4, sc5 = st.columns(3)
