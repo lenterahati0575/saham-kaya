@@ -2349,9 +2349,29 @@ with t_invest:
 
                 # Tampilan profesional
                 display = df_inv.copy()
+
+                # Format Rupiah
                 for col in ["Harga", "Graham Number", "EPS"]:
                     if col in display.columns:
-                        display[col] = display[col].map(lambda x: f"Rp{x:,.0f}" if pd.notna(x) else "-")
+                        display[col] = display[col].map(lambda x: f"Rp{x:,.0f}" if pd.notnull(x) else "-")
+
+                # Format angka numerik (1-2 desimal, hapus trailing zeros)
+                fmt_1dec = ["Value Score", "ROE %", "ROA %", "MOS %", "EPS Growth %", "Revenue Growth %", "Div Yield %", "Payout %"]
+                fmt_2dec = ["P/E", "P/B", "PEG", "Debt/Eq", "Earnings Yield %", "FCF Yield %"]
+
+                for col in fmt_1dec:
+                    if col in display.columns:
+                        display[col] = display[col].map(lambda x: f"{x:.1f}".rstrip('0').rstrip('.') if pd.notnull(x) else "-")
+
+                for col in fmt_2dec:
+                    if col in display.columns:
+                        display[col] = display[col].map(lambda x: f"{x:.2f}".rstrip('0').rstrip('.') if pd.notnull(x) else "-")
+
+                # Market Cap & FCF
+                if "Market Cap (T)" in display.columns:
+                    display["Market Cap (T)"] = display["Market Cap (T)"].map(lambda x: f"{x:.2f}".rstrip('0').rstrip('.') + " T" if pd.notnull(x) else "-")
+                if "FCF (M)" in display.columns:
+                    display["FCF (M)"] = display["FCF (M)"].map(lambda x: f"{x:,.0f} M" if pd.notnull(x) else "-")
 
                 def color_rec(val):
                     if "STRONG BUY" in str(val): return "background-color: #065f46; color: white; font-weight: bold;"
