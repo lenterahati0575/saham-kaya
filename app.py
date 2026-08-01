@@ -1091,7 +1091,7 @@ with t_real:
                 with pb2:
                     st.markdown("**Performance per Setup**")
                     st.dataframe(rj.performance_by_setup(trades_all), use_container_width=True, hide_index=True)
-                                st.divider()
+                    st.divider()
 
                 # =========================================================================
                 # ⬇️ TAMBAHAN: GRAFIK PERBANDINGAN PORTOFOLIO vs IHSG
