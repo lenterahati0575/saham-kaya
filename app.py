@@ -858,81 +858,270 @@ with t_kalk:
                            f"**{rs['total_lot_hasil']:,.0f} lot**.")
 
 # ============================================================================
-# TAB 7: PERFORMANCE
+# TAB 7: PERFORMANCE (BACKTEST) — PROFESIONAL
 # ============================================================================
 with t_perf:
     if not gj.is_configured():
         st.warning(
-            "Performance dihitung dari transaksi yang tercatat di sheet POSISI (Google Sheets). "
-            "Belum terhubung - isi `gcp_service_account` dan `GOOGLE_SHEET_ID` di Settings > Secrets "
-            "(lihat README bagian 'Setup Google Sheets')."
+            "Performance dihitung dari sheet POSISI (Google Sheets). "
+            "Belum terhubung - isi `gcp_service_account` dan `GOOGLE_SHEET_ID` di Settings > Secrets."
         )
     else:
         positions_perf = gj.load_positions()
-        perf = gj.monthly_performance(positions_perf)
-        if perf["n_closed"] == 0:
-            st.info(
-                "Belum ada transaksi yang CLOSE (WIN/LOSS/FORCE SELL) di sheet POSISI, jadi belum ada "
-                "performance untuk ditampilkan. Begitu ada posisi yang tertutup (lewat tombol Auto-SELL "
-                "di tab Jurnal Backtest), grafik ini otomatis terisi - tidak perlu sheet terpisah."
+
+        if positions_perf.empty:
+            st.info("Belum ada transaksi tercatat di sheet POSISI.")
+            st.stop()
+
+        # --- Bersihkan data ---
+        for col in ["Harga Beli", "Harga Jual", "Lot", "P&L (Rp)", "P&L (%)", "TP", "SL"]:
+            if col in positions_perf.columns:
+                positions_perf[col] = pd.to_numeric(positions_perf[col], errors="coerce")
+
+        # --- Split OPEN vs CLOSED ---
+        is_open_mask = positions_perf["Status"].astype(str).str.upper().str.strip() == "OPEN"
+        open_df = positions_perf[is_open_mask].copy()
+        closed_df = positions_perf[~is_open_mask].copy()
+
+        # =========================================================================
+        # PARAMETER BACKTEST (VIRTUAL)
+        # =========================================================================
+        st.markdown("### ⚙️ Parameter Backtest")
+        col_m1, col_m2, col_m3 = st.columns(3)
+        with col_m1:
+            modal_awal_bt = st.number_input(
+                "Modal Awal Backtest (Rp)",
+                min_value=1_000_000,
+                value=10_000_000,
+                step=1_000_000,
+                help="Angka virtual sebagai benchmark return %. Semakin besar modal, semakin kecil % return-nya.",
             )
+        with col_m2:
+            include_open = st.checkbox(
+                "Sertakan Floating P/L (posisi OPEN)",
+                value=True,
+                help="Centang untuk hitung unrealized P/L posisi terbuka.",
+            )
+        with col_m3:
+            show_all_trades = st.checkbox("Tampilkan semua trade", value=True)
+
+        # --- Harga market untuk floating ---
+        price_lookup = dict(zip(table["Kode"], table["Harga"])) if not table.empty else {}
+
+        # --- Hitung Realized P/L ---
+        realized_total = 0
+        if not closed_df.empty and "P&L (Rp)" in closed_df.columns:
+            realized_total = closed_df["P&L (Rp)"].sum()
+
+        # --- Hitung Floating P/L ---
+        floating_total = 0
+        floating_list = []
+
+        if include_open and not open_df.empty:
+            for _, row in open_df.iterrows():
+                saham = str(row.get("Saham", "")).strip().upper()
+                entry = float(row["Harga Beli"]) if pd.notna(row.get("Harga Beli")) else 0
+                lot = int(row["Lot"]) if pd.notna(row.get("Lot")) else 0
+                current = price_lookup.get(saham, 0)
+
+                if current > 0 and entry > 0 and lot > 0:
+                    fl = (current - entry) * lot * 100
+                    floating_total += fl
+                    floating_list.append({
+                        "Saham": saham,
+                        "Entry": entry,
+                        "Current": current,
+                        "Lot": lot,
+                        "Floating (Rp)": fl,
+                    })
+
+        # --- STATISTIK TRADE ---
+        n_open = len(open_df)
+        n_closed = len(closed_df)
+        n_total = n_open + n_closed
+
+        if not closed_df.empty and "P&L (Rp)" in closed_df.columns:
+            n_win = int((closed_df["P&L (Rp)"] > 0).sum())
+            n_loss = int((closed_df["P&L (Rp)"] < 0).sum())
         else:
-            cum = perf["cumulative_pct"]
-            cum_class = "month-value-pos" if cum >= 0 else "month-value-neg"
-            st.markdown(f"""
-            <div class="cumulative-box">
-                <div class="cumulative-label">AKUMULASI PROFIT (SIGNAL STOCKS)</div>
-                <div class="cumulative-value {cum_class}">{cum:+.2f}%</div>
-                <div style="color:#9ca3af; font-size:0.85rem; margin-top:4px;">
-                    Rata-rata {perf['avg_per_month']:+.2f}% / bulan · dari {perf['n_closed']} transaksi closed
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("**Profit per Bulan**")
-            month_cols = st.columns(min(6, len(perf["monthly"])) or 1)
-            for i, row in perf["monthly"].iterrows():
-                col = month_cols[i % len(month_cols)]
-                pos = row["Profit %"] >= 0
-                card_cls = "month-card-pos" if pos else "month-card-neg"
-                val_cls = "month-value-pos" if pos else "month-value-neg"
-                bulan_label = pd.to_datetime(row["Bulan"] + "-01").strftime("%b %Y").upper()
-                col.markdown(f"""
-                <div class="month-card {card_cls}">
-                    <div class="month-label">{bulan_label}</div>
-                    <div class="{val_cls}">{row['Profit %']:+.2f}%</div>
-                </div>
-                """, unsafe_allow_html=True)
-            st.divider()
-            stats_perf = gj.summarize(positions_perf)
-            p1, p2, p3, p4 = st.columns(4)
-            p1.metric("Win Rate", f"{stats_perf['winrate']:.1f}%")
-            p2.metric("Total WIN", stats_perf["win"])
-            p3.metric("Total LOSS", stats_perf["loss"])
-            p4.metric("Posisi OPEN", stats_perf["open"])
-            st.markdown("**🏅 Transaksi Terbaik (Top 10)**")
-            top_display = perf["top_trades"].copy()
-            top_display["Profit %"] = top_display["Profit %"].map(lambda x: f"{x:+.2f}%")
-            st.dataframe(top_display, use_container_width=True, hide_index=True)
-            st.markdown("**📈 Kurva Ekuitas (Kumulatif)**")
-            monthly_sorted = perf["monthly"].sort_values("Bulan").copy()
-            monthly_sorted["Kumulatif %"] = monthly_sorted["Profit %"].cumsum()
-            fig_eq = go.Figure()
-            fig_eq.add_trace(go.Scatter(
-                x=monthly_sorted["Bulan"], y=monthly_sorted["Kumulatif %"],
-                mode="lines+markers", line=dict(color="#4ade80", width=2.5),
-                fill="tozeroy", fillcolor="rgba(74,222,128,0.12)",
+            n_win = n_loss = 0
+
+        winrate = (n_win / n_closed * 100) if n_closed > 0 else 0
+
+        # Profit Factor
+        if not closed_df.empty and "P&L (Rp)" in closed_df.columns:
+            gross_profit = closed_df.loc[closed_df["P&L (Rp)"] > 0, "P&L (Rp)"].sum() if n_win > 0 else 0
+            gross_loss = abs(closed_df.loc[closed_df["P&L (Rp)"] < 0, "P&L (Rp)"].sum()) if n_loss > 0 else 0
+            pf = gross_profit / gross_loss if gross_loss > 0 else float("inf")
+            pf_str = "∞" if pf == float("inf") else f"{pf:.2f}"
+        else:
+            pf_str = "-"
+
+        # Equity sekarang
+        equity_now = modal_awal_bt + realized_total + (floating_total if include_open else 0)
+        total_return = ((equity_now / modal_awal_bt) - 1) * 100
+
+        # --- TAMPILKAN METRIK ---
+        st.markdown("### 📊 Ringkasan Performance Backtest")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Total Posisi", n_total)
+        c2.metric("OPEN", n_open)
+        c3.metric("CLOSED", n_closed)
+        c4.metric("WIN", n_win)
+        c5.metric("LOSS", n_loss)
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Win Rate", f"{winrate:.1f}%")
+        m2.metric("Profit Factor", pf_str)
+        m3.metric("Realized P/L", f"Rp{realized_total:,.0f}")
+        m4.metric("Floating P/L", f"Rp{floating_total:,.0f}")
+
+        st.divider()
+
+        # =========================================================================
+        # KURVA EKUITAS BACKTEST
+        # =========================================================================
+        st.markdown("### 📈 Kurva Ekuitas Backtest")
+        st.caption(
+            f"Equity = Modal Awal Backtest (Rp{modal_awal_bt:,.0f}) + Cumulative Realized P/L. "
+            f"Titik terakhir {'+ Floating P/L' if include_open else '(hanya realized)'}. "
+            f"Ubah 'Modal Awal Backtest' di atas untuk melihat dampaknya terhadap return %."
+        )
+
+        # Sort closed by Tanggal Close
+        tgl_col = next((c for c in ["Tanggal Close", "TanggalClose", "Tgl Close"] if c in closed_df.columns), None)
+
+        eq_points = [{"Tanggal": datetime.now() - pd.Timedelta(days=30), "Equity": modal_awal_bt, "Label": "START"}]
+
+        if not closed_df.empty and tgl_col:
+            closed_df[tgl_col] = pd.to_datetime(closed_df[tgl_col], errors="coerce")
+            closed_sorted = closed_df.sort_values(tgl_col).copy()
+            closed_sorted["Cum_PnL"] = closed_sorted["P&L (Rp)"].cumsum()
+
+            for _, row in closed_sorted.iterrows():
+                eq_points.append({
+                    "Tanggal": row[tgl_col],
+                    "Equity": modal_awal_bt + row["Cum_PnL"],
+                    "Label": f"{row.get('Saham','')} ({row['P&L (Rp)']:+.0f})",
+                })
+
+        # Titik terakhir dengan floating
+        if include_open and floating_total != 0:
+            eq_points.append({
+                "Tanggal": datetime.now(),
+                "Equity": modal_awal_bt + realized_total + floating_total,
+                "Label": f"FLOATING ({floating_total:+.0f})",
+            })
+
+        eq_df = pd.DataFrame(eq_points).sort_values("Tanggal")
+
+        if len(eq_df) > 1:
+            # Max Drawdown
+            eq_df["Peak"] = eq_df["Equity"].cummax()
+            eq_df["Drawdown %"] = (eq_df["Equity"] - eq_df["Peak"]) / eq_df["Peak"] * 100
+            max_dd = eq_df["Drawdown %"].min()
+
+            # Grafik
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=eq_df["Tanggal"],
+                y=eq_df["Equity"],
+                mode="lines+markers",
+                name="Equity",
+                line=dict(color="#4ade80", width=2.5),
+                fill="tozeroy",
+                fillcolor="rgba(74,222,128,0.10)",
+                hovertemplate="%{y:,.0f}<br>%{text}",
+                text=eq_df["Label"],
             ))
-            fig_eq.update_layout(
-                height=280, template="plotly_dark", margin=dict(l=10, r=10, t=10, b=10),
-                yaxis_title="Akumulasi Profit (%)",
+            fig.add_hline(y=modal_awal_bt, line_dash="dash", line_color="#6b7280", annotation_text="Modal Awal")
+            fig.update_layout(
+                height=400,
+                template="plotly_dark",
+                margin=dict(l=10, r=10, t=30, b=10),
+                yaxis_title="Equity (Rp)",
+                showlegend=False,
+                hovermode="x unified",
             )
-            st.plotly_chart(fig_eq, use_container_width=True)
-            st.caption(
-                "Profit per bulan = jumlah P&L(%) semua transaksi yang CLOSE di bulan itu (penjumlahan "
-                "sederhana, bukan compounding riil) - dihitung langsung dari sheet POSISI, jadi selalu "
-                "sinkron dengan jurnal transaksi tanpa perlu sheet terpisah."
-            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Metrics bawah
+            r1, r2, r3, r4 = st.columns(4)
+            r1.metric("Modal Awal (BT)", f"Rp{modal_awal_bt:,.0f}")
+            r2.metric("Equity Sekarang", f"Rp{eq_df['Equity'].iloc[-1]:,.0f}", f"{total_return:+.2f}%")
+            r3.metric("Max Drawdown", f"{max_dd:.2f}%")
+            r4.metric("Peak Equity", f"Rp{eq_df['Peak'].max():,.0f}")
+
+            # Perbandingan IHSG
+            if not ihsg_hist.empty:
+                fd = eq_df["Tanggal"].min()
+                ld = eq_df["Tanggal"].max()
+                ihsg_cmp = ihsg_hist.copy()
+                if ihsg_cmp.index.tz is not None:
+                    ihsg_cmp.index = ihsg_cmp.index.tz_localize(None)
+
+                ihsg_range = ihsg_cmp[(ihsg_cmp.index >= fd) & (ihsg_cmp.index <= ld)]
+                if not ihsg_range.empty and len(ihsg_range) >= 2:
+                    ihsg_base = float(ihsg_range["Close"].iloc[0])
+                    ihsg_range["IHSG_Return_%"] = ((ihsg_range["Close"] / ihsg_base) - 1) * 100
+
+                    eq_base = eq_df["Equity"].iloc[0]
+                    eq_df["Port_Return_%"] = ((eq_df["Equity"] / eq_base) - 1) * 100
+
+                    fig_cmp = go.Figure()
+                    fig_cmp.add_trace(go.Scatter(
+                        x=eq_df["Tanggal"], y=eq_df["Port_Return_%"],
+                        mode="lines+markers", name="🟦 Strategy", line=dict(color="#4ade80", width=2.5),
+                    ))
+                    fig_cmp.add_trace(go.Scatter(
+                        x=ihsg_range.index, y=ihsg_range["IHSG_Return_%"],
+                        mode="lines", name="🟨 IHSG", line=dict(color="#fbbf24", width=2.5, dash="dash"),
+                    ))
+                    fig_cmp.update_layout(
+                        height=300, template="plotly_dark",
+                        title="📊 Backtest Return vs IHSG",
+                        yaxis_title="Return (%)",
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                        margin=dict(l=10, r=10, t=50, b=10), hovermode="x unified",
+                    )
+                    st.plotly_chart(fig_cmp, use_container_width=True)
+
+                    last_p = eq_df["Port_Return_%"].iloc[-1]
+                    last_i = ihsg_range["IHSG_Return_%"].iloc[-1]
+                    delta = last_p - last_i
+                    if delta > 0:
+                        st.success(f"🚀 Strategy mengungguli IHSG sebesar **{delta:+.2f}%**")
+                    else:
+                        st.warning(f"📉 Strategy di bawah IHSG sebesar **{delta:+.2f}%**")
+
+        else:
+            st.info("Belum cukup data closed untuk kurva ekuitas.")
+
+        # =========================================================================
+        # POSISI OPEN & FLOATING
+        # =========================================================================
+        if floating_list:
+            st.divider()
+            st.markdown("**📉 Posisi OPEN & Floating P/L**")
+            fl_df = pd.DataFrame(floating_list)
+            fl_df["Floating (Rp)"] = fl_df["Floating (Rp)"].map(lambda x: f"Rp{x:,.0f}")
+            st.dataframe(fl_df, use_container_width=True, hide_index=True)
+
+        # =========================================================================
+        # RIWAYAT TRADE
+        # =========================================================================
+        if show_all_trades:
+            st.divider()
+            st.markdown("**🏅 Riwayat Semua Trade**")
+            display_cols = ["Saham", "Tipe", "Tanggal Close", "Harga Beli", "Harga Jual", "Lot", "P&L (Rp)", "P&L (%)", "Status"]
+            display_cols = [c for c in display_cols if c in positions_perf.columns]
+            st.dataframe(positions_perf[display_cols], use_container_width=True, hide_index=True, height=350)
+
+        st.caption(
+            "💡 Backtest menggunakan Modal Awal Virtual sebagai benchmark. "
+            "Equity = Modal Awal + Σ Realized P/L. Return % = (Equity / Modal Awal - 1) × 100. "
+            "Ubah Modal Awal di sidebar untuk melihat sensitivitas return."
+        )
 
 # ============================================================================
 # TAB 8: JURNAL REAL (DENGAN AUTO-FILL) - SUB 1
