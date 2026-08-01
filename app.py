@@ -1115,7 +1115,7 @@ with t_real:
                     tgl_exit_col = find_col(["tanggal exit", "tgl exit"], closed.columns)
 
                     # Debug: tampilkan kolom yang terdeteksi (bisa dihapus nanti kalau sudah yakin)
-                    # st.caption(f"🔍 Kolom terdeteksi: P/L={pl_col}, Entry={entry_col}, Lot={lot_col}, TglExit={tgl_exit_col}")
+                      st.caption(f"🔍 Kolom terdeteksi: P/L={pl_col}, Entry={entry_col}, Lot={lot_col}, TglExit={tgl_exit_col}")
 
                     if not all([pl_col, entry_col, lot_col, tgl_exit_col]):
                         missing = [n for n, v in zip(["P/L","Entry","Lot","Tgl Exit"], [pl_col, entry_col, lot_col, tgl_exit_col]) if not v]
