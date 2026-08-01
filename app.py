@@ -548,11 +548,25 @@ with t_backtest:
         except Exception as e:
             st.error(f"❌ Error koneksi: {str(e)}")
             st.stop()
+        
+        # ---- AUTO-CLOSE OTOMATIS SAAT LOAD TAB ----
+        price_lookup = dict(zip(table["Kode"], table["Harga"]))
+        try:
+            with st.spinner("🔍 Mengecek auto-close otomatis (TP/SL/Force-Sell)..."):
+                auto_closed = gj.auto_close_positions(price_lookup)
+            if auto_closed:
+                st.success(f"🔴 Auto-close otomatis: {', '.join(auto_closed)}")
+                st.balloons()
+                st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error auto-close otomatis: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
             
         day_tipe = classify_daytrading_tipe()
         st.caption(f"Waktu sekarang WIB terdeteksi sebagai tipe **{day_tipe}** untuk Day Trading ({'Beli Pagi, rencana Jual Sore' if day_tipe=='BPJS' else 'Beli Sore, rencana Jual besok Pagi'}).")
-        st.write(f" **Kandidat Day Trading tersedia:** {len(cands_day_all)}")
-        st.write(f" **Kandidat Swing Trading tersedia:** {len(cands_swing_all)}")
+        st.write(f"📊 **Kandidat Day Trading tersedia:** {len(cands_day_all)}")
+        st.write(f"📊 **Kandidat Swing Trading tersedia:** {len(cands_swing_all)}")
         
         if not cands_swing_all.empty:
             with st.expander("👁️ Lihat Kandidat Swing Trading"):
@@ -611,14 +625,15 @@ with t_backtest:
                     st.code(traceback.format_exc())
                     
         with colb3:
-            if st.button(" Cek TP/SL & Force-Sell", use_container_width=True, key="btn_check_close"):
+            if st.button("🔴 Cek TP/SL & Force-Sell", use_container_width=True, key="btn_check_close"):
                 try:
-                    price_lookup = dict(zip(table["Kode"], table["Harga"]))
                     with st.spinner("Mengecek posisi OPEN..."):
                         positions = gj.load_positions()
                         open_positions = positions[positions["Status"] == "OPEN"] if not positions.empty else pd.DataFrame()
                         st.write(f"📋 Total posisi: {len(positions)}")
                         st.write(f"🟢 Posisi OPEN: {len(open_positions)}")
+                        
+                        closed = []  # <-- INISIALISASI DI SINI supaya tidak NameError
                         
                         if open_positions.empty:
                             st.info("ℹ️ Tidak ada posisi OPEN untuk dicek")
@@ -663,7 +678,7 @@ with t_backtest:
         s4.metric("LOSS", stats["loss"])
         s5.metric("Win Rate", f"{stats['winrate']:.1f}%")
         st.dataframe(positions, use_container_width=True, hide_index=True, height=420)
-        st.caption("Aturan force-sell otomatis: SWING maksimal 10 hari, BPJS maksimal 1 hari, BSJP maksimal 2 hari kalau belum kena TP/SL. Auto-BUY & Auto-SELL tidak berjalan sendiri di background - tekan tombol di atas tiap buka dashboard, atau jadwalkan lewat Google Apps Script trigger harian.")
+        st.caption("Aturan force-sell otomatis: SWING maksimal 10 hari, BPJS maksimal 1 hari, BSJP maksimal 2 hari kalau belum kena TP/SL. Auto-close sekarang juga berjalan otomatis saat tab ini dibuka.")
 
 # ============================================================================
 # TAB 5: TOP 10 DAY/SWING
