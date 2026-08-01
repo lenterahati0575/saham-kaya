@@ -386,13 +386,13 @@ with t_kandidat:
             
             st.session_state['auto_fill_trade'] = {
                 'kode': pilih_catat,
-                'entry': clean_number(row_data.get('Harga', 0)),
-                'stop_loss': 0.0,
-                'target': 0.0,
+                'entry': clean_number(row_data.get('Entry', row_data.get('Harga', 0))),
+                'stop_loss': clean_number(row_data.get('Stop Loss', 0)),
+                'target': clean_number(row_data.get('Target', 0)),
                 'setup': setup_catat,
                 'lot': lot_catat,
                 'rekomendasi': row_data.get('Signal', ''),
-                'rr': 0.0
+                'rr': clean_number(row_data.get('RR', 0))
             }
             
             st.success(f"✅ Data {pilih_catat} siap! Buka tab **Jurnal Real** untuk menyimpan.")
