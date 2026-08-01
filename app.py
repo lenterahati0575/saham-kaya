@@ -173,7 +173,7 @@ if not market_ok:
 t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest = st.tabs([
     "🏆 Kandidat", "📋 Semua", "📉 Grafik", "📒 Backtest",
     "🎯 Top 10", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
-    "🧮 Kalkulator", "📊 Fundamental", "🏛️ Investasi"
+    "🧮 Kalkulator", "📊 Fundamental", "🏛️ Value Invest"
 ])
 
 # ============================================================================
@@ -1824,6 +1824,608 @@ with t_equity:
                         st.rerun()
                     else:
                         st.error(msg)
+# ============================================================================
+# TAB 10: FUNDAMENTAL ANALYSIS — PROFESIONAL
+# ============================================================================
+with t_fundamental:
+    st.markdown("## 📊 Fundamental Analysis Pro")
+    st.caption("Metrik value investing: Graham, Buffett, Lynch. Data dari Yahoo Finance.")
+
+    sub_fund, sub_gainer, sub_compare = st.tabs([
+        "🔬 Fundamental Screener", "🏆 Top Gainer/Loser", "⚖️ Perbandingan"
+    ])
+
+    # -------------------------------------------------------------------------
+    # SUB 1: FUNDAMENTAL SCREENER
+    # -------------------------------------------------------------------------
+    with sub_fund:
+        st.markdown("### 🎯 Filter Saham Fundamental")
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            max_pe = st.number_input("Max P/E", value=15.0, min_value=0.0, step=1.0, key="f_pe")
+            min_roe = st.number_input("Min ROE (%)", value=12.0, step=1.0, key="f_roe")
+        with c2:
+            max_de = st.number_input("Max Debt/Equity", value=0.8, min_value=0.0, step=0.1, key="f_de")
+            min_divy = st.number_input("Min Div Yield (%)", value=0.0, step=0.5, key="f_div")
+        with c3:
+            max_pb = st.number_input("Max P/B", value=2.0, min_value=0.0, step=0.1, key="f_pb")
+            min_fcfy = st.number_input("Min FCF Yield (%)", value=0.0, step=0.5, key="f_fcf")
+        with c4:
+            min_mos = st.number_input("Min Margin of Safety (%)", value=20.0, step=5.0, key="f_mos")
+            max_peg = st.number_input("Max PEG Ratio", value=2.0, min_value=0.0, step=0.1, key="f_peg")
+
+        scan_limit = st.slider("Jumlah saham di-scan", 50, 400, 200, key="f_limit")
+
+        @st.cache_data(ttl=3600)
+        def fetch_fundamental_batch(ticker_list):
+            """Fetch fundamental data dengan caching 1 jam."""
+            import yfinance as yf
+            results = []
+            progress = st.progress(0, text="Mengambil data fundamental...")
+            for i, kode in enumerate(ticker_list):
+                try:
+                    t = yf.Ticker(f"{kode}.JK")
+                    info = t.info
+                    if not info or len(info) < 5:
+                        continue
+
+                    # Harga & Market Cap
+                    price = info.get("currentPrice", info.get("regularMarketPrice", 0))
+                    mc = info.get("marketCap", 0)
+                    if price <= 0 or mc <= 0:
+                        continue
+
+                    # Profitability
+                    roe = info.get("returnOnEquity", 0) or 0
+                    roa = info.get("returnOnAssets", 0) or 0
+                    roic = info.get("returnOnCapital", 0) or 0
+                    if not roic and roe and info.get("totalDebt"):
+                        roic = roe  # fallback
+
+                    # Valuation
+                    pe = info.get("trailingPE", 999)
+                    pb = info.get("priceToBook", 999)
+                    ps = info.get("priceToSalesTrailing12Months", 999)
+                    peg = info.get("pegRatio", 999)
+
+                    # Financial Health
+                    de = info.get("debtToEquity", 0)
+                    if de:
+                        de = de / 100  # yfinance suka dalam persen
+                    current_ratio = info.get("currentRatio", 0)
+                    quick_ratio = info.get("quickRatio", 0)
+
+                    # Income & Cash Flow
+                    eps = info.get("trailingEps", info.get("forwardEps", 0)) or 0
+                    bvps = info.get("bookValue", 0) or 0
+                    revenue = info.get("totalRevenue", 0)
+                    fcf = info.get("freeCashflow", 0)
+                    div_yield = info.get("dividendYield", 0) or 0
+                    payout = info.get("payoutRatio", 0) or 0
+
+                    # Growth
+                    earnings_g = info.get("earningsGrowth", 0) or 0
+                    revenue_g = info.get("revenueGrowth", 0) or 0
+
+                    # Graham Number = sqrt(22.5 * EPS * BVPS)
+                    graham = ((22.5 * eps * bvps) ** 0.5) if eps > 0 and bvps > 0 else 0
+                    mos = ((graham - price) / graham * 100) if graham > 0 else -999
+
+                    # Earnings Yield & FCF Yield
+                    ey = (1 / pe * 100) if pe and pe > 0 else 0
+                    fcfy = (fcf / mc * 100) if fcf and mc else 0
+
+                    # Quality Score (0-100)
+                    q_score = 0
+                    if roe > 0.15: q_score += 20
+                    elif roe > 0.10: q_score += 10
+                    if de < 0.5: q_score += 20
+                    elif de < 1.0: q_score += 10
+                    if pe < 15: q_score += 15
+                    elif pe < 25: q_score += 5
+                    if pb < 1.5: q_score += 15
+                    elif pb < 3: q_score += 5
+                    if earnings_g > 0.10: q_score += 15
+                    elif earnings_g > 0: q_score += 5
+                    if div_yield > 0.02: q_score += 15
+                    if current_ratio and current_ratio > 1.5: q_score += 10
+
+                    # Kategori
+                    if div_yield > 0.03 and payout < 0.7 and pe < 15:
+                        kategori = "🟦 Dividend Aristocrat"
+                    elif mos > 30 and pe < 10 and pb < 1:
+                        kategori = "🟥 Deep Value"
+                    elif peg < 1.5 and earnings_g > 0.15 and pe < 25:
+                        kategori = "🟩 GARP"
+                    elif pe < 15 and pb < 1.5 and de < 0.5:
+                        kategori = "🟨 Classic Value"
+                    else:
+                        kategori = "⬜ Neutral"
+
+                    results.append({
+                        "Kode": kode,
+                        "Nama": info.get("longName", kode)[:35],
+                        "Harga": price,
+                        "Market Cap (T)": round(mc / 1e12, 2),
+                        "P/E": round(pe, 1) if pe != 999 else None,
+                        "P/B": round(pb, 1) if pb != 999 else None,
+                        "PEG": round(peg, 2) if peg != 999 else None,
+                        "ROE %": round(roe * 100, 1) if roe else None,
+                        "ROA %": round(roa * 100, 1) if roa else None,
+                        "Debt/Eq": round(de, 2) if de else None,
+                        "Current Ratio": round(current_ratio, 2) if current_ratio else None,
+                        "EPS": round(eps, 0) if eps else None,
+                        "BVPS": round(bvps, 0) if bvps else None,
+                        "Graham Number": round(graham, 0) if graham else None,
+                        "Margin of Safety %": round(mos, 1) if mos > -900 else None,
+                        "Earnings Yield %": round(ey, 1) if ey else None,
+                        "FCF Yield %": round(fcfy, 1) if fcfy else None,
+                        "Div Yield %": round(div_yield * 100, 2) if div_yield else 0,
+                        "Payout %": round(payout * 100, 1) if payout else None,
+                        "Earnings Growth %": round(earnings_g * 100, 1) if earnings_g else None,
+                        "Revenue Growth %": round(revenue_g * 100, 1) if revenue_g else None,
+                        "Quality Score": q_score,
+                        "Kategori": kategori,
+                    })
+                except Exception:
+                    continue
+                progress.progress((i + 1) / len(ticker_list), text=f"Scanning {kode}... ({i+1}/{len(ticker_list)})")
+            progress.empty()
+            return pd.DataFrame(results)
+
+        if st.button("🔍 Scan Fundamental", type="primary", use_container_width=True):
+            df_fund = fetch_fundamental_batch(tickers[:scan_limit])
+
+            if df_fund.empty:
+                st.error("❌ Tidak ada data fundamental yang berhasil diambil. Coba refresh atau kurangi jumlah saham.")
+                st.stop()
+
+            # Filter interaktif
+            filtered = df_fund.copy()
+            if max_pe > 0:
+                filtered = filtered[filtered["P/E"].notna() & (filtered["P/E"] <= max_pe)]
+            if min_roe > 0:
+                filtered = filtered[filtered["ROE %"].notna() & (filtered["ROE %"] >= min_roe)]
+            if max_de > 0:
+                filtered = filtered[filtered["Debt/Eq"].notna() & (filtered["Debt/Eq"] <= max_de)]
+            if min_divy > 0:
+                filtered = filtered[filtered["Div Yield %"] >= min_divy]
+            if max_pb > 0:
+                filtered = filtered[filtered["P/B"].notna() & (filtered["P/B"] <= max_pb)]
+            if min_fcfy > 0:
+                filtered = filtered[filtered["FCF Yield %"].notna() & (filtered["FCF Yield %"] >= min_fcfy)]
+            if min_mos > -100:
+                filtered = filtered[filtered["Margin of Safety %"].notna() & (filtered["Margin of Safety %"] >= min_mos)]
+            if max_peg > 0:
+                filtered = filtered[filtered["PEG"].notna() & (filtered["PEG"] <= max_peg)]
+
+            # Sort default: Margin of Safety tertinggi
+            filtered = filtered.sort_values(["Margin of Safety %", "Quality Score"], ascending=[False, False])
+
+            st.markdown(f"**📋 Hasil: {len(filtered)} saham lolos dari {len(df_fund)} yang di-scan**")
+
+            if not filtered.empty:
+                # Tampilkan dengan style
+                display = filtered.copy()
+                for col in ["Harga", "EPS", "BVPS", "Graham Number"]:
+                    if col in display.columns:
+                        display[col] = display[col].map(lambda x: f"Rp{x:,.0f}" if pd.notna(x) else "-")
+
+                for col in ["P/E", "P/B", "PEG", "ROE %", "ROA %", "Debt/Eq", "Margin of Safety %",
+                            "Earnings Yield %", "FCF Yield %", "Div Yield %", "Payout %",
+                            "Earnings Growth %", "Revenue Growth %", "Quality Score"]:
+                    if col in display.columns:
+                        display[col] = display[col].map(lambda x: f"{x:.1f}" if pd.notna(x) else "-")
+
+                def color_mos(val):
+                    try:
+                        v = float(str(val).replace("%", ""))
+                        if v >= 50: return "background-color: #065f46; color: white; font-weight: bold;"
+                        elif v >= 30: return "background-color: #16a34a; color: white;"
+                        elif v >= 10: return "background-color: #eab308; color: black;"
+                        else: return "background-color: #7f1d1d; color: white;"
+                    except: return ""
+
+                def color_q(val):
+                    try:
+                        v = float(str(val))
+                        if v >= 80: return "background-color: #065f46; color: white; font-weight: bold;"
+                        elif v >= 60: return "background-color: #16a34a; color: white;"
+                        elif v >= 40: return "background-color: #eab308; color: black;"
+                        else: return "background-color: #7f1d1d; color: white;"
+                    except: return ""
+
+                styler = display.style
+                if "Margin of Safety %" in display.columns:
+                    styler = styler.map(color_mos, subset=["Margin of Safety %"])
+                if "Quality Score" in display.columns:
+                    styler = styler.map(color_q, subset=["Quality Score"])
+
+                st.dataframe(styler, use_container_width=True, hide_index=True, height=500)
+
+                # Download
+                st.download_button(
+                    "⬇️ Download CSV Fundamental",
+                    filtered.to_csv(index=False).encode("utf-8"),
+                    file_name=f"fundamental_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                )
+
+                # Insight
+                st.divider()
+                st.markdown("### 💡 Insight")
+                c_ins1, c_ins2, c_ins3 = st.columns(3)
+                with c_ins1:
+                    deep = filtered[filtered["Kategori"] == "🟥 Deep Value"]
+                    st.metric("Deep Value", len(deep))
+                with c_ins2:
+                    div = filtered[filtered["Kategori"] == "🟦 Dividend Aristocrat"]
+                    st.metric("Dividend Aristocrat", len(div))
+                with c_ins3:
+                    garp = filtered[filtered["Kategori"] == "🟩 GARP"]
+                    st.metric("GARP", len(garp))
+            else:
+                st.info("Tidak ada saham yang lolos filter. Coba longgarkan kriteria.")
+
+    # -------------------------------------------------------------------------
+    # SUB 2: TOP GAINER / LOSER
+    # -------------------------------------------------------------------------
+    with sub_gainer:
+        st.markdown("### 🏆 Top Gainer & Loser")
+
+        periode = st.selectbox("Periode", ["1 Hari", "1 Minggu", "1 Bulan", "3 Bulan", "6 Bulan", "1 Tahun"], index=2)
+        top_n = st.slider("Jumlah saham", 5, 50, 10)
+
+        period_map = {"1 Hari": 2, "1 Minggu": 6, "1 Bulan": 22, "3 Bulan": 66, "6 Bulan": 132, "1 Tahun": 252}
+
+        with st.spinner(f"Menghitung {periode.lower()}..."):
+            gainer_data = []
+            lookback = period_map[periode]
+
+            for kode in tickers[:300]:
+                try:
+                    df = price_data.get(kode)
+                    if df is not None and len(df) >= lookback + 1:
+                        old = float(df["Close"].iloc[-lookback - 1])
+                        new = float(df["Close"].iloc[-1])
+                        if old > 0:
+                            change = ((new / old) - 1) * 100
+                            gainer_data.append({
+                                "Kode": kode,
+                                "Harga Awal": old,
+                                "Harga Sekarang": new,
+                                "Perubahan %": change,
+                            })
+                except Exception:
+                    continue
+
+            if gainer_data:
+                df_g = pd.DataFrame(gainer_data).sort_values("Perubahan %", ascending=False)
+
+                col_g1, col_g2 = st.columns(2)
+                with col_g1:
+                    st.subheader(f"🚀 Top {top_n} Gainer")
+                    top = df_g.head(top_n).copy()
+                    top["Harga Awal"] = top["Harga Awal"].map(lambda x: f"Rp{x:,.0f}")
+                    top["Harga Sekarang"] = top["Harga Sekarang"].map(lambda x: f"Rp{x:,.0f}")
+                    top["Perubahan %"] = top["Perubahan %"].map(lambda x: f"{x:+.2f}%")
+                    st.dataframe(top, use_container_width=True, hide_index=True)
+
+                with col_g2:
+                    st.subheader(f"📉 Top {top_n} Loser")
+                    bottom = df_g.tail(top_n).sort_values("Perubahan %").copy()
+                    bottom["Harga Awal"] = bottom["Harga Awal"].map(lambda x: f"Rp{x:,.0f}")
+                    bottom["Harga Sekarang"] = bottom["Harga Sekarang"].map(lambda x: f"Rp{x:,.0f}")
+                    bottom["Perubahan %"] = bottom["Perubahan %"].map(lambda x: f"{x:+.2f}%")
+                    st.dataframe(bottom, use_container_width=True, hide_index=True)
+
+                # Distribusi
+                fig_hist = go.Figure()
+                fig_hist.add_trace(go.Histogram(
+                    x=df_g["Perubahan %"], nbinsx=40,
+                    marker_color="#38bdf8", opacity=0.8
+                ))
+                fig_hist.add_vline(x=0, line_dash="dash", line_color="#ef4444")
+                fig_hist.update_layout(
+                    height=280, template="plotly_dark",
+                    title=f"Distribusi Return {periode}",
+                    xaxis_title="Return (%)", yaxis_title="Jumlah Saham",
+                    margin=dict(l=10, r=10, t=40, b=10),
+                )
+                st.plotly_chart(fig_hist, use_container_width=True)
+            else:
+                st.info("Data tidak mencukupi.")
+
+    # -------------------------------------------------------------------------
+    # SUB 3: PERBANDINGAN MULTI-SAHAM
+    # -------------------------------------------------------------------------
+    with sub_compare:
+        st.markdown("### ⚖️ Perbandingan Multi-Saham")
+        pilih_compare = st.multiselect("Pilih saham (max 5)", options=table["Kode"].tolist() if not table.empty else [], default=[], max_selections=5)
+
+        if len(pilih_compare) >= 2:
+            with st.spinner("Mengambil data..."):
+                import yfinance as yf
+                comp_data = []
+                for kode in pilih_compare:
+                    try:
+                        info = yf.Ticker(f"{kode}.JK").info
+                        price = info.get("currentPrice", 0)
+                        eps = info.get("trailingEps", 0)
+                        bvps = info.get("bookValue", 0)
+                        graham = ((22.5 * eps * bvps) ** 0.5) if eps > 0 and bvps > 0 else 0
+                        mos = ((graham - price) / graham * 100) if graham > 0 else None
+
+                        comp_data.append({
+                            "Kode": kode,
+                            "Harga": price,
+                            "P/E": info.get("trailingPE"),
+                            "P/B": info.get("priceToBook"),
+                            "ROE %": info.get("returnOnEquity", 0) * 100 if info.get("returnOnEquity") else None,
+                            "Debt/Eq": info.get("debtToEquity", 0) / 100 if info.get("debtToEquity") else None,
+                            "Div Yield %": info.get("dividendYield", 0) * 100 if info.get("dividendYield") else 0,
+                            "Graham Number": graham,
+                            "MOS %": mos,
+                            "EPS Growth %": info.get("earningsGrowth", 0) * 100 if info.get("earningsGrowth") else None,
+                        })
+                    except Exception:
+                        continue
+
+                if comp_data:
+                    df_c = pd.DataFrame(comp_data)
+                    # Transpose untuk perbandingan horizontal
+                    df_c = df_c.set_index("Kode").T
+                    df_c = df_c.reset_index().rename(columns={"index": "Metrik"})
+                    st.dataframe(df_c, use_container_width=True, hide_index=True)
+
+                    # Radar chart
+                    categories = ["P/E", "P/B", "ROE %", "Div Yield %", "MOS %"]
+                    categories = [c for c in categories if c in df_c.columns]
+                    if categories:
+                        fig_radar = go.Figure()
+                        for kode in pilih_compare:
+                            values = []
+                            for cat in categories:
+                                val = df_c[df_c["Metrik"] == cat][kode].values[0] if not df_c[df_c["Metrik"] == cat].empty else 0
+                                # Normalisasi sederhana
+                                if cat == "P/E":
+                                    val = max(0, min(100, (30 - float(val)) / 30 * 100)) if val else 0
+                                elif cat == "P/B":
+                                    val = max(0, min(100, (3 - float(val)) / 3 * 100)) if val else 0
+                                elif cat == "ROE %":
+                                    val = min(100, float(val)) if val else 0
+                                elif cat == "Div Yield %":
+                                    val = min(100, float(val) * 10) if val else 0
+                                elif cat == "MOS %":
+                                    val = max(0, min(100, float(val))) if val else 0
+                                values.append(val)
+
+                            fig_radar.add_trace(go.Scatterpolar(
+                                r=values + [values[0]],
+                                theta=categories + [categories[0]],
+                                fill='toself',
+                                name=kode
+                            ))
+                        fig_radar.update_layout(
+                            polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                            showlegend=True,
+                            height=400,
+                            template="plotly_dark",
+                            margin=dict(l=40, r=40, t=40, b=10),
+                        )
+                        st.plotly_chart(fig_radar, use_container_width=True)
+        else:
+            st.info("Pilih minimal 2 saham untuk perbandingan.")
+
+
+# ============================================================================
+# TAB 11: VALUE INVESTING PORTFOLIO — BUFFETT STYLE
+# ============================================================================
+with t_invest:
+    st.markdown("## 🏛️ Value Investing Portfolio")
+    st.caption("Analisis berbasis prinsip Warren Buffett & Benjamin Graham. Hanya saham berkualitas dengan harga wajar.")
+
+    # Parameter Buffett
+    col_b1, col_b2, col_b3 = st.columns(3)
+    with col_b1:
+        buffett_min_roe = st.number_input("Min ROE (%)", value=15.0, step=1.0, key="b_roe")
+        buffett_max_de = st.number_input("Max Debt/Equity", value=0.5, step=0.1, key="b_de")
+    with col_b2:
+        buffett_max_pe = st.number_input("Max P/E", value=20.0, step=1.0, key="b_pe")
+        buffett_min_eps_g = st.number_input("Min EPS Growth 5Y (%)", value=5.0, step=1.0, key="b_epsg")
+    with col_b3:
+        buffett_min_mos = st.number_input("Min Margin of Safety (%)", value=25.0, step=5.0, key="b_mos")
+        mode_invest = st.selectbox("Strategi", ["🎯 Deep Value (MOS tinggi)", "💎 Quality First (ROE tinggi)", "⚖️ Balanced"], index=2)
+
+    scan_inv = st.slider("Scan saham", 50, 400, 200, key="inv_limit")
+
+    if st.button("🔍 Cari Saham Investasi", type="primary", use_container_width=True):
+        with st.spinner("Menganalisis ratusan saham dengan kriteria Buffett..."):
+            import yfinance as yf
+            invest_results = []
+            progress = st.progress(0)
+
+            for i, kode in enumerate(tickers[:scan_inv]):
+                try:
+                    t = yf.Ticker(f"{kode}.JK")
+                    info = t.info
+                    if not info:
+                        continue
+
+                    price = info.get("currentPrice", info.get("regularMarketPrice", 0))
+                    mc = info.get("marketCap", 0)
+                    if price <= 0 or mc <= 0:
+                        continue
+
+                    roe = info.get("returnOnEquity", 0) or 0
+                    roa = info.get("returnOnAssets", 0) or 0
+                    pe = info.get("trailingPE", 999)
+                    pb = info.get("priceToBook", 999)
+                    de = info.get("debtToEquity", 0)
+                    if de: de = de / 100
+                    eps = info.get("trailingEps", 0) or 0
+                    bvps = info.get("bookValue", 0) or 0
+                    earnings_g = info.get("earningsGrowth", 0) or 0
+                    div_yield = info.get("dividendYield", 0) or 0
+                    payout = info.get("payoutRatio", 0) or 0
+                    fcf = info.get("freeCashflow", 0)
+
+                    # Graham & MOS
+                    graham = ((22.5 * eps * bvps) ** 0.5) if eps > 0 and bvps > 0 else 0
+                    mos = ((graham - price) / graham * 100) if graham > 0 else -999
+
+                    # Earnings consistency proxy (gunakan revenue growth)
+                    revenue_g = info.get("revenueGrowth", 0) or 0
+
+                    # Filter dasar
+                    if roe * 100 < buffett_min_roe: continue
+                    if pe > buffett_max_pe: continue
+                    if de > buffett_max_de: continue
+                    if earnings_g * 100 < buffett_min_eps_g: continue
+                    if mos < buffett_min_mos: continue
+
+                    # Composite Value Score (0-100)
+                    score = 0
+                    # MOS (40 poin)
+                    score += min(40, max(0, mos) / 50 * 40)
+                    # ROE (20 poin)
+                    score += min(20, roe * 100 / 20 * 20)
+                    # Low PE (15 poin)
+                    score += min(15, (25 - pe) / 25 * 15) if pe < 25 else 0
+                    # Low PB (10 poin)
+                    score += min(10, (3 - pb) / 3 * 10) if pb < 3 else 0
+                    # Growth (10 poin)
+                    score += min(10, earnings_g * 100 / 20 * 10)
+                    # Dividend (5 poin)
+                    score += min(5, div_yield * 100)
+
+                    # Rekomendasi
+                    if mos >= 50 and score >= 70:
+                        rec = "🟢 STRONG BUY"
+                    elif mos >= 25 and score >= 50:
+                        rec = "🟡 BUY"
+                    elif mos >= 10:
+                        rec = "🟠 WATCHLIST"
+                    else:
+                        rec = "🔴 AVOID"
+
+                    invest_results.append({
+                        "Kode": kode,
+                        "Nama": info.get("longName", kode)[:30],
+                        "Rekomendasi": rec,
+                        "Value Score": round(score, 1),
+                        "Harga": price,
+                        "Graham Number": round(graham, 0) if graham else None,
+                        "MOS %": round(mos, 1) if mos > -900 else None,
+                        "P/E": round(pe, 1) if pe != 999 else None,
+                        "P/B": round(pb, 1) if pb != 999 else None,
+                        "ROE %": round(roe * 100, 1) if roe else None,
+                        "ROA %": round(roa * 100, 1) if roa else None,
+                        "Debt/Eq": round(de, 2) if de else None,
+                        "EPS": round(eps, 0) if eps else None,
+                        "EPS Growth %": round(earnings_g * 100, 1) if earnings_g else None,
+                        "Div Yield %": round(div_yield * 100, 2) if div_yield else 0,
+                        "FCF (M)": round(fcf / 1e6, 0) if fcf else None,
+                        "Market Cap (T)": round(mc / 1e12, 2),
+                    })
+                except Exception:
+                    continue
+                progress.progress((i + 1) / scan_inv)
+            progress.empty()
+
+            if invest_results:
+                df_inv = pd.DataFrame(invest_results)
+
+                # Sort berdasarkan strategi
+                if mode_invest == "🎯 Deep Value (MOS tinggi)":
+                    df_inv = df_inv.sort_values("MOS %", ascending=False)
+                elif mode_invest == "💎 Quality First (ROE tinggi)":
+                    df_inv = df_inv.sort_values("ROE %", ascending=False)
+                else:
+                    df_inv = df_inv.sort_values("Value Score", ascending=False)
+
+                st.markdown(f"**📋 {len(df_inv)} saham lolos filter Buffett**")
+
+                # Tampilan profesional
+                display = df_inv.copy()
+                for col in ["Harga", "Graham Number", "EPS"]:
+                    if col in display.columns:
+                        display[col] = display[col].map(lambda x: f"Rp{x:,.0f}" if pd.notna(x) else "-")
+
+                def color_rec(val):
+                    if "STRONG BUY" in str(val): return "background-color: #065f46; color: white; font-weight: bold;"
+                    if "BUY" in str(val): return "background-color: #16a34a; color: white;"
+                    if "WATCHLIST" in str(val): return "background-color: #eab308; color: black;"
+                    if "AVOID" in str(val): return "background-color: #7f1d1d; color: white;"
+                    return ""
+
+                def color_score(val):
+                    try:
+                        v = float(val)
+                        if v >= 70: return "background-color: #065f46; color: white; font-weight: bold;"
+                        elif v >= 50: return "background-color: #16a34a; color: white;"
+                        elif v >= 30: return "background-color: #eab308; color: black;"
+                        else: return "background-color: #7f1d1d; color: white;"
+                    except: return ""
+
+                styler = display.style
+                if "Rekomendasi" in display.columns:
+                    styler = styler.map(color_rec, subset=["Rekomendasi"])
+                if "Value Score" in display.columns:
+                    styler = styler.map(color_score, subset=["Value Score"])
+
+                st.dataframe(styler, use_container_width=True, hide_index=True, height=500)
+
+                # Download
+                st.download_button(
+                    "⬇️ Download Value Portfolio",
+                    df_inv.to_csv(index=False).encode("utf-8"),
+                    file_name=f"value_portfolio_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                )
+
+                # Ringkasan Visual
+                st.divider()
+                st.markdown("### 📊 Ringkasan Portofolio Value")
+
+                r1, r2, r3, r4 = st.columns(4)
+                strong = len(df_inv[df_inv["Rekomendasi"] == "🟢 STRONG BUY"])
+                buy = len(df_inv[df_inv["Rekomendasi"] == "🟡 BUY"])
+                watch = len(df_inv[df_inv["Rekomendasi"] == "🟠 WATCHLIST"])
+                r1.metric("STRONG BUY", strong)
+                r2.metric("BUY", buy)
+                r3.metric("WATCHLIST", watch)
+                r4.metric("Rata-rata MOS", f"{df_inv['MOS %'].mean():.1f}%")
+
+                # Pie chart kategori
+                fig_cat = go.Figure(data=[go.Pie(
+                    labels=["STRONG BUY", "BUY", "WATCHLIST"],
+                    values=[strong, buy, watch],
+                    hole=0.4,
+                    marker_colors=["#16a34a", "#eab308", "#f97316"],
+                )])
+                fig_cat.update_layout(
+                    height=250, template="plotly_dark",
+                    showlegend=True, margin=dict(l=10, r=10, t=10, b=10),
+                    title="Distribusi Rekomendasi",
+                )
+                st.plotly_chart(fig_cat, use_container_width=True)
+
+                # Buffett Checklist
+                st.divider()
+                st.markdown("""
+                ### ✅ Buffett Checklist
+                1. **ROE > 15%** — Bisnis menghasilkan return tinggi untuk pemegang saham
+                2. **Debt/Equity < 0.5** — Bisnis tidak bergantung pada utang
+                3. **P/E < 20** — Harga tidak terlalu mahal
+                4. **Margin of Safety > 25%** — Beli dengan diskon aman dari nilai wajar
+                5. **EPS Growth konsisten** — Earnings tumbuh stabil
+                6. **Dividend (opsional)** — Prefer bisnis yang bagi dividen
+                """)
+
+            else:
+                st.info("Tidak ada saham yang lolos kriteria Buffett. Coba longgarkan filter.")
 
 st.divider()
 st.caption("️ Data diambil dari Yahoo Finance (yfinance), bukan API resmi. Bukan rekomendasi keuangan. Selalu lakukan riset & kelola risiko sendiri.")
