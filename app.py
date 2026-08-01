@@ -407,16 +407,6 @@ with t_kandidat:
             embed_tradingview_chart(chart_kode, height=500)
 
 # ============================================================================
-# TAB 2-9: (Sisa tab lainnya - saya persingkat untuk menghemat space)
-# ============================================================================
-# ... (kode untuk tab 2-9 sama seperti sebelumnya)
-
-st.divider()
-st.caption("⚠️ Data diambil dari Yahoo Finance. Bukan rekomendasi keuangan.")
-
-# ================================================================
-
-# ============================================================================
 # TAB 2: SEMUA SAHAM
 # ============================================================================
 with t_semua:
@@ -675,8 +665,6 @@ with t_backtest:
         s5.metric("Win Rate", f"{stats['winrate']:.1f}%")
         st.dataframe(positions, use_container_width=True, hide_index=True, height=420)
         st.caption("Aturan force-sell otomatis: SWING maksimal 10 hari, BPJS maksimal 1 hari, BSJP maksimal 2 hari kalau belum kena TP/SL. Auto-BUY & Auto-SELL tidak berjalan sendiri di background - tekan tombol di atas tiap buka dashboard, atau jadwalkan lewat Google Apps Script trigger harian.")
-
-# ========================================================================
 
 # ============================================================================
 # TAB 5: TOP 10 DAY/SWING
@@ -1027,8 +1015,6 @@ with sub1:
             if 'auto_fill_trade' in st.session_state:
                 del st.session_state['auto_fill_trade']
             st.rerun()
-
-# =================================================================================
 
         # --- Sub 2: Tutup Posisi ---
         with sub2:
