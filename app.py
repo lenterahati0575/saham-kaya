@@ -1607,55 +1607,173 @@ with t_real:
                         st.rerun()
 
 # ============================================================================
-# TAB 9: EQUITY
+# TAB 9: EQUITY — PROFESIONAL
 # ============================================================================
 with t_equity:
     if not gj.is_configured():
-        st.warning("Equity Tracking butuh koneksi Google Sheets yang sama dengan Jurnal Real/Backtest.")
+        st.warning("Equity Tracking butuh koneksi Google Sheets.")
     else:
-        sub_ringkasan, sub_catat, sub_riwayat = st.tabs(["📊 Ringkasan", "➕ Catat Snapshot", " Riwayat"])
+        sub_ringkasan, sub_catat, sub_riwayat = st.tabs(["📊 Ringkasan", "➕ Catat Snapshot", "📋 Riwayat"])
         equity_df = eq.load_equity()
-        
+
         with sub_ringkasan:
             if equity_df.empty:
                 st.info("Belum ada data equity. Isi snapshot pertama di tab 'Catat Snapshot'.")
             else:
                 total_series = eq.total_equity_over_time(equity_df)
+                total_series["Tanggal"] = pd.to_datetime(total_series["Tanggal"])
+                total_series = total_series.sort_values("Tanggal")
+
+                # --- VALIDASI: cek apakah snapshot terbaru beda tanggal ---
+                latest_broker = eq.latest_per_sekuritas(equity_df)
+                if not latest_broker.empty:
+                    tgl_unik = latest_broker["Tanggal"].unique()
+                    if len(tgl_unik) > 1:
+                        st.warning(
+                            f"⚠️ Snapshot terbaru tidak konsisten! Ada {len(tgl_unik)} tanggal berbeda: {list(tgl_unik)}. "
+                            "Silakan update semua sekuritas di tanggal yang sama untuk data akurat."
+                        )
+
                 latest_total = total_series["Total Equity (Rp)"].iloc[-1] if not total_series.empty else 0
                 first_total = total_series["Total Equity (Rp)"].iloc[0] if not total_series.empty else 0
                 total_return = ((latest_total / first_total - 1) * 100) if first_total > 0 else 0
+
+                # --- METRIK UTAMA ---
+                st.markdown("### 📊 Ringkasan Portofolio")
                 ec1, ec2, ec3 = st.columns(3)
                 ec1.metric("Total Equity (Semua Sekuritas)", f"Rp{latest_total:,.0f}")
                 ec2.metric("Return Sejak Snapshot Pertama", f"{total_return:+.2f}%")
                 ec3.metric("Jumlah Sekuritas Aktif", equity_df["Sekuritas"].nunique())
-                st.markdown("**📈 Kurva Total Equity**")
+
+                # --- RASIO CASH & INVESTED ---
+                if not latest_broker.empty and "Cash (Rp)" in latest_broker.columns and "Invested (Rp)" in latest_broker.columns:
+                    latest_broker["Cash (Rp)"] = pd.to_numeric(latest_broker["Cash (Rp)"], errors="coerce").fillna(0)
+                    latest_broker["Invested (Rp)"] = pd.to_numeric(latest_broker["Invested (Rp)"], errors="coerce").fillna(0)
+                    latest_broker["Total Equity (Rp)"] = pd.to_numeric(latest_broker["Total Equity (Rp)"], errors="coerce").fillna(0)
+
+                    total_cash = latest_broker["Cash (Rp)"].sum()
+                    total_invested = latest_broker["Invested (Rp)"].sum()
+                    total_all = latest_broker["Total Equity (Rp)"].sum()
+
+                    cash_ratio = (total_cash / total_all * 100) if total_all > 0 else 0
+                    invested_ratio = (total_invested / total_all * 100) if total_all > 0 else 0
+
+                    r1, r2, r3 = st.columns(3)
+                    r1.metric("Total Cash", f"Rp{total_cash:,.0f}", f"{cash_ratio:.1f}%")
+                    r2.metric("Total Invested", f"Rp{total_invested:,.0f}", f"{invested_ratio:.1f}%")
+
+                    # Rekomendasi cash
+                    if cash_ratio < 5:
+                        r3.error(f"⚠️ Cash Ratio {cash_ratio:.1f}% — TERLALU RENDAH! Risiko tinggi kalau market crash.")
+                    elif cash_ratio < 10:
+                        r3.warning(f"⚡ Cash Ratio {cash_ratio:.1f}% — Rendah. Ideal 10-20%.")
+                    elif cash_ratio <= 25:
+                        r3.success(f"✅ Cash Ratio {cash_ratio:.1f}% — IDEAL.")
+                    else:
+                        r3.info(f"💡 Cash Ratio {cash_ratio:.1f}% — Tinggi. Pertimbangkan deploy ke saham.")
+
+                st.divider()
+
+                # --- KURVA TOTAL EQUITY + IHSG + TARGET ---
+                st.markdown("### 📈 Kurva Total Equity vs IHSG")
+                st.caption("Bandingkan pergerakan equity portofolio Bro dengan IHSG (benchmark pasar).")
+
                 fig_eq2 = go.Figure()
+
+                # Garis Equity
                 fig_eq2.add_trace(go.Scatter(
-                    x=total_series["Tanggal"], y=total_series["Total Equity (Rp)"],
-                    mode="lines+markers", line=dict(color="#4ade80", width=2.5),
-                    fill="tozeroy", fillcolor="rgba(74,222,128,0.12)", name="Total Equity",
+                    x=total_series["Tanggal"],
+                    y=total_series["Total Equity (Rp)"],
+                    mode="lines+markers",
+                    name="🟦 Total Equity",
+                    line=dict(color="#4ade80", width=2.5),
+                    fill="tozeroy",
+                    fillcolor="rgba(74,222,128,0.12)",
                 ))
-                fig_eq2.update_layout(height=300, template="plotly_dark", margin=dict(l=10, r=10, t=10, b=10), yaxis_title="Rp")
+
+                # Target line (+10% per tahun dari snapshot pertama)
+                if first_total > 0 and len(total_series) >= 2:
+                    days = (total_series["Tanggal"].iloc[-1] - total_series["Tanggal"].iloc[0]).days
+                    target_return = (1.10 ** (days / 365) - 1) * 100  # 10% CAGR
+                    target_equity = first_total * (1 + target_return / 100)
+                    fig_eq2.add_hline(
+                        y=target_equity,
+                        line_dash="dot",
+                        line_color="#a78bfa",
+                        annotation_text=f"Target 10% CAGR (Rp{target_equity:,.0f})",
+                    )
+
+                # IHSG overlay (return % untuk skala)
+                if not ihsg_hist.empty and len(total_series) >= 2:
+                    fd = total_series["Tanggal"].min()
+                    ld = total_series["Tanggal"].max()
+                    ihsg_cmp = ihsg_hist.copy()
+                    if ihsg_cmp.index.tz is not None:
+                        ihsg_cmp.index = ihsg_cmp.index.tz_localize(None)
+
+                    ihsg_r = ihsg_cmp[(ihsg_cmp.index >= fd) & (ihsg_cmp.index <= ld)]
+                    if not ihsg_r.empty and len(ihsg_r) >= 2:
+                        ihsg_base = float(ihsg_r["Close"].iloc[0])
+                        # Normalisasi: IHSG base = equity pertama
+                        scale_factor = first_total / ihsg_base if ihsg_base > 0 else 1
+                        fig_eq2.add_trace(go.Scatter(
+                            x=ihsg_r.index,
+                            y=ihsg_r["Close"] * scale_factor,
+                            mode="lines",
+                            name="🟨 IHSG (scaled)",
+                            line=dict(color="#fbbf24", width=2, dash="dash"),
+                        ))
+
+                fig_eq2.update_layout(
+                    height=400,
+                    template="plotly_dark",
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    yaxis_title="Rp",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    hovermode="x unified",
+                )
                 st.plotly_chart(fig_eq2, use_container_width=True)
-                
-                st.markdown("**🏦 Equity per Sekuritas (Snapshot Terbaru)**")
-                latest_broker = eq.latest_per_sekuritas(equity_df)
+
+                # --- MAX DRAWDOWN ---
+                total_series["Peak"] = total_series["Total Equity (Rp)"].cummax()
+                total_series["Drawdown %"] = (total_series["Total Equity (Rp)"] - total_series["Peak"]) / total_series["Peak"] * 100
+                max_dd = total_series["Drawdown %"].min()
+
+                d1, d2, d3 = st.columns(3)
+                d1.metric("Peak Equity", f"Rp{total_series['Peak'].max():,.0f}")
+                d2.metric("Max Drawdown", f"{max_dd:.2f}%")
+                d3.metric("Latest Equity", f"Rp{latest_total:,.0f}")
+
+                st.divider()
+
+                # --- EQUITY PER SEKURITAS ---
+                st.markdown("### 🏦 Equity per Sekuritas (Snapshot Terbaru)")
                 if not latest_broker.empty:
-                    bc1, bc2 = st.columns([1.3, 1])
+                    bc1, bc2 = st.columns([1.5, 1])
                     with bc1:
-                        show_broker_eq = latest_broker[["Sekuritas", "Tanggal", "Total Equity (Rp)", "Cash (Rp)", "Invested (Rp)", "Max Risk/Trade (%)", "Max Position/Stock (%)"]]
-                        st.dataframe(show_broker_eq, use_container_width=True, hide_index=True)
+                        show_cols = ["Sekuritas", "Tanggal", "Total Equity (Rp)", "Cash (Rp)", "Invested (Rp)", "Cash Ratio %"]
+                        lb = latest_broker.copy()
+                        lb["Total Equity (Rp)"] = pd.to_numeric(lb["Total Equity (Rp)"], errors="coerce")
+                        lb["Cash (Rp)"] = pd.to_numeric(lb["Cash (Rp)"], errors="coerce")
+                        lb["Cash Ratio %"] = (lb["Cash (Rp)"] / lb["Total Equity (Rp)"] * 100).round(1)
+                        st.dataframe(lb[show_cols], use_container_width=True, hide_index=True)
                     with bc2:
                         fig_pie = go.Figure(data=[go.Pie(
                             labels=latest_broker["Sekuritas"],
                             values=pd.to_numeric(latest_broker["Total Equity (Rp)"], errors="coerce"),
                             hole=0.5,
+                            textinfo="percent+label",
                         )])
-                        fig_pie.update_layout(height=260, template="plotly_dark", margin=dict(l=10, r=10, t=10, b=10), showlegend=True)
+                        fig_pie.update_layout(
+                            height=300,
+                            template="plotly_dark",
+                            margin=dict(l=10, r=10, t=10, b=10),
+                            showlegend=True,
+                        )
                         st.plotly_chart(fig_pie, use_container_width=True)
 
         with sub_catat:
-            st.caption("Isi angka ini dari aplikasi sekuritas Bro (halaman Portfolio/RDN).")
+            st.caption("Isi angka ini dari aplikasi sekuritas Bro (halaman Portfolio/RDN). **Catat SEMUA sekuritas di tanggal yang sama.**")
             broker_options_eq = rj.load_brokers()["Sekuritas"].tolist()
             if not broker_options_eq:
                 st.warning("Belum ada sekuritas terdaftar - tambahkan dulu di tab Jurnal Real > Sekuritas.")
@@ -1663,13 +1781,16 @@ with t_equity:
                 sc1, sc2 = st.columns(2)
                 s_tanggal = sc1.text_input("Tanggal (YYYY-MM-DD)", value=datetime.now().strftime("%Y-%m-%d"), key="eq_tgl")
                 s_sekuritas = sc2.selectbox("Sekuritas", options=broker_options_eq, key="eq_sek")
+
                 sc3, sc4, sc5 = st.columns(3)
                 s_total_equity = sc3.number_input("Total Equity (Rp)", min_value=0.0, step=100000.0, key="eq_total")
                 s_cash = sc4.number_input("Cash (Rp)", min_value=0.0, step=100000.0, key="eq_cash")
                 s_invested = sc5.number_input("Invested (Rp)", min_value=0.0, step=100000.0, key="eq_invested")
+
                 sc6, sc7 = st.columns(2)
                 s_max_risk = sc6.number_input("Max Risk/Trade (%)", min_value=0.0, value=2.0, step=0.5, key="eq_maxrisk")
                 s_max_pos = sc7.number_input("Max Position/Stock (%)", min_value=0.0, value=20.0, step=1.0, key="eq_maxpos")
+
                 if st.button("💾 Simpan Snapshot", type="primary", key="btn_save_equity"):
                     if s_total_equity <= 0:
                         st.error("Total Equity wajib diisi lebih dari 0.")
@@ -1677,6 +1798,7 @@ with t_equity:
                         ok, msg = eq.add_equity_snapshot(s_tanggal, s_sekuritas, s_total_equity, s_cash, s_invested, s_max_risk, s_max_pos)
                         if ok:
                             st.success(msg)
+                            st.rerun()
                         else:
                             st.error(msg)
 
@@ -1686,7 +1808,7 @@ with t_equity:
             else:
                 st.dataframe(equity_df.sort_values("Tanggal", ascending=False), use_container_width=True, hide_index=True, height=400)
                 st.download_button(
-                    "️ Download CSV", equity_df.to_csv(index=False).encode("utf-8"),
+                    "⬇️ Download CSV", equity_df.to_csv(index=False).encode("utf-8"),
                     file_name=f"equity_log_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv",
                 )
                 st.divider()
