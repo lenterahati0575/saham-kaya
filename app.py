@@ -1779,7 +1779,7 @@ with t_equity:
                 st.warning("Belum ada sekuritas terdaftar - tambahkan dulu di tab Jurnal Real > Sekuritas.")
             else:
                 sc1, sc2 = st.columns(2)
-                s_tanggal = sc1.text_input("Tanggal (YYYY-MM-DD)", value=datetime.now().strftime("%Y-%m-%d"), key="eq_tgl")
+               s_tanggal = sc1.date_input("Tanggal", value=datetime.now(), key="eq_tgl")
                 s_sekuritas = sc2.selectbox("Sekuritas", options=broker_options_eq, key="eq_sek")
 
                 sc3, sc4, sc5 = st.columns(3)
@@ -1795,7 +1795,7 @@ with t_equity:
                     if s_total_equity <= 0:
                         st.error("Total Equity wajib diisi lebih dari 0.")
                     else:
-                        ok, msg = eq.add_equity_snapshot(s_tanggal, s_sekuritas, s_total_equity, s_cash, s_invested, s_max_risk, s_max_pos)
+                        ok, msg = eq.add_equity_snapshot(s_tanggal.strftime("%Y-%m-%d"), s_sekuritas, s_total_equity, s_cash, s_invested, s_max_risk, s_max_pos)
                         if ok:
                             st.success(msg)
                             st.rerun()
