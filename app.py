@@ -394,8 +394,7 @@ with t_kandidat:
                 'rekomendasi': row_data.get('Signal', ''),
                 'rr': clean_number(row_data.get('RR', 0))
             }
-            
-            st.success(f"✅ Data {pilih_catat} siap! Buka tab **Jurnal Real** untuk menyimpan.")
+                        
         st.success(f"✅ Data {pilih_catat} siap! Buka tab **Jurnal Real**.")
         auto_data = st.session_state.get('auto_fill_trade', {})
         st.info(f" Entry: Rp{auto_data.get('entry', 0):,.0f} | SL: Rp{auto_data.get('stop_loss', 0):,.0f} | Target: Rp{auto_data.get('target', 0):,.0f}")
