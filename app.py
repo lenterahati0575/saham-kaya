@@ -1110,7 +1110,8 @@ with t_real:
                         return None
 
                     pl_col       = find_col(["net p/l", "p/l", "profit", "pnl"], closed.columns)
-                    entry_col    = find_col(["entry"], closed.columns)
+                    # HATI-HATI: jangan match "Tanggal Entry" — pakai kandidat yang spesifik
+                    entry_col    = find_col(["entry (rp)", "entry(rp)", "harga beli", "harga_beli"], closed.columns)
                     lot_col      = find_col(["lot"], closed.columns)
                     tgl_exit_col = find_col(["tanggal exit", "tgl exit"], closed.columns)
 
