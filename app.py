@@ -688,7 +688,7 @@ with t_top10:
                f"Target = proyeksi measured-move dari lebar channel Donchian · hanya RR ≥ {min_rr:.1f}:1")
     day_tipe = classify_daytrading_tipe()
     
-    st.subheader(f" Top 10 Day Trading (Donchian {int(donchian_lb_day)} hari) — tipe {day_tipe}")
+    st.subheader(f"⚡ Top 10 Day Trading (Donchian {int(donchian_lb_day)} hari) — tipe {day_tipe}")
     cands_day = cands_day_all
     if cands_day.empty:
         st.info("Tidak ada kandidat Day Trading yang lolos RR minimum saat ini. Coba turunkan Min. RR di sidebar.")
@@ -715,11 +715,10 @@ with t_top10:
         show_swing = show_swing.drop(columns=["Chart"], errors="ignore")
         dataframe_with_chart(show_swing, kode_col="Saham", height=400, key="df_top10_swing")
         st.download_button(
-            "️ Download CSV", show_swing.to_csv(index=False).encode("utf-8"),
+            "⬇️ Download CSV", show_swing.to_csv(index=False).encode("utf-8"),
             file_name=f"top10_swing_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv",
             key="dl_swing",
         )
-
 # ============================================================================
 # TAB 6: KALKULATOR
 # ============================================================================
