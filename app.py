@@ -1102,23 +1102,64 @@ with t_real:
                     rj.add_broker(nama_broker_in, biaya_beli_in2, biaya_jual_in2)
                     st.success(f"Sekuritas '{nama_broker_in}' disimpan.")
 
-        # --- Sub 5: Edit/Hapus ---
-        with sub5:
-            st.caption("Salah input harga/lot/sekuritas? Pilih nomor trade di bawah, koreksi, lalu simpan.")
-            trades_edit = rj.load_trades()
-            if trades_edit.empty:
-                st.info("Belum ada trade untuk diedit.")
-            else:
-                pilih_edit_no = st.selectbox(
-                    "Pilih nomor trade",
-                    options=trades_edit["No"].tolist(),
-                    format_func=lambda n: f"#{n} - {trades_edit.loc[trades_edit['No']==n,'Saham'].values[0]}",
-                    key="pilih_edit_no_rj",
-                )
+            # --- Sub 5: Edit/Hapus ---
+    with sub5:
+        st.caption("Salah input harga/lot/sekuritas? Pilih nomor trade di bawah, koreksi, lalu simpan.")
+        trades_edit = rj.load_trades()
+        if trades_edit.empty:
+            st.info("Belum ada trade untuk diedit.")
+        else:
+            # === Inisialisasi session state untuk edit ===
+            if 'edit_trade_no' not in st.session_state:
+                st.session_state['edit_trade_no'] = None
+            if 'edit_trade_data' not in st.session_state:
+                st.session_state['edit_trade_data'] = None
+            
+            # Fungsi callback saat dropdown berubah
+            def on_trade_select():
+                pilih = st.session_state.get('pilih_edit_no_rj')
+                if pilih:
+                    row = trades_edit[trades_edit["No"] == pilih].iloc[0]
+                    st.session_state['edit_trade_no'] = pilih
+                    st.session_state['edit_trade_data'] = row
+            
+            pilih_edit_no = st.selectbox(
+                "Pilih nomor trade",
+                options=trades_edit["No"].tolist(),
+                format_func=lambda n: f"#{n} - {trades_edit.loc[trades_edit['No']==n,'Saham'].values[0]} "
+                                       f"({trades_edit.loc[trades_edit['No']==n,'Status'].values[0]})",
+                key="pilih_edit_no_rj",
+                on_change=on_trade_select,
+            )
+            
+            # Ambil data dari session state
+            row_edit = st.session_state.get('edit_trade_data')
+            if row_edit is None and pilih_edit_no:
                 row_edit = trades_edit[trades_edit["No"] == pilih_edit_no].iloc[0]
+                st.session_state['edit_trade_data'] = row_edit
+            
+            if row_edit is None:
+                st.info("Pilih nomor trade untuk mulai edit.")
+            else:
                 broker_options_edit = rj.load_brokers()["Sekuritas"].tolist()
+                sudah_closed = row_edit["Status"] != "OPEN"
+                
+                def _parse_tanggal_fleksibel(nilai, default=None):
+                    nilai = str(nilai).strip()
+                    if not nilai or nilai.lower() == "nan":
+                        return default or datetime.now().date()
+                    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+                        try:
+                            return datetime.strptime(nilai, fmt).date()
+                        except ValueError:
+                            continue
+                    return default or datetime.now().date()
+                
                 ec1, ec2, ec3 = st.columns(3)
-                e_tgl_entry = ec1.text_input("Tanggal Entry (YYYY-MM-DD)", value=str(row_edit["Tanggal Entry"]), key="e_tgl")
+                e_tgl_entry_date = ec1.date_input(
+                    "Tanggal Entry", value=_parse_tanggal_fleksibel(row_edit["Tanggal Entry"]), key="e_tgl",
+                )
+                e_tgl_entry = e_tgl_entry_date.strftime("%Y-%m-%d")
                 idx_broker = broker_options_edit.index(row_edit["Sekuritas"]) if row_edit["Sekuritas"] in broker_options_edit else 0
                 e_sekuritas = ec2.selectbox("Sekuritas", options=broker_options_edit, index=idx_broker, key="e_sek")
                 e_saham = ec3.text_input("Kode Saham", value=str(row_edit["Saham"]), key="e_saham").upper()
@@ -1131,9 +1172,23 @@ with t_real:
                 e_sl = ec7.number_input("Stop Loss (Rp)", min_value=0.0, value=float(row_edit["Stop Loss (Rp)"] or 0), step=1.0, key="e_sl")
                 e_target = ec8.number_input("Target (Rp)", min_value=0.0, value=float(row_edit["Target (Rp)"] or 0), step=1.0, key="e_target")
                 e_catatan = st.text_area("Catatan", value=str(row_edit["Catatan"] or ""), height=70, key="e_catatan")
+                st.markdown("**Data Exit** (centang 'Masih OPEN' kalau posisi ini belum/tidak jadi ditutup)")
+                masih_open = st.checkbox("Masih OPEN (belum exit)", value=not sudah_closed, key="e_masih_open")
                 ec9, ec10 = st.columns(2)
-                e_tgl_exit = ec9.text_input("Tanggal Exit (YYYY-MM-DD, kosongkan kalau OPEN)", value=str(row_edit["Tanggal Exit"] or ""), key="e_tgl_exit")
-                e_exit_price = ec10.number_input("Harga Exit (Rp, 0 = OPEN)", min_value=0.0, value=float(row_edit["Exit (Rp)"] or 0), step=1.0, key="e_exit_price")
+                if masih_open:
+                    ec9.date_input("Tanggal Exit", value=datetime.now().date(), disabled=True, key="e_tgl_exit_disabled")
+                    e_tgl_exit = ""
+                    ec10.number_input("Harga Exit (Rp)", value=0.0, disabled=True, key="e_exit_price_disabled")
+                    e_exit_price = 0.0
+                else:
+                    e_tgl_exit_date = ec9.date_input(
+                        "Tanggal Exit",
+                        value=_parse_tanggal_fleksibel(row_edit["Tanggal Exit"], default=datetime.now().date()),
+                        key="e_tgl_exit",
+                    )
+                    e_tgl_exit = e_tgl_exit_date.strftime("%Y-%m-%d")
+                    e_exit_price = ec10.number_input("Harga Exit (Rp)", min_value=0.0,
+                                                      value=float(row_edit["Exit (Rp)"] or 0), step=1.0, key="e_exit_price")
                 bcol1, bcol2 = st.columns(2)
                 with bcol1:
                     if st.button("💾 Simpan Perubahan", type="primary", use_container_width=True, key="btn_edit_rj"):
@@ -1148,6 +1203,9 @@ with t_real:
                             )
                             if ok:
                                 st.success(msg)
+                                # Reset session state
+                                st.session_state['edit_trade_no'] = None
+                                st.session_state['edit_trade_data'] = None
                             else:
                                 st.error(msg)
                 with bcol2:
@@ -1159,6 +1217,8 @@ with t_real:
                     if yes_col.button("Ya, hapus", type="primary", key="btn_confirm_delete_rj"):
                         ok, msg = rj.delete_trade(pilih_edit_no)
                         del st.session_state["confirm_delete_rj"]
+                        st.session_state['edit_trade_no'] = None
+                        st.session_state['edit_trade_data'] = None
                         if ok:
                             st.success(msg)
                             st.rerun()
@@ -1167,7 +1227,6 @@ with t_real:
                     if no_col.button("Batal", key="btn_cancel_delete_rj"):
                         del st.session_state["confirm_delete_rj"]
                         st.rerun()
-
 # ============================================================================
 # TAB 9: EQUITY
 # ============================================================================
