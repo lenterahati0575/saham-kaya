@@ -1182,13 +1182,14 @@ with t_real:
                             fig_cmp.update_layout(
                                 height=380,
                                 template="plotly_dark",
-                                title="📊 Perbandingan Return Kumulatif: Portofolio vs IHSG",
+                                title="📊 Strategy Return (Trade-Based) vs IHSG — Bukan Equity Riil",
                                 yaxis_title="Return Kumulatif (%)",
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                                 margin=dict(l=10, r=10, t=60, b=10),
                                 hovermode="x unified",
                             )
                             st.plotly_chart(fig_cmp, use_container_width=True)
+                            st.caption("⚠️ Grafik ini menghitung return dari cumulative P/L transaksi, bukan dari total equity portofolio. Angka bisa terlihat lebih besar dari kenyataan karena modal base-nya hanya trade pertama.")
 
                             # Ringkasan
                             lp = closed["Port_Return_%"].iloc[-1]
@@ -1209,8 +1210,120 @@ with t_real:
                     st.error(f"❌ Error grafik perbandingan: {e}")
                     import traceback
                     st.code(traceback.format_exc())
+               
                 # =========================================================================
-                # ⬆️ AKHIR TAMBAHAN
+                # ⬇️ TAMBAHAN 2: GRAFIK EQUITY CURVE RIIL vs IHSG
+                # =========================================================================
+                st.divider()
+                st.markdown("### 💼 Portfolio Equity Curve (Real Equity vs IHSG)")
+                st.caption(
+                    "Grafik ini menggunakan data **Total Equity riil** dari tab 💰 Equity, "
+                    "bukan dihitung dari jurnal transaksi. Lebih akurat karena mencerminkan "
+                    "total modal, cash menganggur, dan posisi terbuka."
+                )
+
+                try:
+                    equity_df = eq.load_equity()
+                    if equity_df.empty:
+                        st.info(
+                            "📭 Belum ada data equity. "
+                            "Silakan catat snapshot equity pertama di tab **💰 Equity > Catat Snapshot**."
+                        )
+                    else:
+                        total_series = eq.total_equity_over_time(equity_df)
+                        total_series["Tanggal"] = pd.to_datetime(total_series["Tanggal"])
+                        total_series = total_series.sort_values("Tanggal")
+
+                        # Hitung return % dari equity riil
+                        start_eq = float(total_series["Total Equity (Rp)"].iloc[0])
+                        total_series["Equity_Return_%"] = ((total_series["Total Equity (Rp)"] / start_eq) - 1) * 100
+
+                        # Filter IHSG sesuai periode equity
+                        eq_fd = total_series["Tanggal"].min()
+                        eq_ld = total_series["Tanggal"].max()
+
+                        ihsg_eq = ihsg_hist.copy()
+                        if ihsg_eq.index.tz is not None:
+                            ihsg_eq.index = ihsg_eq.index.tz_localize(None)
+
+                        ihsg_eq_range = ihsg_eq[(ihsg_eq.index >= eq_fd) & (ihsg_eq.index <= eq_ld)]
+
+                        fig_eq_cmp = go.Figure()
+
+                        # Garis Equity Riil
+                        fig_eq_cmp.add_trace(go.Scatter(
+                            x=total_series["Tanggal"],
+                            y=total_series["Equity_Return_%"],
+                            mode="lines+markers",
+                            name="🟦 Portfolio Equity (Real)",
+                            line=dict(color="#4ade80", width=2.5),
+                            fill="tozeroy",
+                            fillcolor="rgba(74,222,128,0.10)",
+                        ))
+
+                        # Garis IHSG (kalau data tersedia)
+                        if not ihsg_eq_range.empty and len(ihsg_eq_range) >= 2:
+                            ihsg_eq_base = float(ihsg_eq_range["Close"].iloc[0])
+                            ihsg_eq_range["IHSG_Return_%"] = ((ihsg_eq_range["Close"] / ihsg_eq_base) - 1) * 100
+
+                            fig_eq_cmp.add_trace(go.Scatter(
+                                x=ihsg_eq_range.index,
+                                y=ihsg_eq_range["IHSG_Return_%"],
+                                mode="lines",
+                                name="🟨 IHSG (Benchmark)",
+                                line=dict(color="#fbbf24", width=2.5, dash="dash"),
+                            ))
+
+                            last_eq_ret = total_series["Equity_Return_%"].iloc[-1]
+                            last_ihsg_ret = ihsg_eq_range["IHSG_Return_%"].iloc[-1]
+                            delta_eq = last_eq_ret - last_ihsg_ret
+
+                            # Metrik Portfolio
+                            m1, m2, m3, m4 = st.columns(4)
+                            m1.metric("Starting Equity", f"Rp{start_eq:,.0f}")
+                            latest_eq = float(total_series["Total Equity (Rp)"].iloc[-1])
+                            m2.metric("Latest Equity", f"Rp{latest_eq:,.0f}")
+                            m3.metric("Total Return", f"{last_eq_ret:+.2f}%")
+                            pf_display_eq = "∞" if stats_rj["profit_factor"] == float("inf") else f"{stats_rj['profit_factor']:.2f}"
+                            m4.metric("Profit Factor", pf_display_eq)
+
+                            # Max Drawdown
+                            total_series["Peak"] = total_series["Total Equity (Rp)"].cummax()
+                            total_series["Drawdown"] = (total_series["Total Equity (Rp)"] - total_series["Peak"]) / total_series["Peak"] * 100
+                            max_dd = total_series["Drawdown"].min()
+
+                            dd1, dd2 = st.columns(2)
+                            dd1.metric("Max Drawdown", f"{max_dd:.2f}%")
+                            if delta_eq > 0:
+                                dd2.success(
+                                    f"🚀 Portfolio outperform IHSG by **{delta_eq:+.2f}%** "
+                                    f"(Equity: {last_eq_ret:+.2f}% vs IHSG: {last_ihsg_ret:+.2f}%)"
+                                )
+                            else:
+                                dd2.warning(
+                                    f"📉 Portfolio underperform IHSG by **{delta_eq:+.2f}%** "
+                                    f"(Equity: {last_eq_ret:+.2f}% vs IHSG: {last_ihsg_ret:+.2f}%)"
+                                )
+                        else:
+                            st.caption("⚠️ Data IHSG tidak tersedia untuk periode equity.")
+
+                        fig_eq_cmp.update_layout(
+                            height=400,
+                            template="plotly_dark",
+                            title="📊 Portfolio Equity Curve vs IHSG (Real Equity)",
+                            yaxis_title="Return Kumulatif (%)",
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                            margin=dict(l=10, r=10, t=60, b=10),
+                            hovermode="x unified",
+                        )
+                        st.plotly_chart(fig_eq_cmp, use_container_width=True)
+
+                except Exception as e:
+                    st.error(f"❌ Error grafik equity: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+                # =========================================================================
+                # ⬆️ AKHIR TAMBAHAN 2
                 # =========================================================================
                 
                 st.markdown("**Riwayat Semua Trade**")
