@@ -1096,90 +1096,90 @@ with t_real:
                 # =========================================================================
                 # ⬇️ TAMBAHAN: GRAFIK PERBANDINGAN PORTOFOLIO vs IHSG
                 # =========================================================================
-                try:
-                    closed = trades_all[trades_all["Status"] == "CLOSE"].copy()
-                    if not closed.empty and not ihsg_hist.empty:
-                        # Pastikan tanggal dalam format datetime
-                        closed["Tanggal Exit"] = pd.to_datetime(closed["Tanggal Exit"])
-                        closed = closed.sort_values("Tanggal Exit")
+                    try:
+                        closed = trades_all[trades_all["Status"] == "CLOSE"].copy()
+                        if not closed.empty and not ihsg_hist.empty:
+                            # Pastikan tanggal dalam format datetime
+                            closed["Tanggal Exit"] = pd.to_datetime(closed["Tanggal Exit"])
+                            closed = closed.sort_values("Tanggal Exit")
 
-                        # Deteksi nama kolom P&L dan Entry/Lot (otomatis menyesuaikan)
-                        pl_col = next((c for c in ["P&L (Rp)", "Net P/L", "Profit (Rp)", "PnL (Rp)"] if c in closed.columns), None)
-                        entry_col = next((c for c in ["Entry (Rp)", "Harga Beli", "Entry"] if c in closed.columns), None)
-                        lot_col = next((c for c in ["Lot", "lot"] if c in closed.columns), None)
+                            # Deteksi nama kolom P&L dan Entry/Lot (otomatis menyesuaikan)
+                            pl_col = next((c for c in ["P&L (Rp)", "Net P/L", "Profit (Rp)", "PnL (Rp)"] if c in closed.columns), None)
+                            entry_col = next((c for c in ["Entry (Rp)", "Harga Beli", "Entry"] if c in closed.columns), None)
+                            lot_col = next((c for c in ["Lot", "lot"] if c in closed.columns), None)
 
-                        if pl_col and entry_col and lot_col:
-                            # Hitung cumulative P/L
-                            closed["Cum_PnL"] = closed[pl_col].cumsum()
+                            if pl_col and entry_col and lot_col:
+                                # Hitung cumulative P/L
+                                closed["Cum_PnL"] = closed[pl_col].cumsum()
 
-                            # Modal awal = nilai transaksi trade pertama sebagai proxy
-                            modal = float(closed.iloc[0][entry_col]) * float(closed.iloc[0][lot_col]) * 100
-                            if modal <= 0:
-                                modal = 1_000_000  # fallback 1 juta
+                                # Modal awal = nilai transaksi trade pertama sebagai proxy
+                                modal = float(closed.iloc[0][entry_col]) * float(closed.iloc[0][lot_col]) * 100
+                                if modal <= 0:
+                                    modal = 1_000_000  # fallback 1 juta
 
-                            # Return % portofolio
-                            closed["Port_Return_%"] = ((modal + closed["Cum_PnL"]) / modal - 1) * 100
+                                # Return % portofolio
+                                closed["Port_Return_%"] = ((modal + closed["Cum_PnL"]) / modal - 1) * 100
 
-                            # Filter IHSG sesuai rentang tanggal trade
-                            fd = closed["Tanggal Exit"].min()
-                            ld = closed["Tanggal Exit"].max()
-                            ihsg_range = ihsg_hist[(ihsg_hist.index >= fd) & (ihsg_hist.index <= ld)].copy()
+                                # Filter IHSG sesuai rentang tanggal trade
+                                fd = closed["Tanggal Exit"].min()
+                                ld = closed["Tanggal Exit"].max()
+                                ihsg_range = ihsg_hist[(ihsg_hist.index >= fd) & (ihsg_hist.index <= ld)].copy()
 
-                            if not ihsg_range.empty and len(ihsg_range) >= 2:
-                                ihsg_base = float(ihsg_range["Close"].iloc[0])
-                                ihsg_range["IHSG_Return_%"] = ((ihsg_range["Close"] / ihsg_base) - 1) * 100
+                                if not ihsg_range.empty and len(ihsg_range) >= 2:
+                                    ihsg_base = float(ihsg_range["Close"].iloc[0])
+                                    ihsg_range["IHSG_Return_%"] = ((ihsg_range["Close"] / ihsg_base) - 1) * 100
 
-                                fig_cmp = go.Figure()
+                                    fig_cmp = go.Figure()
 
-                                # Garis Portofolio
-                                fig_cmp.add_trace(go.Scatter(
-                                    x=closed["Tanggal Exit"],
-                                    y=closed["Port_Return_%"],
-                                    mode="lines+markers",
-                                    name="🟦 Portofolio Jurnal Real",
-                                    line=dict(color="#38bdf8", width=2.5),
-                                    fill="tozeroy",
-                                    fillcolor="rgba(56,189,248,0.10)",
-                                ))
+                                    # Garis Portofolio
+                                    fig_cmp.add_trace(go.Scatter(
+                                        x=closed["Tanggal Exit"],
+                                        y=closed["Port_Return_%"],
+                                        mode="lines+markers",
+                                        name="🟦 Portofolio Jurnal Real",
+                                        line=dict(color="#38bdf8", width=2.5),
+                                        fill="tozeroy",
+                                        fillcolor="rgba(56,189,248,0.10)",
+                                    ))
 
-                                # Garis IHSG
-                                fig_cmp.add_trace(go.Scatter(
-                                    x=ihsg_range.index,
-                                    y=ihsg_range["IHSG_Return_%"],
-                                    mode="lines",
-                                    name="🟨 IHSG (Benchmark)",
-                                    line=dict(color="#fbbf24", width=2.5, dash="dash"),
-                                ))
+                                    # Garis IHSG
+                                    fig_cmp.add_trace(go.Scatter(
+                                        x=ihsg_range.index,
+                                        y=ihsg_range["IHSG_Return_%"],
+                                        mode="lines",
+                                        name="🟨 IHSG (Benchmark)",
+                                        line=dict(color="#fbbf24", width=2.5, dash="dash"),
+                                    ))
 
-                                fig_cmp.update_layout(
-                                    height=350,
-                                    template="plotly_dark",
-                                    title="📊 Perbandingan Return Kumulatif: Portofolio vs IHSG",
-                                    yaxis_title="Return Kumulatif (%)",
-                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                                    margin=dict(l=10, r=10, t=50, b=10),
-                                    hovermode="x unified",
-                                )
-                                st.plotly_chart(fig_cmp, use_container_width=True)
-
-                                # Ringkasan selisih
-                                lp = closed["Port_Return_%"].iloc[-1]
-                                li = ihsg_range["IHSG_Return_%"].iloc[-1]
-                                delta = lp - li
-                                if delta > 0:
-                                    st.success(
-                                        f"🚀 Portofolio mengungguli IHSG sebesar **{delta:+.2f}%** "
-                                        f"(Portofolio: {lp:+.2f}% vs IHSG: {li:+.2f}%)"
+                                    fig_cmp.update_layout(
+                                        height=350,
+                                        template="plotly_dark",
+                                        title="📊 Perbandingan Return Kumulatif: Portofolio vs IHSG",
+                                        yaxis_title="Return Kumulatif (%)",
+                                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                                        margin=dict(l=10, r=10, t=50, b=10),
+                                        hovermode="x unified",
                                     )
-                                else:
-                                    st.warning(
-                                        f"📉 Portofolio di bawah IHSG sebesar **{delta:+.2f}%** "
-                                        f"(Portofolio: {lp:+.2f}% vs IHSG: {li:+.2f}%)"
-                                    )
-                        else:
-                            st.caption("⚠️ Kolom P&L/Entry/Lot tidak ditemukan — grafik perbandingan dilewati.")
-                except Exception as e:
-                    st.caption(f"⚠️ Grafik perbandingan IHSG belum tersedia: {e}")
+                                    st.plotly_chart(fig_cmp, use_container_width=True)
+
+                                    # Ringkasan selisih
+                                    lp = closed["Port_Return_%"].iloc[-1]
+                                    li = ihsg_range["IHSG_Return_%"].iloc[-1]
+                                    delta = lp - li
+                                    if delta > 0:
+                                        st.success(
+                                            f"🚀 Portofolio mengungguli IHSG sebesar **{delta:+.2f}%** "
+                                            f"(Portofolio: {lp:+.2f}% vs IHSG: {li:+.2f}%)"
+                                        )
+                                    else:
+                                        st.warning(
+                                            f"📉 Portofolio di bawah IHSG sebesar **{delta:+.2f}%** "
+                                            f"(Portofolio: {lp:+.2f}% vs IHSG: {li:+.2f}%)"
+                                        )
+                            else:
+                                st.caption("⚠️ Kolom P&L/Entry/Lot tidak ditemukan — grafik perbandingan dilewati.")
+                    except Exception as e:
+                        st.caption(f"⚠️ Grafik perbandingan IHSG belum tersedia: {e}")
                 # =========================================================================
                 # ⬆️ AKHIR TAMBAHAN
                 # =========================================================================
