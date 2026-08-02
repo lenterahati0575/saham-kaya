@@ -242,3 +242,160 @@ def market_regime(ihsg_hist):
         status = "BEARISH"
 
     return {"status": status, "close": close, "ma": ma50}
+
+
+def gann_square_of_9(price):
+    """Hitung Gann Square of 9 untuk harga saham"""
+    import math
+    if price <= 0:
+        return {"error": "Harga harus > 0"}
+
+    # Square root method
+    sr = math.sqrt(price)
+
+    # Key angles: 0°, 45°, 90°, 135°, 180°, 225°, 270°, 315°
+    angles = [0, 45, 90, 135, 180, 225, 270, 315]
+    levels = {}
+
+    for angle in angles:
+        # Gann formula: (sqrt(price) + angle/360)^2
+        factor = angle / 360.0
+        level_price = (sr + factor) ** 2
+        levels[f"{angle}°"] = round(level_price, 2)
+
+    # Support and resistance
+    support = levels.get("315°", price * 0.95)
+    resistance = levels.get("45°", price * 1.05)
+
+    return {
+        "base_price": price,
+        "square_root": round(sr, 4),
+        "levels": levels,
+        "support": support,
+        "resistance": resistance,
+        "cardinal": {
+            "0°": levels.get("0°"),
+            "90°": levels.get("90°"),
+            "180°": levels.get("180°"),
+            "270°": levels.get("270°"),
+        },
+        "diagonal": {
+            "45°": levels.get("45°"),
+            "135°": levels.get("135°"),
+            "225°": levels.get("225°"),
+            "315°": levels.get("315°"),
+        }
+    }
+
+def time_cycle_analysis(df, lookback=60):
+    """Analisis time cycle dari data historis"""
+    if df is None or len(df) < lookback:
+        return {"error": "Data tidak cukup"}
+
+    close = df["Close"].tail(lookback)
+
+    # Hitung cycle menggunakan FFT-like approach (simplified)
+    import numpy as np
+
+    returns = close.pct_change().dropna()
+    if len(returns) < 10:
+        return {"error": "Data tidak cukup untuk analisis cycle"}
+
+    # Simple cycle detection using autocorrelation
+    autocorr = []
+    for lag in range(1, min(30, len(returns)//2)):
+        corr = returns.autocorr(lag=lag)
+        autocorr.append((lag, corr if not np.isnan(corr) else 0))
+
+    # Find dominant cycle
+    autocorr_sorted = sorted(autocorr, key=lambda x: abs(x[1]), reverse=True)
+    dominant_cycle = autocorr_sorted[0][0] if autocorr_sorted else 7
+
+    # Next cycle dates
+    from datetime import datetime, timedelta
+    last_date = df.index[-1]
+    next_cycle = last_date + timedelta(days=dominant_cycle)
+
+    return {
+        "dominant_cycle_days": dominant_cycle,
+        "cycle_strength": round(abs(autocorr_sorted[0][1]), 3) if autocorr_sorted else 0,
+        "last_date": last_date.strftime("%Y-%m-%d"),
+        "next_cycle_date": next_cycle.strftime("%Y-%m-%d"),
+        "autocorrelation": autocorr[:5],
+        "trend_alignment": "BULLISH" if close.iloc[-1] > close.iloc[-dominant_cycle] else "BEARISH",
+    }
+
+def astro_cycle_analysis(date=None):
+    """Analisis astro-cycle (simplified)"""
+    from datetime import datetime
+    import math
+
+    if date is None:
+        date = datetime.now()
+
+    # Moon phase calculation (simplified)
+    # Known new moon: 2000-01-06
+    known_new_moon = datetime(2000, 1, 6)
+    days_since = (date - known_new_moon).days
+    lunar_cycle = 29.53059
+    moon_age = days_since % lunar_cycle
+
+    # Phase: 0-7.4 (new), 7.4-14.8 (waxing), 14.8-22.1 (full), 22.1-29.5 (waning)
+    if moon_age < 7.4:
+        phase = "New Moon"
+        sentiment = "ACCUMULATION"
+    elif moon_age < 14.8:
+        phase = "Waxing Crescent"
+        sentiment = "BULLISH"
+    elif moon_age < 22.1:
+        phase = "Full Moon"
+        sentiment = "DISTRIBUTION"
+    else:
+        phase = "Waning Crescent"
+        sentiment = "BEARISH"
+
+    # Mercury retrograde (simplified approximation)
+    # Mercury retrograde ~3-4 times per year, ~3 weeks each
+    # Approximate: check if day of year falls in known retrograde windows
+    doy = date.timetuple().tm_yday
+    # Simplified: retrograde windows (approximate for 2024-2026)
+    retrograde_windows = [
+        (1, 25),    # Jan
+        (50, 75),   # Feb-Mar
+        (120, 145), # Apr-May
+        (190, 215), # Jul
+        (240, 265), # Aug-Sep
+        (300, 325), # Oct-Nov
+    ]
+
+    is_mercury_retrograde = any(start <= doy <= end for start, end in retrograde_windows)
+
+    return {
+        "date": date.strftime("%Y-%m-%d"),
+        "moon_phase": phase,
+        "moon_age_days": round(moon_age, 1),
+        "sentiment": sentiment,
+        "mercury_retrograde": is_mercury_retrograde,
+        "mercury_advice": "HATI-HATI trading" if is_mercury_retrograde else "Normal",
+    }
+
+def analyze_ihsg_gann(ihsg_hist):
+    """Analisis Gann + Time Cycle untuk IHSG"""
+    if ihsg_hist is None or ihsg_hist.empty:
+        return None
+
+    close = float(ihsg_hist["Close"].iloc[-1])
+
+    gann = gann_square_of_9(close)
+    cycle = time_cycle_analysis(ihsg_hist)
+    astro = astro_cycle_analysis()
+
+    return {
+        "gann": gann,
+        "current": {
+            "price": close,
+            "date": ihsg_hist.index[-1].strftime("%Y-%m-%d"),
+        },
+        "cycle": cycle,
+        "astro": astro,
+    }
