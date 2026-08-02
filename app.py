@@ -516,9 +516,9 @@ breadth = market_breadth(price_data, tickers[:int(n_scan)], lookback=20)
 if breadth:
     st.markdown(f"""<div style="background:#1e293b;border-radius:8px;padding:10px;margin-bottom:12px;border:1px solid #334155;"><div style="font-size:11px;color:#94a3b8;">MARKET HEALTH: {breadth['health']}</div><div style="font-size:10px;color:#94a3b8;margin-top:4px;">{breadth['advancers']}↑ {breadth['decliners']}↓ dari {breadth['total']} saham ({breadth['above_pct']}% above MA20)</div></div>""", unsafe_allow_html=True)
 
-t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_broker = st.tabs([
+t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_broker, t_tutorial = st.tabs([
     "🏆 Kandidat", "📋 Semua", "📉 Grafik", "📒 Backtest", "🎯 Top 10", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
-    "🧮 Kalkulator", "📊 Fundamental", "🏛️ Value Invest", "📊 IHSG Analysis", "🔗 Correlation", "🌙 Astronacci", "📰 Sentiment", "🤖 ML Signal", "📉 Options", "🏦 Broker"," Tutorial"
+    "🧮 Kalkulator", "📊 Fundamental", "🏛️ Value Invest", "📊 IHSG Analysis", "🔗 Correlation", "🌙 Astronacci", "📰 Sentiment", "🤖 ML Signal", "📉 Options", "🏦 Broker", "📚 Tutorial"
 ])
 
 # ============================================================================
