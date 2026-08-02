@@ -1668,7 +1668,7 @@ with t_broker:
     with o3: order_qty = st.number_input("Lot", min_value=1, value=10, step=1, key="order_qty")
     with o4: 
         harga_default = float(table.loc[table["Kode"] == order_kode, "Harga"].values[0]) if order_kode and not table.empty and order_kode in table["Kode"].values else 0
-        order_price = st.number_input("Harga (Rp)", min_value=0.0, value=harga_default, step=1.0, key="order_price")
+        order_price = st.number_input("Harga (Rp)", min_value=0.0, value=float(harga_default), step=1.0, key="order_price")
     with o5: cash_avail = st.number_input("Cash Tersedia (Rp)", min_value=0.0, value=10_000_000.0, step=1_000_000.0, key="order_cash")
     if order_kode and order_price > 0 and order_qty > 0:
         valid, msg, total = validate_order(order_kode, order_side, order_qty, order_price, cash_avail)
