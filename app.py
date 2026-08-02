@@ -1065,12 +1065,26 @@ with t_fundamental:
                         q_score += 20
                     elif roe > 0.10: 
                         q_score += 10
-                    if de < 0.5: q_score += 20; elif de < 1.0: q_score += 10
-                    if pe < 15: q_score += 15; elif pe < 25: q_score += 5
-                    if pb < 1.5: q_score += 15; elif pb < 3: q_score += 5
-                    if earnings_g > 0.10: q_score += 15; elif earnings_g > 0: q_score += 5
-                    if div_yield > 0.02: q_score += 15
-                    if current_ratio and current_ratio > 1.5: q_score += 10
+                    if de < 0.5: 
+                        q_score += 20 
+                    elif de < 1.0: 
+                        q_score += 10
+                    if pe < 15: 
+                        q_score += 15
+                    elif pe < 25: 
+                        q_score += 5
+                    if pb < 1.5: 
+                        q_score += 15 
+                    elif pb < 3: 
+                        q_score += 5
+                    if earnings_g > 0.10: 
+                        q_score += 15 
+                    elif earnings_g > 0: 
+                        q_score += 5
+                    if div_yield > 0.02: 
+                        q_score += 15
+                    if current_ratio and current_ratio > 1.5: 
+                        q_score += 10
                     kategori = "🟦 Dividend Aristocrat" if div_yield > 0.03 and payout < 0.7 and pe < 15 else ("🟥 Deep Value" if mos > 30 and pe < 10 and pb < 1 else ("🟩 GARP" if peg < 1.5 and earnings_g > 0.15 and pe < 25 else ("🟨 Classic Value" if pe < 15 and pb < 1.5 and de < 0.5 else "⬜ Neutral")))
                     results.append({"Kode": kode, "Nama": info.get("longName", kode)[:35], "Harga": price, "Market Cap (T)": round(mc / 1e12, 2), "P/E": round(pe, 1) if pe != 999 else None, "P/B": round(pb, 1) if pb != 999 else None, "PEG": round(peg, 2) if peg != 999 else None, "ROE %": round(roe * 100, 1) if roe else None, "ROA %": round(roa * 100, 1) if roa else None, "Debt/Eq": round(de, 2) if de else None, "Current Ratio": round(current_ratio, 2) if current_ratio else None, "EPS": round(eps, 0) if eps else None, "BVPS": round(bvps, 0) if bvps else None, "Graham Number": round(graham, 0) if graham else None, "Margin of Safety %": round(mos, 1) if mos > -900 else None, "Earnings Yield %": round(ey, 1) if ey else None, "FCF Yield %": round(fcfy, 1) if fcfy else None, "Div Yield %": round(div_yield * 100, 2) if div_yield else 0, "Payout %": round(payout * 100, 1) if payout else None, "Earnings Growth %": round(earnings_g * 100, 1) if earnings_g else None, "Revenue Growth %": round(revenue_g * 100, 1) if revenue_g else None, "Quality Score": q_score, "Kategori": kategori})
                 except: continue
