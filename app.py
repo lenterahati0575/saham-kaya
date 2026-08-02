@@ -1,4 +1,5 @@
 import streamlit as st
+from tutorial import show_tutorial
 import streamlit.components.v1 as components
 import pandas as pd
 import plotly.graph_objects as go
@@ -517,7 +518,7 @@ if breadth:
 
 t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_broker = st.tabs([
     "🏆 Kandidat", "📋 Semua", "📉 Grafik", "📒 Backtest", "🎯 Top 10", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
-    "🧮 Kalkulator", "📊 Fundamental", "🏛️ Value Invest", "📊 IHSG Analysis", "🔗 Correlation", "🌙 Astronacci", "📰 Sentiment", "🤖 ML Signal", "📉 Options", "🏦 Broker"
+    "🧮 Kalkulator", "📊 Fundamental", "🏛️ Value Invest", "📊 IHSG Analysis", "🔗 Correlation", "🌙 Astronacci", "📰 Sentiment", "🤖 ML Signal", "📉 Options", "🏦 Broker"," Tutorial"
 ])
 
 # ============================================================================
@@ -2353,6 +2354,12 @@ with t_broker:
 # ============================================================================
 if auto_refresh:
     st.markdown("""<script>setTimeout(function() { window.location.reload(); }, 300000);</script>""", unsafe_allow_html=True)
+
+# ============================================================================
+# TAB TUTORIAL
+# ============================================================================
+with t_tutorial:
+    show_tutorial()
 
 st.divider()
 st.caption("️ Data diambil dari Yahoo Finance (yfinance), bukan API resmi. Bukan rekomendasi keuangan. Selalu lakukan riset & kelola risiko sendiri.")
