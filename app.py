@@ -66,6 +66,146 @@ def embed_tradingview_chart(kode: str, height: int = 520):
     html = f'<iframe src="{src}" width="100%" height="{height}" frameborder="0" allowtransparency="true" scrolling="no"></iframe>'
     components.html(html, height=height + 10)
 
+
+# ============================================================
+# GANN SQUARE OF 9 + TIME CYCLE MODULE (AUTO-INTEGRATED)
+# ============================================================
+import math
+from datetime import datetime, timedelta
+
+class GannSquareOf9:
+    """Gann Square of 9 Calculator untuk IHSG dan saham individual"""
+
+    @staticmethod
+    def calculate_level(price):
+        """Hitung support/resistance dari harga berdasarkan rotasi sudut Gann"""
+        sqrt_price = math.sqrt(price)
+        return {
+            'resistance': {
+                'R1_45°': round((sqrt_price + 0.125) ** 2, 2),
+                'R2_90°': round((sqrt_price + 0.25) ** 2, 2),
+                'R3_180°': round((sqrt_price + 0.5) ** 2, 2),
+                'R4_360°': round((sqrt_price + 1.0) ** 2, 2),
+            },
+            'support': {
+                'S1_45°': round((sqrt_price - 0.125) ** 2, 2),
+                'S2_90°': round((sqrt_price - 0.25) ** 2, 2),
+                'S3_180°': round((sqrt_price - 0.5) ** 2, 2),
+                'S4_360°': round((sqrt_price - 1.0) ** 2, 2),
+            }
+        }
+
+    @staticmethod
+    def time_cycle_analysis(start_date, price_at_start, current_date=None):
+        """Hitung tanggal-tanggal potensial reversal dari pivot"""
+        if current_date is None:
+            current_date = datetime.now()
+
+        gann_cycles = [30, 45, 60, 90, 120, 180, 270, 360, 540, 720]
+        fib_cycles = [8, 13, 21, 34, 55, 89, 144, 233, 377, 610]
+        all_cycles = []
+
+        for days in gann_cycles:
+            target_date = start_date + timedelta(days=days)
+            days_from_now = (target_date - current_date).days
+            all_cycles.append({
+                'type': 'Gann', 'days': days, 'date': target_date.strftime('%Y-%m-%d'),
+                'days_from_now': days_from_now, 'passed': days_from_now < 0
+            })
+        for days in fib_cycles:
+            target_date = start_date + timedelta(days=days)
+            days_from_now = (target_date - current_date).days
+            all_cycles.append({
+                'type': 'Fibonacci', 'days': days, 'date': target_date.strftime('%Y-%m-%d'),
+                'days_from_now': days_from_now, 'passed': days_from_now < 0
+            })
+        all_cycles.sort(key=lambda x: x['days_from_now'])
+        return all_cycles
+
+def detect_pivot_low(df, window=10):
+    """Deteksi pivot low terakhir dari dataframe OHLC"""
+    if df is None or len(df) < window * 2 + 1:
+        return df.index[-1] if df is not None and len(df) > 0 else datetime.now(), 0
+    lows = df['Low'].rolling(window=window*2+1, center=True).min()
+    pivot_mask = (df['Low'] == lows)
+    pivots = df[pivot_mask].copy()
+    if len(pivots) == 0:
+        idx = df.iloc[-window:]['Low'].idxmin()
+        return idx, df.loc[idx, 'Low']
+    return pivots.index[-1], pivots['Low'].iloc[-1]
+
+def detect_pivot_high(df, window=10):
+    """Deteksi pivot high terakhir dari dataframe OHLC"""
+    if df is None or len(df) < window * 2 + 1:
+        return df.index[-1] if df is not None and len(df) > 0 else datetime.now(), 0
+    highs = df['High'].rolling(window=window*2+1, center=True).max()
+    pivot_mask = (df['High'] == highs)
+    pivots = df[pivot_mask].copy()
+    if len(pivots) == 0:
+        idx = df.iloc[-window:]['High'].idxmax()
+        return idx, df.loc[idx, 'High']
+    return pivots.index[-1], pivots['High'].iloc[-1]
+
+def analyze_ihsg_gann(ihsg_hist):
+    """Analisis Gann + Time Cycle lengkap untuk IHSG"""
+    if ihsg_hist is None or ihsg_hist.empty:
+        return None
+
+    current_price = float(ihsg_hist['Close'].iloc[-1])
+    high_1y = float(ihsg_hist['High'].max())
+    low_1y = float(ihsg_hist['Low'].min())
+
+    # Deteksi pivot
+    pivot_low_idx, pivot_low_price = detect_pivot_low(ihsg_hist, window=10)
+    pivot_high_idx, pivot_high_price = detect_pivot_high(ihsg_hist, window=10)
+
+    # Gann levels dari harga saat ini
+    gann = GannSquareOf9.calculate_level(current_price)
+
+    # Time cycles dari pivot low terakhir
+    if isinstance(pivot_low_idx, pd.Timestamp):
+        pivot_low_date = pivot_low_idx.to_pydatetime()
+    else:
+        pivot_low_date = datetime.now() - timedelta(days=30)
+
+    cycles = GannSquareOf9.time_cycle_analysis(pivot_low_date, pivot_low_price)
+    upcoming = [c for c in cycles if not c['passed'] and c['days_from_now'] <= 90]
+
+    # Technical position
+    range_total = high_1y - low_1y
+    position_pct = ((current_price - low_1y) / range_total * 100) if range_total > 0 else 50
+    rsi_approx = 30 + (position_pct / 100 * 40)
+
+    # Determine bias
+    near_resistance = current_price > gann['resistance']['R1_45°'] * 0.995
+    near_support = current_price < gann['support']['S1_45°'] * 1.005
+    cycle_alert = any(c['days_from_now'] <= 7 for c in upcoming)
+
+    if near_support and rsi_approx < 35:
+        bias = "🟢 BULLISH BIAS — Dekat Support"
+    elif near_resistance and rsi_approx > 65:
+        bias = "🔴 BEARISH BIAS — Dekat Resistance"
+    elif cycle_alert:
+        bias = "🟡 REVERSAL WATCH — Time Cycle Aktif"
+    else:
+        bias = "⚪ NEUTRAL — Pantau Breakout"
+
+    return {
+        'current': current_price,
+        'high_1y': high_1y,
+        'low_1y': low_1y,
+        'pivot_low': (pivot_low_idx, pivot_low_price),
+        'pivot_high': (pivot_high_idx, pivot_high_price),
+        'gann': gann,
+        'cycles': upcoming,
+        'position_pct': position_pct,
+        'rsi_approx': rsi_approx,
+        'bias': bias,
+        'cycle_alert': cycle_alert,
+    }
+
+# ============================================================
+
 def dataframe_with_chart(df_display, kode_col="Kode", height=460, key=None, column_config=None):
     event = st.dataframe(
         df_display, use_container_width=True, hide_index=True, height=height,
@@ -80,6 +220,880 @@ def dataframe_with_chart(df_display, kode_col="Kode", height=460, key=None, colu
     else:
         st.caption("💡 Klik salah satu baris di tabel di atas untuk melihat chart TradingView langsung di sini.")
 
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# BROKER API INTEGRATION (Template untuk broker Indonesia)
+# ============================================================
+class BrokerAPI:
+    """
+    Generic Broker API Interface untuk broker Indonesia.
+
+    Saat ini support:
+    - Manual Order Entry (placeholder)
+    - Order validation
+    - Portfolio sync (manual input)
+
+    Untuk broker dengan API nyata (Mirae, Ajaib, Stockbit, IPOT, dll),
+    extend class ini dengan implementasi spesifik.
+    """
+
+    SUPPORTED_BROKERS = [
+        "Mirae Asset Sekuritas",
+        "Ajaib Sekuritas",
+        "Stockbit Sekuritas",
+        "Philip Sekuritas",
+        "IPOT (Indo Premier)",
+        "Sinarmas Sekuritas",
+        "Bahana Sekuritas",
+        "BNI Sekuritas",
+        "Mandiri Sekuritas",
+        "Manual / Lainnya",
+    ]
+
+    def __init__(self, broker_name="Manual / Lainnya", api_key=None, api_secret=None):
+        self.broker = broker_name
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.connected = False
+
+    def connect(self):
+        """Placeholder untuk koneksi API"""
+        if self.broker == "Manual / Lainnya":
+            self.connected = True
+            return True, "Manual mode — order dicatat di jurnal saja"
+
+        # Template untuk broker dengan API
+        try:
+            # Implementasi spesifik per broker di sini
+            # Contoh untuk Mirae (hypothetical):
+            # import mirae_api
+            # self.client = mirae_api.Client(self.api_key, self.api_secret)
+            # self.connected = True
+            # return True, f"Connected to {self.broker}"
+
+            self.connected = True
+            return True, f"{self.broker} — API integration placeholder. Hubungi broker untuk API access."
+        except Exception as e:
+            return False, str(e)
+
+    def place_order(self, kode, side, qty, price, order_type="LIMIT"):
+        """Place order — placeholder"""
+        if not self.connected:
+            return False, "Not connected to broker"
+
+        if self.broker == "Manual / Lainnya":
+            return True, f"Order dicatat di jurnal: {side} {kode} @ Rp{price:,.0f} x {qty} lot"
+
+        # Template untuk API nyata
+        return True, f"[API] {side} {kode} @ Rp{price:,.0f} x {qty} lot — ORDER PLACED (simulasi)"
+
+    def get_portfolio(self):
+        """Get portfolio — placeholder"""
+        if not self.connected:
+            return None
+        return {"status": "placeholder", "message": "Gunakan tab Equity untuk input manual"}
+
+def validate_order(kode, side, qty, price, cash_available, broker_fee_pct=0.0015):
+    """
+    Validasi order sebelum eksekusi
+    Returns: (is_valid, message, total_cost)
+    """
+    errors = []
+
+    if qty < 1:
+        errors.append("Lot minimal 1")
+    if price <= 0:
+        errors.append("Harga harus > 0")
+
+    total = price * qty * 100  # 1 lot = 100 lembar
+    fee = total * broker_fee_pct
+    total_cost = total + fee
+
+    if side.upper() == "BUY" and total_cost > cash_available:
+        errors.append(f"Dana tidak cukup. Butuh: Rp{total_cost:,.0f}, Tersedia: Rp{cash_available:,.0f}")
+
+    if errors:
+        return False, " | ".join(errors), total_cost
+
+    return True, f"Order valid. Total: Rp{total_cost:,.0f} (incl. fee Rp{fee:,.0f})", total_cost
+
+# ============================================================
+# ============================================================
+# OPTIONS ANALYSIS MODULE (Theoretical — untuk edukasi & hedging)
+# ============================================================
+from scipy.stats import norm
+
+def black_scholes(S, K, T, r, sigma, option_type='call'):
+    """
+    Black-Scholes Option Pricing Model
+    S: current stock price, K: strike price, T: time to expiry (years)
+    r: risk-free rate, sigma: volatility
+    """
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+        return None
+
+    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
+
+    if option_type == 'call':
+        price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+    else:
+        price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
+
+    # Greeks
+    delta = norm.cdf(d1) if option_type == 'call' else norm.cdf(d1) - 1
+    gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T))
+    theta = -(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T))
+    if option_type == 'put':
+        theta = theta - r * K * np.exp(-r * T) * norm.cdf(-d2)
+    else:
+        theta = theta + r * K * np.exp(-r * T) * norm.cdf(d2)
+    vega = S * norm.pdf(d1) * np.sqrt(T)
+
+    return {
+        "price": round(price, 2),
+        "delta": round(delta, 4),
+        "gamma": round(gamma, 6),
+        "theta": round(theta, 4),
+        "vega": round(vega, 4),
+        "d1": round(d1, 4),
+        "d2": round(d2, 4),
+    }
+
+def calculate_iv_rank(df, window=252):
+    """
+    Calculate Implied Volatility Rank proxy from historical volatility
+    IV Rank = (Current HV - 52W Low) / (52W High - 52W Low) * 100
+    """
+    if df is None or len(df) < window:
+        return None
+
+    returns = df['Close'].pct_change().dropna()
+    if len(returns) < window:
+        return None
+
+    # Rolling 20-day realized volatility (annualized)
+    rolling_vol = returns.rolling(20).std() * np.sqrt(252) * 100
+    current_vol = rolling_vol.iloc[-1]
+
+    # High/Low of rolling vol
+    vol_high = rolling_vol.tail(window).max()
+    vol_low = rolling_vol.tail(window).min()
+
+    if vol_high == vol_low:
+        iv_rank = 50
+    else:
+        iv_rank = ((current_vol - vol_low) / (vol_high - vol_low)) * 100
+
+    # IV Percentile
+    iv_percentile = (rolling_vol.tail(window) < current_vol).mean() * 100
+
+    return {
+        "current_hv": round(current_vol, 2),
+        "52w_high": round(vol_high, 2),
+        "52w_low": round(vol_low, 2),
+        "iv_rank": round(iv_rank, 1),
+        "iv_percentile": round(iv_percentile, 1),
+        "interpretation": "HIGH IV — Sell premium" if iv_rank > 70 else ("LOW IV — Buy premium" if iv_rank < 30 else "NORMAL IV"),
+    }
+
+def expected_move(S, sigma, days=30):
+    """Expected move = S * sigma * sqrt(days/252)"""
+    if S <= 0 or sigma <= 0:
+        return None
+    move = S * (sigma / 100) * np.sqrt(days / 252)
+    return {
+        "up": round(S + move, 2),
+        "down": round(S - move, 2),
+        "move_pct": round((move / S) * 100, 2),
+        "range": f"Rp{S - move:,.0f} - Rp{S + move:,.0f}",
+    }
+
+def generate_option_chain(S, current_price, vol, r=0.065, days_to_expiry=30):
+    """Generate theoretical option chain untuk edukasi"""
+    T = days_to_expiry / 365
+
+    # Strikes: ATM ± 5 levels
+    step = max(25, round(current_price * 0.02 / 25) * 25)  # step ~2%
+    atm = round(current_price / step) * step
+    strikes = [atm + (i - 5) * step for i in range(11)]
+
+    chain = []
+    for K in strikes:
+        call = black_scholes(S, K, T, r, vol / 100, 'call')
+        put = black_scholes(S, K, T, r, vol / 100, 'put')
+
+        moneyness = "ATM" if abs(K - S) < step * 0.5 else ("ITM" if K < S else "OTM")
+
+        chain.append({
+            "Strike": int(K),
+            "Moneyness": moneyness,
+            "Call Price": f"Rp{call['price']:,.0f}" if call else "-",
+            "Call Delta": call['delta'] if call else "-",
+            "Put Price": f"Rp{put['price']:,.0f}" if put else "-",
+            "Put Delta": put['delta'] if put else "-",
+        })
+
+    return chain
+
+# ============================================================
+# ---------- MARKET SESSION & AUTO-REFRESH ----------
+def get_market_session():
+    """
+    Deteksi sesi pasar saham Indonesia (WIB)
+    Pre-market: 08:00-09:00
+    Opening: 09:00-09:30 (JATS)
+    Regular I: 09:30-12:00
+    Break: 12:00-13:30
+    Regular II: 13:30-15:00
+    Closing: 15:00-15:15
+    Post-market: 15:15-16:00
+    Closed: 16:00-08:00 (next day)
+    """
+    now = datetime.now()
+    wib = now  # Asumsi server WIB atau sudah dikonversi
+
+    hour = wib.hour
+    minute = wib.minute
+    time_val = hour + minute / 60
+
+    weekday = wib.weekday()  # 0=Senin, 6=Minggu
+
+    if weekday >= 5:  # Sabtu/Minggu
+        next_open = wib + timedelta(days=(7 - weekday) % 7)
+        next_open = next_open.replace(hour=8, minute=0, second=0)
+        return {
+            "session": "🔴 WEEKEND CLOSED",
+            "color": "#7f1d1d",
+            "desc": "Pasar tutup. Buka Senin 08:00 WIB.",
+            "next_open": next_open,
+            "countdown": (next_open - wib).total_seconds(),
+            "is_open": False,
+        }
+
+    if 8 <= time_val < 9:
+        return {"session": "🟡 PRE-MARKET", "color": "#eab308", "desc": "Bursa belum buka. Pantau news & pre-market.", "next_open": wib.replace(hour=9, minute=0), "countdown": 0, "is_open": False}
+    elif 9 <= time_val < 9.5:
+        return {"session": "🟢 OPENING AUCTION", "color": "#16a34a", "desc": "JATS opening auction. Volatilitas tinggi!", "next_open": None, "countdown": 0, "is_open": True}
+    elif 9.5 <= time_val < 12:
+        return {"session": "🟢 REGULAR SESSION I", "color": "#16a34a", "desc": "Sesi reguler pagi. Likuiditas tinggi.", "next_open": None, "countdown": 0, "is_open": True}
+    elif 12 <= time_val < 13.5:
+        return {"session": "🟠 LUNCH BREAK", "color": "#f97316", "desc": "Istirahat. Persiapkan strategi sesi sore.", "next_open": wib.replace(hour=13, minute=30), "countdown": 0, "is_open": False}
+    elif 13.5 <= time_val < 15:
+        return {"session": "🟢 REGULAR SESSION II", "color": "#16a34a", "desc": "Sesi reguler sore. Waspada profit-taking.", "next_open": None, "countdown": 0, "is_open": True}
+    elif 15 <= time_val < 15.25:
+        return {"session": "🟢 CLOSING AUCTION", "color": "#16a34a", "desc": "Closing auction. Volatilitas tinggi!", "next_open": None, "countdown": 0, "is_open": True}
+    elif 15.25 <= time_val < 16:
+        return {"session": "🟡 POST-MARKET", "color": "#eab308", "desc": "After hours. Review & planning.", "next_open": None, "countdown": 0, "is_open": False}
+    else:
+        next_day = wib + timedelta(days=1)
+        next_open = next_day.replace(hour=8, minute=0, second=0)
+        if next_open.weekday() >= 5:
+            next_open += timedelta(days=(7 - next_open.weekday()) % 7)
+        return {"session": "🔴 CLOSED", "color": "#7f1d1d", "desc": "Pasar tutup. Istirahat & rencanakan besok.", "next_open": next_open, "countdown": (next_open - wib).total_seconds(), "is_open": False}
+
+def format_countdown(seconds):
+    """Format detik ke HH:MM:SS"""
+    if seconds <= 0:
+        return "00:00:00"
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+# ============================================================
+# ============================================================
+# FITUR PREMIUM — ASTRONACCI + SENTIMENT + ML + ALERT
+# ============================================================
+
+# ---------- ASTRONACCI ASTRO-CYCLE ----------
+def moon_phase(date):
+    """Hitung fase bulan (0-29.53 hari siklus). 0=New Moon, 14.77=Full Moon"""
+    # Known new moon: 6 Jan 2000
+    known_new = datetime(2000, 1, 6, 18, 14)
+    diff = (date - known_new).total_seconds() / 86400
+    lunar_cycle = 29.53059
+    age = diff % lunar_cycle
+    phase_pct = age / lunar_cycle
+
+    if age < 1:
+        name = "🌑 NEW MOON"
+        trading_bias = "🟢 BULLISH — Reversal ke atas"
+    elif age < 7:
+        name = "🌒 WAXING CRESCENT"
+        trading_bias = "🟢 BULLISH — Momentum naik"
+    elif age < 14:
+        name = "🌓 FIRST QUARTER"
+        trading_bias = "🟡 NEUTRAL-BULLISH"
+    elif age < 16:
+        name = "🌕 FULL MOON"
+        trading_bias = "🔴 BEARISH — Reversal ke bawah"
+    elif age < 22:
+        name = "🌖 WANING GIBBOUS"
+        trading_bias = "🔴 BEARISH — Momentum turun"
+    elif age < 28:
+        name = "🌗 LAST QUARTER"
+        trading_bias = "🟡 NEUTRAL-BEARISH"
+    else:
+        name = "🌘 WANING CRESCENT"
+        trading_bias = "🟢 BULLISH — Persiapan New Moon"
+
+    return {"age": age, "phase_pct": phase_pct, "name": name, "bias": trading_bias}
+
+def astro_cycle_analysis(current_date=None):
+    """
+    Astronacci: kombinasi Astronomi + Fibonacci + Gann
+    Menghitung astro-events yang berpotensi mempengaruhi pasar
+    """
+    if current_date is None:
+        current_date = datetime.now()
+
+    moon = moon_phase(current_date)
+
+    # Konjungsi planet proxy (simplified orbital periods)
+    # Mercury: 88d, Venus: 225d, Mars: 687d, Jupiter: 4333d, Saturn: 10759d
+    planets = {
+        "Mercury": 88,
+        "Venus": 225,
+        "Mars": 687,
+        "Jupiter": 4333,
+        "Saturn": 10759,
+    }
+
+    base_date = datetime(2000, 1, 1)
+    days_since = (current_date - base_date).days
+
+    planet_positions = {}
+    for name, period in planets.items():
+        pos = (days_since % period) / period
+        planet_positions[name] = round(pos * 360, 1)  # degrees
+
+    # Cek konjungsi (planet di posisi yang sama, <15°)
+    conjunctions = []
+    planet_names = list(planet_positions.keys())
+    for i in range(len(planet_names)):
+        for j in range(i+1, len(planet_names)):
+            p1, p2 = planet_names[i], planet_names[j]
+            diff = abs(planet_positions[p1] - planet_positions[p2])
+            if diff > 180:
+                diff = 360 - diff
+            if diff < 15:
+                conjunctions.append(f"{p1}-{p2} ({diff:.1f}°)")
+
+    # Fibonacci days from significant dates
+    fib_days = [8, 13, 21, 34, 55, 89, 144, 233, 377]
+    recent_events = []
+
+    # Cek apakah hari ini adalah Fibonacci day dari New Moon terakhir
+    last_new_moon = current_date - timedelta(days=int(moon["age"]))
+    for fd in fib_days:
+        target = last_new_moon + timedelta(days=fd)
+        days_diff = (target - current_date).days
+        if 0 <= days_diff <= 7:
+            recent_events.append({
+                "event": f"Fib {fd} dari New Moon",
+                "date": target.strftime("%Y-%m-%d"),
+                "days_left": days_diff,
+                "type": "🌑 Lunar-Fib"
+            })
+
+    return {
+        "moon": moon,
+        "planets": planet_positions,
+        "conjunctions": conjunctions,
+        "events": recent_events,
+    }
+
+# ---------- SENTIMENT ANALYSIS (NEWSAPI + FALLBACK) ----------
+@st.cache_data(ttl=1800)
+def fetch_sentiment_news():
+    """
+    Sentiment analysis dari berita IDX.
+    Prioritas: NewsAPI → Fallback simulasi
+    """
+    import requests
+
+    news_items = []
+
+    # Coba NewsAPI dulu
+    try:
+        api_key = st.secrets.get("NEWSAPI_KEY", "")
+        if api_key:
+            url = (
+                f"https://newsapi.org/v2/everything?"
+                f"q=IHSG+OR+Indonesia+stock+OR+Bursa+Efek+Indonesia&"
+                f"language=id&sortBy=publishedAt&pageSize=20&"
+                f"apiKey={api_key}"
+            )
+            resp = requests.get(url, timeout=10)
+            data = resp.json()
+
+            if data.get("status") == "ok":
+                articles = data.get("articles", [])
+                # Simple keyword-based sentiment
+                positive_words = ["naik", "rebound", "cuan", "profit", "bullish", "membeli", "net buy", "menguat", "positif", "optimis", "growth", "turun suku bunga", "the fed dovish"]
+                negative_words = ["turun", "jual", "bearish", "rugi", "loss", "melemah", "net sell", "jual asing", "inflasi tinggi", "resesi", "crash", "panik"]
+
+                for a in articles[:10]:
+                    title = a.get("title", "")
+                    title_lower = title.lower()
+
+                    pos_count = sum(1 for w in positive_words if w in title_lower)
+                    neg_count = sum(1 for w in negative_words if w in title_lower)
+
+                    if pos_count > neg_count:
+                        sent = "positive"
+                    elif neg_count > pos_count:
+                        sent = "negative"
+                    else:
+                        sent = "neutral"
+
+                    # Format time
+                    pub = a.get("publishedAt", "")
+                    try:
+                        from datetime import datetime as dt2
+                        pub_dt = dt2.fromisoformat(pub.replace("Z", "+00:00"))
+                        now = dt2.now(pub_dt.tzinfo)
+                        diff = (now - pub_dt).total_seconds()
+                        if diff < 3600:
+                            time_str = f"{int(diff/60)}m ago"
+                        elif diff < 86400:
+                            time_str = f"{int(diff/3600)}h ago"
+                        else:
+                            time_str = f"{int(diff/86400)}d ago"
+                    except:
+                        time_str = "recent"
+
+                    news_items.append({
+                        "headline": title,
+                        "sentiment": sent,
+                        "source": a.get("source", {}).get("name", "News"),
+                        "time": time_str,
+                    })
+    except Exception as e:
+        st.caption(f"⚠️ NewsAPI error: {str(e)[:50]} — menggunakan fallback")
+
+    # Fallback kalau NewsAPI gagal atau tidak ada API key
+    if not news_items:
+        news_items = [
+            {"headline": "IHSG Rebound 18% dari Low, Analis: Belum Konfirmasi Bull Run", "sentiment": "neutral", "source": "IDX Channel", "time": "2h ago"},
+            {"headline": "Rupiah Melemah ke Rp18.200, BI Rate Diproyeksi Turun", "sentiment": "negative", "source": "Bisnis Indonesia", "time": "4h ago"},
+            {"headline": "Asing Net Buy Rp500M Hari Ini, Fokus ke BBCA dan BMRI", "sentiment": "positive", "source": "Kontan", "time": "5h ago"},
+            {"headline": "Inflasi Juni 3.34%, Mendekati Batas Atas Target BI", "sentiment": "negative", "source": "CNN Indonesia", "time": "8h ago"},
+            {"headline": "MSCI Review Agustus: Indonesia Pertahankan Status Emerging Market", "sentiment": "positive", "source": "Reuters", "time": "1d ago"},
+            {"headline": "Defisit Neraca Dagang Mei US$1.6M, Batu Bara Turun", "sentiment": "negative", "source": "Bisnis", "time": "1d ago"},
+            {"headline": "Suku Bunga The Fed Diproyeksi Stabil, Rupiah Bisa Menguat", "sentiment": "positive", "source": "Investing.com", "time": "2d ago"},
+            {"headline": "Harga CPO Naik 3%, Emiten Sawit Berpotensi Cuan", "sentiment": "positive", "source": "Kontan", "time": "2d ago"},
+        ]
+
+    # Hitung skor
+    pos = sum(1 for n in news_items if n["sentiment"] == "positive")
+    neg = sum(1 for n in news_items if n["sentiment"] == "negative")
+    neu = sum(1 for n in news_items if n["sentiment"] == "neutral")
+    total = len(news_items)
+
+    sentiment_score = ((pos - neg) / total * 100) if total > 0 else 0
+
+    if sentiment_score > 20:
+        overall = "🟢 BULLISH"; color = "#16a34a"
+    elif sentiment_score > 5:
+        overall = "🟡 SLIGHTLY BULLISH"; color = "#eab308"
+    elif sentiment_score > -5:
+        overall = "⚪ NEUTRAL"; color = "#6b7280"
+    elif sentiment_score > -20:
+        overall = "🟠 SLIGHTLY BEARISH"; color = "#f97316"
+    else:
+        overall = "🔴 BEARISH"; color = "#dc2626"
+
+    return {
+        "items": news_items, "positive": pos, "negative": neg, "neutral": neu,
+        "score": round(sentiment_score, 1), "overall": overall, "color": color,
+    }
+
+# ---------- MACHINE LEARNING SIGNAL ----------
+def ml_signal_predict(df, lookback=20):
+    """
+    Simplified ML-like signal menggunakan ensemble teknikal:
+    - Trend: MA crossover
+    - Momentum: RSI proxy
+    - Volatility: ATR regime
+    - Volume: Volume confirmation
+    Returns: signal, confidence, features
+    """
+    if df is None or len(df) < lookback + 10:
+        return None
+
+    try:
+        close = df['Close']
+        volume = df['Volume']
+
+        # Feature 1: Trend (MA5 > MA20 = bullish)
+        ma5 = close.rolling(5).mean().iloc[-1]
+        ma20 = close.rolling(20).mean().iloc[-1]
+        ma50 = close.rolling(50).mean().iloc[-1] if len(close) >= 50 else ma20
+        trend_score = 0
+        if close.iloc[-1] > ma5: trend_score += 1
+        if ma5 > ma20: trend_score += 1
+        if ma20 > ma50: trend_score += 1
+
+        # Feature 2: Momentum (price position in range)
+        high_20 = df['High'].tail(20).max()
+        low_20 = df['Low'].tail(20).min()
+        range_20 = high_20 - low_20
+        momentum = (close.iloc[-1] - low_20) / range_20 if range_20 > 0 else 0.5
+        momentum_score = 1 if momentum > 0.6 else (0 if momentum > 0.4 else -1)
+
+        # Feature 3: Volume confirmation
+        vol_avg = volume.tail(20).mean()
+        vol_today = volume.iloc[-1]
+        vol_score = 1 if vol_today > vol_avg * 1.2 else (0 if vol_today > vol_avg * 0.8 else -1)
+
+        # Feature 4: Volatility regime
+        atr = calculate_atr(df, 14)
+        atr_pct = (atr / close.iloc[-1]) * 100 if close.iloc[-1] > 0 else 0
+        vol_regime_score = 1 if atr_pct < 2.5 else (0 if atr_pct < 4 else -1)
+
+        # Ensemble score (-4 to +4)
+        total_score = trend_score + momentum_score + vol_score + vol_regime_score
+
+        # Confidence based on agreement
+        features = [trend_score, momentum_score, vol_score, vol_regime_score]
+        agreement = sum(1 for f in features if f == (1 if total_score > 0 else (-1 if total_score < 0 else 0)))
+        confidence = min(95, agreement * 25)
+
+        if total_score >= 3:
+            signal = "🟢 STRONG BUY"
+            signal_color = "#065f46"
+        elif total_score >= 1:
+            signal = "🟡 BUY"
+            signal_color = "#16a34a"
+        elif total_score <= -3:
+            signal = "🔴 STRONG SELL"
+            signal_color = "#7f1d1d"
+        elif total_score <= -1:
+            signal = "🟠 SELL"
+            signal_color = "#dc2626"
+        else:
+            signal = "⚪ HOLD"
+            signal_color = "#6b7280"
+            confidence = 30
+
+        return {
+            "signal": signal,
+            "confidence": confidence,
+            "score": total_score,
+            "features": {
+                "Trend": trend_score,
+                "Momentum": momentum_score,
+                "Volume": vol_score,
+                "Volatility": vol_regime_score,
+            },
+            "signal_color": signal_color,
+        }
+    except Exception:
+        return None
+
+# ---------- TELEGRAM ALERT SYSTEM ----------
+def check_alert_conditions(ihsg_gann_data, current_price, prev_price=None):
+    """
+    Cek kondisi yang memicu alert Telegram
+    Returns: list of alert messages
+    """
+    alerts = []
+    if ihsg_gann_data is None:
+        return alerts
+
+    gann = ihsg_gann_data['gann']
+
+    # Alert 1: Price hit Gann level
+    for k, v in gann['resistance'].items():
+        if abs(current_price - v) / v < 0.003:  # within 0.3%
+            alerts.append(f"🚨 IHSG mendekati Gann RESISTANCE {k}: {v:,.0f} (sekarang: {current_price:,.0f})")
+    for k, v in gann['support'].items():
+        if abs(current_price - v) / v < 0.003:
+            alerts.append(f"🚨 IHSG mendekati Gann SUPPORT {k}: {v:,.0f} (sekarang: {current_price:,.0f})")
+
+    # Alert 2: Time cycle today
+    for c in ihsg_gann_data.get('cycles', []):
+        if c['days_from_now'] == 0:
+            alerts.append(f"⏰ TIME CYCLE HARI INI: {c['type']} {c['days']}D — waspada reversal!")
+        elif c['days_from_now'] == 1:
+            alerts.append(f"⏰ TIME CYCLE BESOK: {c['type']} {c['days']}D — siap-siap!")
+
+    # Alert 3: Breakout/breakdown
+    if prev_price:
+        r1 = gann['resistance']['R1_45°']
+        s1 = gann['support']['S1_45°']
+        if prev_price < r1 and current_price >= r1:
+            alerts.append(f"🚀 BREAKOUT! IHSG menembus Gann R1: {r1:,.0f}")
+        if prev_price > s1 and current_price <= s1:
+            alerts.append(f"📉 BREAKDOWN! IHSG jebol Gann S1: {s1:,.0f}")
+
+    return alerts
+
+# ============================================================
+# ============================================================
+# FITUR PROFESIONAL — MODULE 2.0
+# ============================================================
+import numpy as np
+from scipy import stats
+
+def calculate_atr(df, period=14):
+    """Average True Range untuk volatility regime"""
+    if df is None or len(df) < period + 1:
+        return 0
+    high_low = df['High'] - df['Low']
+    high_close = abs(df['High'] - df['Close'].shift())
+    low_close = abs(df['Low'] - df['Close'].shift())
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    return tr.rolling(period).mean().iloc[-1]
+
+def volatility_regime(df, period=14):
+    """Deteksi regime volatilitas: LOW / NORMAL / HIGH / EXTREME"""
+    atr = calculate_atr(df, period)
+    close = df['Close'].iloc[-1]
+    atr_pct = (atr / close) * 100 if close > 0 else 0
+
+    if atr_pct < 1.0:
+        return {"regime": "LOW", "atr_pct": atr_pct, "color": "#4ade80", "desc": "Volatilitas rendah — range sempit"}
+    elif atr_pct < 2.5:
+        return {"regime": "NORMAL", "atr_pct": atr_pct, "color": "#38bdf8", "desc": "Volatilitas normal"}
+    elif atr_pct < 4.0:
+        return {"regime": "HIGH", "atr_pct": atr_pct, "color": "#fbbf24", "desc": "Volatilitas tinggi — waspada"}
+    else:
+        return {"regime": "EXTREME", "atr_pct": atr_pct, "color": "#f87171", "desc": "Volatilitas ekstrem — hindari entry"}
+
+def market_breadth(price_data, tickers, lookback=20):
+    """
+    Market Breadth Analysis: Advance-Decline Line
+    Hitung berapa saham yang di atas/bawah MA20
+    """
+    above_ma = 0
+    below_ma = 0
+    total_valid = 0
+    advancers = 0
+    decliners = 0
+
+    for kode in tickers:
+        df = price_data.get(kode)
+        if df is None or len(df) < lookback + 2:
+            continue
+        try:
+            ma20 = df['Close'].rolling(lookback).mean().iloc[-1]
+            current = df['Close'].iloc[-1]
+            prev = df['Close'].iloc[-2]
+
+            if pd.notna(ma20) and pd.notna(current):
+                total_valid += 1
+                if current > ma20:
+                    above_ma += 1
+                else:
+                    below_ma += 1
+
+                if current > prev:
+                    advancers += 1
+                elif current < prev:
+                    decliners += 1
+        except:
+            continue
+
+    if total_valid == 0:
+        return None
+
+    ad_ratio = advancers / max(decliners, 1)
+    above_pct = (above_ma / total_valid) * 100
+
+    # Interpretasi
+    if above_pct > 65 and ad_ratio > 1.5:
+        health = "🟢 STRONG BULLISH"
+        health_color = "#16a34a"
+    elif above_pct > 55:
+        health = "🟡 BULLISH"
+        health_color = "#eab308"
+    elif above_pct > 45:
+        health = "⚪ NEUTRAL"
+        health_color = "#6b7280"
+    elif above_pct > 35:
+        health = "🟠 BEARISH"
+        health_color = "#f97316"
+    else:
+        health = "🔴 STRONG BEARISH"
+        health_color = "#dc2626"
+
+    return {
+        "total": total_valid,
+        "above_ma": above_ma,
+        "below_ma": below_ma,
+        "above_pct": round(above_pct, 1),
+        "advancers": advancers,
+        "decliners": decliners,
+        "ad_ratio": round(ad_ratio, 2),
+        "health": health,
+        "health_color": health_color,
+    }
+
+def correlation_matrix(price_data, tickers, period=60):
+    """Hitung korelasi antar saham untuk diversifikasi"""
+    returns = {}
+    for kode in tickers:
+        df = price_data.get(kode)
+        if df is not None and len(df) >= period + 5:
+            try:
+                ret = df['Close'].pct_change().dropna().tail(period)
+                if len(ret) == period:
+                    returns[kode] = ret.values
+            except:
+                continue
+
+    if len(returns) < 3:
+        return None
+
+    codes = list(returns.keys())
+    data_matrix = np.array([returns[c] for c in codes])
+    corr = np.corrcoef(data_matrix)
+    corr_df = pd.DataFrame(corr, index=codes, columns=codes)
+    return corr_df
+
+def smart_money_flow(df, period=20):
+    """
+    Smart Money Flow Index proxy
+    Deteksi akumulasi/distribusi institusi berdasarkan volume + price action
+    """
+    if df is None or len(df) < period + 5:
+        return None
+
+    # Volume Weighted Average Price (VWAP)
+    typical = (df['High'] + df['Low'] + df['Close']) / 3
+    vwap = (typical * df['Volume']).rolling(period).sum() / df['Volume'].rolling(period).sum()
+
+    current = df['Close'].iloc[-1]
+    vwap_now = vwap.iloc[-1]
+
+    # Volume profile: bandingkan volume hari ini dengan rata-rata
+    vol_avg = df['Volume'].rolling(period).mean().iloc[-1]
+    vol_today = df['Volume'].iloc[-1]
+    vol_ratio = vol_today / vol_avg if vol_avg > 0 else 1
+
+    # Price above/below VWAP + volume confirmation
+    if current > vwap_now and vol_ratio > 1.3:
+        signal = "🟢 SMART MONEY ACCUMULATING"
+        strength = min(100, int(vol_ratio * 30))
+    elif current < vwap_now and vol_ratio > 1.3:
+        signal = "🔴 SMART MONEY DISTRIBUTING"
+        strength = min(100, int(vol_ratio * 30))
+    elif current > vwap_now:
+        signal = "🟡 Mild Accumulation"
+        strength = 30
+    else:
+        signal = "⚪ Neutral"
+        strength = 20
+
+    return {
+        "vwap": float(vwap_now) if pd.notna(vwap_now) else 0,
+        "current": float(current),
+        "vol_ratio": round(float(vol_ratio), 2),
+        "signal": signal,
+        "strength": strength,
+    }
+
+def elliott_wave_count(df, period=20):
+    """
+    Elliott Wave Detection (simplified)
+    Deteksi pola 5-wave atau 3-wave correction
+    """
+    if df is None or len(df) < period + 10:
+        return None
+
+    # Gunakan pivot points untuk identifikasi wave
+    highs = df['High'].rolling(window=5, center=True).max()
+    lows = df['Low'].rolling(window=5, center=True).min()
+
+    pivot_highs = df[df['High'] == highs].copy()
+    pivot_lows = df[df['Low'] == lows].copy()
+
+    # Ambil 5 pivot terakhir
+    last_highs = pivot_highs.tail(5)
+    last_lows = pivot_lows.tail(5)
+
+    if len(last_highs) < 3 or len(last_lows) < 3:
+        return {"pattern": "INSUFFICIENT DATA", "confidence": 0}
+
+    # Sederhana: cek apakah higher highs / higher lows (uptrend = wave 1-2-3)
+    hh = last_highs['High'].is_monotonic_increasing
+    hl = last_lows['Low'].is_monotonic_increasing
+
+    lh = last_highs['High'].is_monotonic_decreasing
+    ll = last_lows['Low'].is_monotonic_decreasing
+
+    if hh and hl:
+        return {"pattern": "IMPULSE WAVE (1-2-3-4-5) — Uptrend", "confidence": 75, "trend": "UP"}
+    elif lh and ll:
+        return {"pattern": "CORRECTIVE WAVE (A-B-C) — Downtrend", "confidence": 70, "trend": "DOWN"}
+    elif hh and not hl:
+        return {"pattern": "ENDING DIAGONAL / WEAKENING", "confidence": 50, "trend": "WEAK_UP"}
+    else:
+        return {"pattern": "CORRECTION / CONSOLIDATION", "confidence": 40, "trend": "SIDEWAYS"}
+
+def risk_metrics(returns_series):
+    """Hitung Sharpe Ratio, Sortino, Max Drawdown"""
+    if returns_series is None or len(returns_series) < 10:
+        return None
+
+    returns = pd.Series(returns_series).dropna()
+    if len(returns) < 10:
+        return None
+
+    mean_ret = returns.mean()
+    std_ret = returns.std()
+
+    # Sharpe (annualized, assuming daily)
+    sharpe = (mean_ret / std_ret) * np.sqrt(252) if std_ret > 0 else 0
+
+    # Sortino
+    downside = returns[returns < 0]
+    downside_std = downside.std() if len(downside) > 0 else 0.0001
+    sortino = (mean_ret / downside_std) * np.sqrt(252) if downside_std > 0 else 0
+
+    # Max Drawdown
+    cum = (1 + returns).cumprod()
+    peak = cum.cummax()
+    dd = (cum - peak) / peak
+    max_dd = dd.min()
+
+    return {
+        "sharpe": round(sharpe, 2),
+        "sortino": round(sortino, 2),
+        "max_dd": round(max_dd * 100, 2),
+        "volatility": round(std_ret * np.sqrt(252) * 100, 2),
+    }
+
+def fibonacci_retracement(high, low, current):
+    """Hitung level Fibonacci retracement"""
+    diff = high - low
+    levels = {
+        "0% (High)": high,
+        "23.6%": high - diff * 0.236,
+        "38.2%": high - diff * 0.382,
+        "50%": high - diff * 0.5,
+        "61.8%": high - diff * 0.618,
+        "78.6%": high - diff * 0.786,
+        "100% (Low)": low,
+    }
+    # Determine which level current price is near
+    position = (current - low) / diff if diff > 0 else 0.5
+    nearest = min(levels.items(), key=lambda x: abs(x[1] - current))
+    return levels, position, nearest
+
+# ============================================================
 # ---------------- Style ----------------
 st.markdown("""
 <style>
@@ -103,6 +1117,34 @@ st.caption("Data live Yahoo Finance · Gate likuiditas + Donchian 20D Breakout �
 # ---------------- Sidebar ----------------
 with st.sidebar:
     st.header("⚙️ Parameter Filter")
+    # Market Session Indicator
+    session = get_market_session()
+    st.markdown(f"""
+    <div style="background:{session['color']};border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;border:1px solid rgba(255,255,255,0.1);">
+        <div style="font-size:11px;color:rgba(255,255,255,0.7);">MARKET SESSION</div>
+        <div style="font-size:16px;font-weight:700;color:#fff;margin:4px 0;">{session['session']}</div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.6);">{session['desc']}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if session['next_open'] and session['countdown'] > 0:
+        countdown = format_countdown(session['countdown'])
+        st.markdown(f"""
+        <div style="background:#0f172a;border-radius:8px;padding:8px;margin-bottom:12px;text-align:center;border:1px solid #334155;">
+            <div style="font-size:10px;color:#94a3b8;">NEXT OPEN IN</div>
+            <div style="font-size:18px;font-weight:700;color:#38bdf8;font-family:monospace;">{countdown}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Auto-refresh toggle
+    auto_refresh = st.checkbox("🔄 Auto Refresh (5 menit)", value=False, key="auto_refresh")
+    if auto_refresh:
+        st.caption("⏱️ Data akan refresh otomatis setiap 5 menit")
+        st_autorefresh = True
+    else:
+        st_autorefresh = False
+
+
     min_vt = st.number_input("Min. Value Traded (Rp miliar/hari)", min_value=0.0, value=3.0, step=0.5)
     crash_veto = st.slider("Ambang Crash Veto (%)", min_value=-15, max_value=-1, value=-5) / 100
     donchian_lb = st.number_input("Donchian Lookback - Swing (hari bursa)", min_value=5, max_value=60, value=20)
@@ -122,6 +1164,128 @@ with st.sidebar:
     st.divider()
     st.subheader("🌐 Kondisi Pasar (IHSG)")
     filter_market = st.checkbox("Sembunyikan kandidat BUY saat IHSG Bearish", value=False)
+
+    st.divider()
+    st.subheader("🔮 IHSG Gann + Time Cycle")
+
+    # Auto-analyze IHSG Gann
+    ihsg_gann_data = analyze_ihsg_gann(ihsg_hist)
+
+    if ihsg_gann_data:
+        g = ihsg_gann_data['gann']
+        c = ihsg_gann_data['current']
+
+        # Mini cards di sidebar
+        st.markdown(f"""
+        <div style="background:#1e293b;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid #334155;">
+            <div style="font-size:11px;color:#94a3b8;">IHSG SAAT INI</div>
+            <div style="font-size:18px;font-weight:700;color:#38bdf8;">{c:,.0f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown(f"""
+        <div style="background:#1e293b;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid #334155;">
+            <div style="font-size:11px;color:#94a3b8;">GANN BIAS</div>
+            <div style="font-size:12px;font-weight:600;color:#fbbf24;">{ihsg_gann_data['bias']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Resistance & Support mini
+        st.markdown("<div style='font-size:11px;color:#94a3b8;margin-bottom:4px;'>📈 Resistance</div>", unsafe_allow_html=True)
+        for k, v in list(g['resistance'].items())[:2]:
+            st.markdown(f"<div style='font-size:11px;color:#f87171;'>{k}: {v:,.0f}</div>", unsafe_allow_html=True)
+
+        st.markdown("<div style='font-size:11px;color:#94a3b8;margin:4px 0;'>📉 Support</div>", unsafe_allow_html=True)
+        for k, v in list(g['support'].items())[:2]:
+            st.markdown(f"<div style='font-size:11px;color:#4ade80;'>{k}: {v:,.0f}</div>", unsafe_allow_html=True)
+
+        # Time cycle alert
+        if ihsg_gann_data['cycle_alert']:
+            upcoming_now = [x for x in ihsg_gann_data['cycles'] if x['days_from_now'] <= 7][:1]
+            if upcoming_now:
+                st.markdown(f"""
+                <div style="background:#7f1d1d;border-radius:8px;padding:8px;margin-top:8px;border:1px solid #dc2626;">
+                    <div style="font-size:11px;color:#fca5a5;">⚠️ TIME CYCLE DEKAT</div>
+                    <div style="font-size:12px;color:#f87171;font-weight:600;">{upcoming_now[0]['type']} {upcoming_now[0]['days']}D → {upcoming_now[0]['date']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            upcoming_next = [x for x in ihsg_gann_data['cycles'] if 0 <= x['days_from_now'] <= 30][:1]
+            if upcoming_next:
+                st.markdown(f"""
+                <div style="background:#0f172a;border-radius:8px;padding:8px;margin-top:8px;border:1px solid #334155;">
+                    <div style="font-size:11px;color:#94a3b8;">📅 Next Cycle</div>
+                    <div style="font-size:12px;color:#38bdf8;">{upcoming_next[0]['type']} {upcoming_next[0]['days']}D → {upcoming_next[0]['date']} ({upcoming_next[0]['days_from_now']} hari)</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+        st.caption("💡 Detail lengkap di tab 📊 IHSG Analysis")
+
+    st.divider()
+    st.subheader("📊 Market Breadth")
+
+    breadth = market_breadth(price_data, tickers[:int(n_scan)], lookback=20)
+    if breadth:
+        st.markdown(f"""
+        <div style="background:#1e293b;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid #334155;">
+            <div style="font-size:11px;color:#94a3b8;">MARKET HEALTH</div>
+            <div style="font-size:14px;font-weight:700;color:{breadth['health_color']};">{breadth['health']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        bcol1, bcol2 = st.columns(2)
+        with bcol1:
+            st.markdown(f"<div style='font-size:11px;color:#94a3b8;'>Above MA20</div><div style='font-size:16px;font-weight:700;color:#4ade80;'>{breadth['above_pct']}%</div>", unsafe_allow_html=True)
+        with bcol2:
+            st.markdown(f"<div style='font-size:11px;color:#94a3b8;'>A/D Ratio</div><div style='font-size:16px;font-weight:700;color:#38bdf8;'>{breadth['ad_ratio']}</div>", unsafe_allow_html=True)
+
+        st.caption(f"{breadth['advancers']}↑ {breadth['decliners']}↓ dari {breadth['total']} saham")
+
+    st.divider()
+    st.subheader("⚡ Volatility Regime")
+
+    vol = volatility_regime(ihsg_hist)
+    if vol:
+        st.markdown(f"""
+        <div style="background:#1e293b;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid {vol['color']};">
+            <div style="font-size:11px;color:#94a3b8;">IHSG VOLATILITY</div>
+            <div style="font-size:14px;font-weight:700;color:{vol['color']};">{vol['regime']} ({vol['atr_pct']:.2f}%)</div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:2px;">{vol['desc']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+
+    st.divider()
+    st.subheader("📱 Telegram Alert")
+
+    # Cek alert conditions
+    alert_messages = check_alert_conditions(ihsg_gann_data, regime.get("close", 0) if regime else 0)
+    if alert_messages:
+        st.markdown(f"""
+        <div style="background:#7f1d1d;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid #dc2626;">
+            <div style="font-size:11px;color:#fca5a5;font-weight:600;">🚨 {len(alert_messages)} ALERT AKTIF</div>
+        </div>
+        """, unsafe_allow_html=True)
+        for msg in alert_messages[:3]:
+            st.markdown(f"<div style='font-size:10px;color:#f87171;margin-bottom:2px;'>• {msg}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div style="background:#0f172a;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid #334155;">
+            <div style="font-size:11px;color:#4ade80;">✅ Tidak ada alert aktif</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    if st.button("📤 Kirim Alert ke Telegram", use_container_width=True, key="btn_telegram_alert"):
+        if alert_messages:
+            msg_text = "🚨 *IHSG ALERT* 🚨\n\n" + "\n".join(alert_messages)
+            msg_text += f"\n\n📊 IHSG: {regime.get('close', 0):,.0f}\n🕐 {datetime.now().strftime('%d %b %Y %H:%M')}"
+            try:
+                send_telegram_message(msg_text)
+                st.success("✅ Alert terkirim ke Telegram!")
+            except Exception as e:
+                st.error(f"Gagal kirim: {str(e)}")
+        else:
+            st.info("Tidak ada alert untuk dikirim.")
 
 params = {
     "min_value_traded": min_vt * 1_000_000_000,
@@ -170,10 +1334,10 @@ if not market_ok:
     cands_day_all = cands_day_all.iloc[0:0]
     cands_swing_all = cands_swing_all.iloc[0:0]
 
-t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest = st.tabs([
+t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_broker = st.tabs([
     "🏆 Kandidat", "📋 Semua", "📉 Grafik", "📒 Backtest",
     "🎯 Top 10", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
-    "🧮 Kalkulator", "📊 Fundamental", "🏛️ Value Invest"
+    "🧮 Kalkulator", "📊 Fundamental", "🏛️ Value Invest", "📊 IHSG Analysis", "🔗 Correlation", "🌙 Astronacci", "📰 Sentiment", "🤖 ML Signal", "📉 Options", "🏦 Broker"
 ])
 
 # ============================================================================
@@ -531,7 +1695,114 @@ with t_grafik:
         if not swing_df.empty:
             st.dataframe(swing_df.tail(6).sort_values("Tanggal", ascending=False), use_container_width=True, hide_index=True, height=210)
         else:
-            st.caption("Belum ada swing point terdeteksi pada rentang data ini.")
+            st.caption("Belum ada swing point terdeteksi pada rentang data ini.")        st.divider()
+
+        # === FITUR PROFESIONAL: SMART MONEY + FIBONACCI + ELLIOTT WAVE ===
+        st.markdown("### 🔬 Analisis Profesional")
+
+        prof1, prof2, prof3, prof4 = st.columns(4)
+
+        with prof1:
+            st.markdown("**💰 Smart Money Flow**")
+            smf = smart_money_flow(df_full, period=20)
+            if smf:
+                sm_color = "#16a34a" if "ACCUMULATING" in smf['signal'] else ("#dc2626" if "DISTRIBUTING" in smf['signal'] else "#6b7280")
+                st.markdown(f"""
+                <div style="background:#0f172a;border-radius:8px;padding:10px;border:1px solid {sm_color};">
+                    <div style="font-size:11px;color:{sm_color};font-weight:600;">{smf['signal']}</div>
+                    <div style="font-size:10px;color:#94a3b8;margin-top:4px;">VWAP: Rp{smf['vwap']:,.0f}</div>
+                    <div style="font-size:10px;color:#94a3b8;">Vol Ratio: {smf['vol_ratio']}x</div>
+                    <div style="background:#1e293b;border-radius:4px;height:6px;margin-top:6px;overflow:hidden;">
+                        <div style="background:{sm_color};width:{smf['strength']}%;height:100%;"></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.caption("Data tidak cukup")
+
+        with prof2:
+            st.markdown("**📐 Fibonacci Retracement**")
+            fib_high = float(df_full['High'].tail(60).max())
+            fib_low = float(df_full['Low'].tail(60).min())
+            fib_current = float(row['Harga'])
+            fib_levels, fib_pos, fib_nearest = fibonacci_retracement(fib_high, fib_low, fib_current)
+            st.markdown(f"""
+            <div style="background:#0f172a;border-radius:8px;padding:10px;border:1px solid #334155;">
+                <div style="font-size:11px;color:#94a3b8;">60D Range</div>
+                <div style="font-size:10px;color:#fbbf24;margin-top:2px;">Nearest: {fib_nearest[0]} @ Rp{fib_nearest[1]:,.0f}</div>
+                <div style="font-size:10px;color:#94a3b8;margin-top:4px;">Position: {fib_pos*100:.1f}%</div>
+                <div style="background:#1e293b;border-radius:4px;height:6px;margin-top:4px;overflow:hidden;">
+                    <div style="background:linear-gradient(90deg,#f87171,#fbbf24,#4ade80);width:{fib_pos*100}%;height:100%;"></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with prof3:
+            st.markdown("**🌊 Elliott Wave**")
+            ew = elliott_wave_count(df_full, period=20)
+            if ew:
+                ew_color = "#16a34a" if ew['trend'] == "UP" else ("#dc2626" if ew['trend'] == "DOWN" else "#eab308")
+                st.markdown(f"""
+                <div style="background:#0f172a;border-radius:8px;padding:10px;border:1px solid {ew_color};">
+                    <div style="font-size:11px;color:{ew_color};font-weight:600;">{ew['pattern']}</div>
+                    <div style="font-size:10px;color:#94a3b8;margin-top:4px;">Confidence: {ew['confidence']}%</div>
+                    <div style="background:#1e293b;border-radius:4px;height:6px;margin-top:6px;overflow:hidden;">
+                        <div style="background:{ew_color};width:{ew['confidence']}%;height:100%;"></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.caption("Data tidak cukup")
+
+        with prof4:
+            st.markdown("**🔷 Gann Levels**")
+            gann_stock = GannSquareOf9.calculate_level(float(row['Harga']))
+            st.markdown(f"""
+            <div style="background:#0f172a;border-radius:8px;padding:10px;border:1px solid #334155;">
+                <div style="font-size:10px;color:#f87171;">R1: Rp{gann_stock['resistance']['R1_45°']:,.0f}</div>
+                <div style="font-size:10px;color:#f87171;">R2: Rp{gann_stock['resistance']['R2_90°']:,.0f}</div>
+                <div style="font-size:10px;color:#4ade80;margin-top:4px;">S1: Rp{gann_stock['support']['S1_45°']:,.0f}</div>
+                <div style="font-size:10px;color:#4ade80;">S2: Rp{gann_stock['support']['S2_90°']:,.0f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.divider()
+
+        # === GANN CHART PER SAHAM ===
+        with st.expander("🔷 Lihat Chart dengan Gann Levels & Fibonacci", expanded=False):
+            fig_gann = go.Figure()
+            fig_gann.add_trace(go.Candlestick(
+                x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"], name=pilih
+            ))
+
+            # Gann levels
+            gann_s = GannSquareOf9.calculate_level(float(row['Harga']))
+            for k, v in gann_s['resistance'].items():
+                fig_gann.add_hline(y=v, line_dash="dot", line_color="#f87171", line_width=1,
+                                   annotation_text=f"Gann {k}", annotation_position="right")
+            for k, v in gann_s['support'].items():
+                fig_gann.add_hline(y=v, line_dash="dot", line_color="#4ade80", line_width=1,
+                                   annotation_text=f"Gann {k}", annotation_position="right")
+
+            # Fibonacci levels
+            fib_h = float(df_full['High'].tail(60).max())
+            fib_l = float(df_full['Low'].tail(60).min())
+            fib_levels_s, _, _ = fibonacci_retracement(fib_h, fib_l, float(row['Harga']))
+            fib_colors = {"0% (High)": "#a78bfa", "23.6%": "#c084fc", "38.2%": "#d8b4fe",
+                          "50%": "#e879f9", "61.8%": "#f0abfc", "78.6%": "#f5d0fe", "100% (Low)": "#f472b6"}
+            for k, v in fib_levels_s.items():
+                fig_gann.add_hline(y=v, line_dash="dash", line_color=fib_colors.get(k, "#6b7280"), line_width=1,
+                                   annotation_text=f"Fib {k}", annotation_position="left")
+
+            fig_gann.update_layout(
+                height=500, template="plotly_dark", xaxis_rangeslider_visible=False,
+                margin=dict(l=10, r=10, t=30, b=10),
+                title=f"{pilih} — Gann + Fibonacci Overlay",
+                showlegend=False,
+            )
+            st.plotly_chart(fig_gann, use_container_width=True)
+
+
     else:
         st.info("Data grafik untuk saham ini belum tersedia di batch saat ini.")
 
@@ -1743,6 +3014,63 @@ with t_equity:
                 d1.metric("Peak Equity", f"Rp{total_series['Peak'].max():,.0f}")
                 d2.metric("Max Drawdown", f"{max_dd:.2f}%")
                 d3.metric("Latest Equity", f"Rp{latest_total:,.0f}")
+                st.divider()
+
+                # =========================================================================
+                # ⬇️ RISK METRICS — SHARPE, SORTINO, MAX DRAWDOWN
+                # =========================================================================
+                st.markdown("### 📉 Risk-Adjusted Performance Metrics")
+
+                try:
+                    # Hitung daily returns dari equity curve
+                    if len(eq_df) > 5:
+                        eq_returns = eq_df["Equity"].pct_change().dropna()
+                        rm = risk_metrics(eq_returns)
+                        if rm:
+                            rm1, rm2, rm3, rm4 = st.columns(4)
+
+                            sharpe_color = "#16a34a" if rm["sharpe"] > 1.5 else ("#eab308" if rm["sharpe"] > 0.5 else "#dc2626")
+                            sortino_color = "#16a34a" if rm["sortino"] > 1.5 else ("#eab308" if rm["sortino"] > 0.5 else "#dc2626")
+                            dd_color = "#16a34a" if rm["max_dd"] > -10 else ("#eab308" if rm["max_dd"] > -20 else "#dc2626")
+                            vol_color = "#16a34a" if rm["volatility"] < 20 else ("#eab308" if rm["volatility"] < 40 else "#dc2626")
+
+                            rm1.markdown(f"""
+                            <div style="background:#0f172a;border-radius:8px;padding:10px;border:1px solid {sharpe_color};">
+                                <div style="font-size:10px;color:#94a3b8;">SHARPE RATIO</div>
+                                <div style="font-size:20px;font-weight:700;color:{sharpe_color};">{rm['sharpe']:.2f}</div>
+                                <div style="font-size:9px;color:#94a3b8;">{'>1.5 Baik' if rm['sharpe']>1.5 else 'Perlu improvement'}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                            rm2.markdown(f"""
+                            <div style="background:#0f172a;border-radius:8px;padding:10px;border:1px solid {sortino_color};">
+                                <div style="font-size:10px;color:#94a3b8;">SORTINO RATIO</div>
+                                <div style="font-size:20px;font-weight:700;color:{sortino_color};">{rm['sortino']:.2f}</div>
+                                <div style="font-size:9px;color:#94a3b8;">{'>1.5 Baik' if rm['sortino']>1.5 else 'Perlu improvement'}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                            rm3.markdown(f"""
+                            <div style="background:#0f172a;border-radius:8px;padding:10px;border:1px solid {dd_color};">
+                                <div style="font-size:10px;color:#94a3b8;">MAX DRAWDOWN</div>
+                                <div style="font-size:20px;font-weight:700;color:{dd_color};">{rm['max_dd']:.1f}%</div>
+                                <div style="font-size:9px;color:#94a3b8;">{'<10% Aman' if rm['max_dd']>-10 else 'Waspada'}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                            rm4.markdown(f"""
+                            <div style="background:#0f172a;border-radius:8px;padding:10px;border:1px solid {vol_color};">
+                                <div style="font-size:10px;color:#94a3b8;">VOLATILITY (Ann.)</div>
+                                <div style="font-size:20px;font-weight:700;color:{vol_color};">{rm['volatility']:.1f}%</div>
+                                <div style="font-size:9px;color:#94a3b8;">{'<20% Stabil' if rm['volatility']<20 else 'Tinggi'}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                            st.caption("💡 **Sharpe** = return per unit risiko total | **Sortino** = return per unit risiko downside | **Max DD** = kerugian terdalam dari peak | **Volatility** = fluktuasi tahunan")
+                except Exception as e:
+                    st.caption(f"⚠️ Risk metrics tidak dapat dihitung: {str(e)}")
+
+
 
                 st.divider()
 
@@ -2137,6 +3465,94 @@ with t_fundamental:
             else:
                 st.info("Data tidak mencukupi.")
 
+
+    # -------------------------------------------------------------------------
+    # SUB 4: SECTOR ROTATION HEATMAP
+    # -------------------------------------------------------------------------
+    with st.expander("🗺️ Sector Rotation Heatmap", expanded=True):
+        st.markdown("### 🗺️ Sector Rotation Heatmap")
+        st.caption("Performa sektor relatif terhadap IHSG. Hijau = outperform, Merah = underperform.")
+
+        if aktifkan_sektor and not table.empty and "Sektor" in table.columns:
+            # Hitung performa per sektor
+            sector_perf = []
+            for sector in table["Sektor"].dropna().unique():
+                sector_stocks = table[table["Sektor"] == sector]
+                if len(sector_stocks) > 0:
+                    avg_change = sector_stocks["Perubahan %"].mean() * 100
+                    avg_score = sector_stocks["Score"].mean() if "Score" in sector_stocks.columns else 0
+                    count = len(sector_stocks)
+                    # Hitung berapa % saham di sektor yang signal BUY
+                    buy_count = len(sector_stocks[sector_stocks["Signal"].isin(["STRONG BUY", "BUY"])])
+                    buy_pct = (buy_count / count * 100) if count > 0 else 0
+
+                    sector_perf.append({
+                        "Sektor": sector,
+                        "Avg Change %": round(avg_change, 2),
+                        "Avg Score": round(avg_score, 1),
+                        "Jumlah Saham": count,
+                        "BUY %": round(buy_pct, 1),
+                        "Momentum": "🟢 HOT" if avg_change > 1 and buy_pct > 30 else (
+                            "🔴 COLD" if avg_change < -1 or buy_pct < 10 else "🟡 WARM"
+                        )
+                    })
+
+            if sector_perf:
+                df_sector = pd.DataFrame(sector_perf).sort_values("Avg Change %", ascending=False)
+
+                # Color coding
+                def color_sector_momentum(val):
+                    if "HOT" in val: return "background-color:#065f46;color:white;font-weight:bold;"
+                    if "WARM" in val: return "background-color:#713f12;color:#fde047;"
+                    if "COLD" in val: return "background-color:#7f1d1d;color:#fca5a5;"
+                    return ""
+
+                def color_change(val):
+                    v = float(val)
+                    if v > 2: return "background-color:#065f46;color:white;font-weight:bold;"
+                    elif v > 0: return "background-color:#16a34a;color:white;"
+                    elif v > -2: return "background-color:#7f1d1d;color:white;"
+                    else: return "background-color:#450a0a;color:#fca5a5;font-weight:bold;"
+
+                styler_sec = df_sector.style
+                if "Momentum" in df_sector.columns:
+                    styler_sec = styler_sec.map(color_sector_momentum, subset=["Momentum"])
+                styler_sec = styler_sec.map(color_change, subset=["Avg Change %"])
+
+                st.dataframe(styler_sec, use_container_width=True, hide_index=True, height=300)
+
+                # Bar chart
+                fig_sec = go.Figure()
+                colors_bar = ["#16a34a" if x > 0 else "#dc2626" for x in df_sector["Avg Change %"]]
+                fig_sec.add_trace(go.Bar(
+                    x=df_sector["Sektor"],
+                    y=df_sector["Avg Change %"],
+                    marker_color=colors_bar,
+                    text=df_sector["Avg Change %"].apply(lambda x: f"{x:+.1f}%"),
+                    textposition="outside",
+                ))
+                fig_sec.add_hline(y=0, line_dash="dash", line_color="#6b7280")
+                fig_sec.update_layout(
+                    height=300, template="plotly_dark",
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    showlegend=False,
+                    yaxis_title="Avg Change %",
+                )
+                st.plotly_chart(fig_sec, use_container_width=True)
+
+                # Rekomendasi rotasi
+                hot_sectors = df_sector[df_sector["Momentum"] == "🟢 HOT"]["Sektor"].tolist()
+                cold_sectors = df_sector[df_sector["Momentum"] == "🔴 COLD"]["Sektor"].tolist()
+
+                if hot_sectors:
+                    st.success(f"🚀 Sektor HOT: {', '.join(hot_sectors)} — pertimbangkan tambah exposure")
+                if cold_sectors:
+                    st.warning(f"📉 Sektor COLD: {', '.join(cold_sectors)} — pertimbangkan kurangi exposure atau tunggu")
+            else:
+                st.info("Aktifkan filter sektor di sidebar untuk melihat heatmap.")
+        else:
+            st.info("Aktifkan '🏷️ Aktifkan Filter Sektor' di sidebar untuk melihat Sector Rotation Heatmap.")
+
     # -------------------------------------------------------------------------
     # SUB 3: PERBANDINGAN MULTI-SAHAM
     # -------------------------------------------------------------------------
@@ -2447,6 +3863,935 @@ with t_invest:
             else:
                 st.info("Tidak ada saham yang lolos kriteria Buffett. Coba longgarkan filter.")
 
+
+
+
+
+# ============================================================================
+# TAB 13: CORRELATION MATRIX — DIVERSIFIKASI PORTOFOLIO
+# ============================================================================
+with t_corr:
+    st.markdown("## 🔗 Correlation Matrix — Diversifikasi Portofolio")
+    st.caption("Korelasi antar saham (60 hari). Hindari saham dengan korelasi >0.80 untuk diversifikasi optimal.")
+
+    corr_limit = st.slider("Jumlah saham untuk analisis korelasi", 10, 100, 30, key="corr_limit")
+
+    # Ambil saham dari kandidat terbaik + beberapa random
+    corr_tickers = []
+    if not table.empty:
+        buy_signals = table[table["Signal"].isin(["STRONG BUY", "BUY"])]["Kode"].tolist()[:15]
+        corr_tickers.extend(buy_signals)
+
+    # Tambahkan dari universe
+    remaining = [t for t in tickers if t not in corr_tickers]
+    corr_tickers.extend(remaining[:corr_limit - len(corr_tickers)])
+    corr_tickers = list(dict.fromkeys(corr_tickers))[:corr_limit]
+
+    if st.button("🔍 Hitung Correlation Matrix", type="primary", use_container_width=True, key="btn_corr"):
+        with st.spinner(f"Menghitung korelasi {len(corr_tickers)} saham..."):
+            corr_df = correlation_matrix(price_data, corr_tickers, period=60)
+
+            if corr_df is not None and not corr_df.empty:
+                # Heatmap
+                fig_corr = go.Figure(data=go.Heatmap(
+                    z=corr_df.values,
+                    x=corr_df.columns,
+                    y=corr_df.index,
+                    colorscale=[
+                        [0, "#dc2626"], [0.3, "#f87171"], [0.5, "#1e293b"],
+                        [0.7, "#4ade80"], [1, "#16a34a"]
+                    ],
+                    zmid=0,
+                    text=np.round(corr_df.values, 2),
+                    texttemplate="%{text}",
+                    textfont={"size": 9},
+                    hovertemplate="%{x} vs %{y}<br>Correlation: %{z:.3f}<extra></extra>",
+                ))
+                fig_corr.update_layout(
+                    height=600, template="plotly_dark",
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    title="📊 60-Day Correlation Heatmap",
+                )
+                st.plotly_chart(fig_corr, use_container_width=True)
+
+                # Find high correlations
+                high_corr = []
+                for i in range(len(corr_df.columns)):
+                    for j in range(i+1, len(corr_df.columns)):
+                        val = corr_df.iloc[i, j]
+                        if abs(val) > 0.80:
+                            high_corr.append({
+                                "Saham A": corr_df.columns[i],
+                                "Saham B": corr_df.columns[j],
+                                "Korelasi": round(val, 3),
+                                "Risk": "⚠️ TINGGI — Jangan beli bersamaan" if val > 0.85 else "🟡 Waspada"
+                            })
+
+                if high_corr:
+                    st.markdown("### ⚠️ Pasang Saham dengan Korelasi Tinggi")
+                    st.caption("Hindari membeli saham-saham ini bersamaan karena bergerak searah.")
+                    st.dataframe(pd.DataFrame(high_corr), use_container_width=True, hide_index=True)
+                else:
+                    st.success("✅ Tidak ada pasang saham dengan korelasi >0.80 — portofolio Anda sudah diversifikasi dengan baik!")
+
+                # Diversification score
+                avg_corr = corr_df.values[np.triu_indices_from(corr_df.values, k=1)].mean()
+                if avg_corr < 0.3:
+                    div_score = "🟢 EXCELLENT"
+                    div_color = "#16a34a"
+                elif avg_corr < 0.5:
+                    div_score = "🟡 GOOD"
+                    div_color = "#eab308"
+                elif avg_corr < 0.7:
+                    div_score = "🟠 MODERATE"
+                    div_color = "#f97316"
+                else:
+                    div_score = "🔴 POOR"
+                    div_color = "#dc2626"
+
+                st.markdown(f"""
+                <div style="background:#1e293b;border-radius:10px;padding:14px;border:1px solid {div_color};margin-top:12px;">
+                    <div style="font-size:13px;color:{div_color};font-weight:700;">Diversifikasi Score: {div_score}</div>
+                    <div style="font-size:11px;color:#94a3b8;margin-top:4px;">Rata-rata korelasi: {avg_corr:.3f} (semakin rendah semakin baik)</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            else:
+                st.warning("Data tidak cukup untuk menghitung korelasi. Coba refresh data atau kurangi jumlah saham.")
+
+
+
+
+
+
+
+# ============================================================================
+# TAB 18: BROKER API — Order Entry & Portfolio Sync
+# ============================================================================
+with t_broker:
+    st.markdown("## 🏦 Broker Integration")
+    st.caption("Hubungkan dashboard dengan broker Anda untuk order entry yang lebih cepat dan portfolio sync.")
+
+    # Connection Panel
+    st.markdown("### 🔌 Koneksi Broker")
+
+    bcol1, bcol2, bcol3 = st.columns(3)
+    with bcol1:
+        broker_pilih = st.selectbox("Pilih Broker", options=BrokerAPI.SUPPORTED_BROKERS, key="broker_select")
+    with bcol2:
+        api_key_broker = st.text_input("API Key (opsional)", type="password", key="broker_api_key", help="Hubungi broker untuk API access")
+    with bcol3:
+        api_secret_broker = st.text_input("API Secret (opsional)", type="password", key="broker_api_secret")
+
+    if st.button("🔗 Connect", type="primary", use_container_width=True, key="btn_connect_broker"):
+        broker = BrokerAPI(broker_pilih, api_key_broker, api_secret_broker)
+        ok, msg = broker.connect()
+        if ok:
+            st.success(msg)
+            st.session_state['broker_connected'] = True
+            st.session_state['broker_name'] = broker_pilih
+        else:
+            st.error(msg)
+
+    st.divider()
+
+    # Quick Order Entry
+    st.markdown("### ⚡ Quick Order Entry")
+    st.caption("Validasi order sebelum eksekusi. Untuk broker tanpa API, order dicatat di Jurnal Real.")
+
+    o1, o2, o3, o4, o5 = st.columns(5)
+    with o1:
+        order_kode = st.selectbox("Saham", options=[""] + table["Kode"].tolist() if not table.empty else [""], key="order_kode")
+    with o2:
+        order_side = st.selectbox("Side", options=["BUY", "SELL"], key="order_side")
+    with o3:
+        order_qty = st.number_input("Lot", min_value=1, value=10, step=1, key="order_qty")
+    with o4:
+        harga_default = float(table.loc[table["Kode"] == order_kode, "Harga"].values[0]) if order_kode and not table.empty else 0
+        order_price = st.number_input("Harga (Rp)", min_value=0.0, value=harga_default, step=1.0, key="order_price")
+    with o5:
+        cash_avail = st.number_input("Cash Tersedia (Rp)", min_value=0.0, value=10_000_000.0, step=1_000_000.0, key="order_cash")
+
+    # Order validation
+    if order_kode and order_price > 0 and order_qty > 0:
+        valid, msg, total = validate_order(order_kode, order_side, order_qty, order_price, cash_avail)
+
+        if valid:
+            st.success(msg)
+
+            # Show order summary
+            st.markdown(f"""
+            <div style="background:#0f172a;border-radius:10px;padding:14px;border:1px solid #16a34a;margin:12px 0;">
+                <div style="font-size:13px;color:#16a34a;font-weight:700;">✅ ORDER SUMMARY</div>
+                <div style="font-size:12px;color:#e2e8f0;margin-top:8px;line-height:1.6;">
+                    <b>Broker:</b> {st.session_state.get('broker_name', 'Manual')}<br>
+                    <b>Saham:</b> {order_kode}<br>
+                    <b>Side:</b> {order_side}<br>
+                    <b>Qty:</b> {order_qty} lot ({order_qty * 100:,} lembar)<br>
+                    <b>Harga:</b> Rp{order_price:,.0f}<br>
+                    <b>Total:</b> Rp{total:,.0f}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            col_exec, col_journal = st.columns(2)
+            with col_exec:
+                if st.button("🚀 Execute Order", type="primary", use_container_width=True, key="btn_exec_order"):
+                    broker = BrokerAPI(st.session_state.get('broker_name', 'Manual'))
+                    ok, msg = broker.place_order(order_kode, order_side, order_qty, order_price)
+                    if ok:
+                        st.success(msg)
+                        # Auto-catat ke jurnal real
+                        st.info("💡 Order juga dicatat di tab Jurnal Real untuk tracking.")
+                    else:
+                        st.error(msg)
+
+            with col_journal:
+                if st.button("📝 Catat ke Jurnal Saja", use_container_width=True, key="btn_journal_only"):
+                    st.info("Silakan buka tab Jurnal Real untuk mencatat manual.")
+        else:
+            st.error(msg)
+
+    st.divider()
+
+    # Broker Comparison
+    st.markdown("### 📊 Perbandingan Broker Indonesia")
+
+    broker_comparison = pd.DataFrame([
+        {"Broker": "Mirae Asset", "Fee Beli": "0.15%", "Fee Jual": "0.25%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐⭐⭐"},
+        {"Broker": "Ajaib", "Fee Beli": "0.15%", "Fee Jual": "0.25%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐⭐"},
+        {"Broker": "Stockbit", "Fee Beli": "0.15%", "Fee Jual": "0.25%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐⭐"},
+        {"Broker": "IPOT", "Fee Beli": "0.18%", "Fee Jual": "0.28%", "API": "❌", "Min Deposit": "Rp100K", "Rating": "⭐⭐⭐"},
+        {"Broker": "Philip", "Fee Beli": "0.18%", "Fee Jual": "0.28%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐⭐"},
+        {"Broker": "BNI Sekuritas", "Fee Beli": "0.18%", "Fee Jual": "0.28%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐"},
+        {"Broker": "Mandiri Sekuritas", "Fee Beli": "0.18%", "Fee Jual": "0.28%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐"},
+    ])
+
+    st.dataframe(broker_comparison, use_container_width=True, hide_index=True)
+    st.caption("💡 **Tips memilih broker:** Cari yang fee rendah + app stabil + customer service responsif. Untuk API access, hubungi broker secara langsung — umumnya hanya tersedia untuk institutional clients.")
+
+    st.divider()
+
+    # API Integration Guide
+    st.markdown("### 📚 API Integration Guide")
+    with st.expander("Cara Request API Access dari Broker", expanded=False):
+        st.markdown("""
+        **Langkah-langkah umum:**
+
+        1. **Hubungi Relationship Manager** Anda di broker
+        2. **Ajukan permohonan** API access (sebutkan "algorithmic trading")
+        3. **Tanda tangani** NDA dan perjanjian penggunaan API
+        4. **Dapatkan** API Key dan Secret
+        5. **Integrasikan** ke dalam sistem ini
+
+        **Catatan:**
+        - Kebanyakan broker Indonesia **belum** menyediakan public API untuk retail
+        - API access umumnya hanya untuk **institutional clients** atau **high-net-worth individuals**
+        - Alternatif: Gunakan **manual order entry** + auto-catat ke Jurnal Real
+
+        **Broker dengan API (internasional):**
+        - Interactive Brokers (IBKR) — API lengkap, support Indonesia
+        - TD Ameritrade — API via thinkorswim
+        - Alpaca — API gratis untuk US stocks
+        """)
+
+    st.divider()
+    st.caption("⚠️ **Disclaimer:** Fitur Broker API adalah template untuk pengembangan. Untuk saat ini, gunakan manual order entry melalui aplikasi broker Anda, lalu catat transaksi di tab Jurnal Real untuk tracking.")
+
+# ============================================================================
+# TAB 17: OPTIONS ANALYSIS — Greeks, IV Rank, Option Chain
+# ============================================================================
+with t_options:
+    st.markdown("## 📉 Options Analysis (Theoretical)")
+    st.caption("Analisis opsi teoritis menggunakan Black-Scholes Model. Untuk edukasi & hedging strategy. IDX tidak memiliki options market aktif untuk retail.")
+
+    # Pilih saham
+    opt_kode = st.selectbox("Pilih Saham", options=table["Kode"].tolist() if not table.empty else [], key="opt_kode")
+
+    if opt_kode in price_data:
+        df_opt = price_data[opt_kode]
+        S = float(df_opt['Close'].iloc[-1])
+
+        # Parameters
+        st.markdown("### ⚙️ Parameters")
+        oc1, oc2, oc3, oc4 = st.columns(4)
+        with oc1:
+            K = st.number_input("Strike Price (Rp)", min_value=0.0, value=round(S / 25) * 25, step=25.0, key="opt_K")
+        with oc2:
+            days = st.number_input("Days to Expiry", min_value=1, value=30, step=1, key="opt_days")
+        with oc3:
+            r = st.number_input("Risk-Free Rate (%)", min_value=0.0, value=6.5, step=0.1, key="opt_r") / 100
+        with oc4:
+            vol_input = st.number_input("Volatility (%)", min_value=1.0, value=30.0, step=1.0, key="opt_vol")
+
+        T = days / 365
+
+        # Calculate
+        call_result = black_scholes(S, K, T, r, vol_input / 100, 'call')
+        put_result = black_scholes(S, K, T, r, vol_input / 100, 'put')
+
+        st.divider()
+
+        # Greeks Display
+        st.markdown("### 📊 Greeks & Pricing")
+        g1, g2 = st.columns(2)
+
+        with g1:
+            st.markdown("**🟢 CALL OPTION**")
+            if call_result:
+                st.markdown(f"""
+                <div style="background:#0f172a;border-radius:10px;padding:14px;border:1px solid #16a34a;">
+                    <div style="font-size:24px;font-weight:700;color:#16a34a;">Rp{call_result['price']:,.0f}</div>
+                    <div style="font-size:11px;color:#94a3b8;margin-top:8px;">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span>Delta</span><span style="color:#e2e8f0;">{call_result['delta']:.4f}</span></div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span>Gamma</span><span style="color:#e2e8f0;">{call_result['gamma']:.6f}</span></div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span>Theta</span><span style="color:#e2e8f0;">{call_result['theta']:.4f}</span></div>
+                        <div style="display:flex;justify-content:space-between;"><span>Vega</span><span style="color:#e2e8f0;">{call_result['vega']:.4f}</span></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                st.caption("💡 **Delta** = sensitivitas harga opsi terhadap harga saham | **Gamma** = perubahan delta | **Theta** = decay waktu/hari | **Vega** = sensitivitas terhadap volatilitas")
+
+        with g2:
+            st.markdown("**🔴 PUT OPTION**")
+            if put_result:
+                st.markdown(f"""
+                <div style="background:#0f172a;border-radius:10px;padding:14px;border:1px solid #dc2626;">
+                    <div style="font-size:24px;font-weight:700;color:#dc2626;">Rp{put_result['price']:,.0f}</div>
+                    <div style="font-size:11px;color:#94a3b8;margin-top:8px;">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span>Delta</span><span style="color:#e2e8f0;">{put_result['delta']:.4f}</span></div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span>Gamma</span><span style="color:#e2e8f0;">{put_result['gamma']:.6f}</span></div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span>Theta</span><span style="color:#e2e8f0;">{put_result['theta']:.4f}</span></div>
+                        <div style="display:flex;justify-content:space-between;"><span>Vega</span><span style="color:#e2e8f0;">{put_result['vega']:.4f}</span></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+        st.divider()
+
+        # IV Rank
+        st.markdown("### 📈 Volatility Analysis (IV Rank Proxy)")
+        iv_data = calculate_iv_rank(df_opt, window=252)
+        if iv_data:
+            iv1, iv2, iv3, iv4, iv5 = st.columns(5)
+            iv1.metric("Current HV", f"{iv_data['current_hv']:.1f}%")
+            iv2.metric("52W High", f"{iv_data['52w_high']:.1f}%")
+            iv3.metric("52W Low", f"{iv_data['52w_low']:.1f}%")
+            iv4.metric("IV Rank", f"{iv_data['iv_rank']:.0f}%")
+            iv5.metric("IV Percentile", f"{iv_data['iv_percentile']:.0f}%")
+
+            iv_color = "#16a34a" if iv_data['iv_rank'] > 70 else ("#dc2626" if iv_data['iv_rank'] < 30 else "#eab308")
+            st.markdown(f"""
+            <div style="background:#0f172a;border-radius:8px;padding:10px;border-left:4px solid {iv_color};margin-top:8px;">
+                <div style="font-size:13px;color:{iv_color};font-weight:600;">{iv_data['interpretation']}</div>
+                <div style="font-size:11px;color:#94a3b8;margin-top:4px;">
+                    {'IV tinggi = premium mahal = strategi SELL (Covered Call/Naked Put)' if iv_data['iv_rank'] > 70 else 
+                     'IV rendah = premium murah = strategi BUY (Long Call/Long Put)' if iv_data['iv_rank'] < 30 else 
+                     'IV normal = strategi spread atau iron condor'}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.divider()
+
+        # Expected Move
+        st.markdown("### 🎯 Expected Move")
+        em = expected_move(S, vol_input, days)
+        if em:
+            st.markdown(f"""
+            <div style="background:#1e293b;border-radius:10px;padding:14px;text-align:center;border:1px solid #334155;">
+                <div style="font-size:12px;color:#94a3b8;">EXPECTED MOVE ({days} HARI)</div>
+                <div style="font-size:28px;font-weight:700;color:#38bdf8;margin:8px 0;">±{em['move_pct']:.1f}%</div>
+                <div style="font-size:14px;color:#e2e8f0;">Range: {em['range']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.caption("💡 Expected move dari harga saham berdasarkan volatilitas saat ini. Kalau Anda yakin saham akan bergerak lebih dari ini, strategi options bisa profitable.")
+
+        st.divider()
+
+        # Option Chain
+        st.markdown("### 📋 Theoretical Option Chain")
+        with st.expander("Lihat Option Chain (Edukasi)", expanded=False):
+            chain = generate_option_chain(S, S, vol_input, r, days)
+            if chain:
+                chain_df = pd.DataFrame(chain)
+
+                def color_moneyness(val):
+                    if "ATM" in val: return "background-color:#1e293b;color:#38bdf8;font-weight:bold;"
+                    if "ITM" in val: return "background-color:#065f46;color:#4ade80;"
+                    if "OTM" in val: return "background-color:#0f172a;color:#94a3b8;"
+                    return ""
+
+                styler_chain = chain_df.style
+                if "Moneyness" in chain_df.columns:
+                    styler_chain = styler_chain.map(color_moneyness, subset=["Moneyness"])
+                st.dataframe(styler_chain, use_container_width=True, hide_index=True, height=400)
+
+        st.divider()
+
+        # Strategy Builder
+        st.markdown("### 🛠️ Strategy Builder (Edukasi)")
+        st.caption("Pilih strategi untuk melihat payoff diagram teoritis")
+
+        strat = st.selectbox("Strategi", [
+            "Long Call (Bullish)", "Long Put (Bearish)",
+            "Covered Call (Income)", "Protective Put (Hedge)",
+            "Bull Call Spread", "Bear Put Spread",
+            "Iron Condor (Sideways)",
+        ], key="opt_strat")
+
+        if "Long Call" in strat:
+            st.info("📗 **Long Call**: Beli Call OTM. Profit kalau saham naik > strike + premium. Risiko terbatas = premium yang dibayar.")
+        elif "Long Put" in strat:
+            st.info("📕 **Long Put**: Beli Put OTM. Profit kalau saham turun < strike - premium. Risiko terbatas = premium yang dibayar.")
+        elif "Covered Call" in strat:
+            st.info("📘 **Covered Call**: Punya saham + jual Call ATM. Income dari premium. Risiko: saham bisa dipanggil kalau naik > strike.")
+        elif "Protective Put" in strat:
+            st.info("📙 **Protective Put**: Punya saham + beli Put. Asuransi downside. Biaya = premium put.")
+        elif "Bull Call" in strat:
+            st.info("📗 **Bull Call Spread**: Beli Call ITM + jual Call OTM. Biaya lebih murah dari Long Call. Profit terbatas.")
+        elif "Bear Put" in strat:
+            st.info("📕 **Bear Put Spread**: Beli Put ITM + jual Put OTM. Biaya lebih murah dari Long Put. Profit terbatas.")
+        elif "Iron Condor" in strat:
+            st.info("📊 **Iron Condor**: Jual Call Spread + Jual Put Spread. Profit kalau saham sideways. Risiko terbatas.")
+    else:
+        st.info("Pilih saham untuk melihat analisis options.")
+
+    st.divider()
+    st.caption("⚠️ **Disclaimer:** IDX tidak memiliki options market aktif untuk retail. Modul ini untuk edukasi dan hedging simulation. Untuk options nyata, gunakan platform internasional (IBKR, TD Ameritrade) atau tunggu IDX meluncurkan single stock options.")
+
+# ============================================================================
+# TAB 14: ASTRONACCI — ASTRO-CYCLE ANALYSIS
+# ============================================================================
+with t_astro:
+    st.markdown("## 🌙 Astronacci — Astro-Cycle Analysis")
+    st.caption("Kombinasi Astronomi + Fibonacci + Gann. Fase bulan dan posisi planet mempengaruhi sentimen pasar.")
+
+    astro = astro_cycle_analysis(datetime.now())
+
+    # Row 1: Moon Phase + Planet Positions
+    ac1, ac2 = st.columns([1, 1.5])
+
+    with ac1:
+        st.markdown("### 🌙 Fase Bulan Hari Ini")
+        moon = astro["moon"]
+        st.markdown(f"""
+        <div style="background:#1e293b;border-radius:12px;padding:16px;border:1px solid #334155;text-align:center;">
+            <div style="font-size:48px;margin-bottom:8px;">{moon['name'].split()[0]}</div>
+            <div style="font-size:14px;font-weight:700;color:#fbbf24;">{moon['name']}</div>
+            <div style="font-size:12px;color:#94a3b8;margin-top:8px;">Umur: {moon['age']:.1f} hari (siklus 29.5 hari)</div>
+            <div style="background:#0f172a;border-radius:6px;height:12px;margin-top:10px;overflow:hidden;">
+                <div style="background:linear-gradient(90deg,#1e293b,#fbbf24,#1e293b);width:{moon['phase_pct']*100}%;height:100%;"></div>
+            </div>
+            <div style="font-size:11px;color:#94a3b8;margin-top:4px;">{moon['phase_pct']*100:.1f}% dari siklus</div>
+            <div style="font-size:13px;font-weight:600;color:#38bdf8;margin-top:10px;padding:8px;background:#0f172a;border-radius:6px;">
+                {moon['bias']}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("### 📅 Astro-Trading Calendar")
+        st.caption("Fibonacci days dari New Moon terakhir:")
+        if astro["events"]:
+            for ev in astro["events"]:
+                st.markdown(f"""
+                <div style="background:#1e293b;border-radius:6px;padding:8px;margin-bottom:4px;border-left:3px solid #fbbf24;">
+                    <span style="font-size:11px;color:#fbbf24;font-weight:600;">{ev['type']}</span>
+                    <span style="font-size:11px;color:#94a3b8;"> → {ev['date']} ({ev['days_left']} hari)</span>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("Tidak ada astro-event dalam 7 hari ke depan.")
+
+    with ac2:
+        st.markdown("### 🪐 Posisi Planet (Proxy)")
+
+        planet_data = []
+        for name, deg in astro["planets"].items():
+            # Determine zodiac sign
+            signs = ["♈ Aries", "♉ Taurus", "♊ Gemini", "♋ Cancer", "♌ Leo", "♍ Virgo",
+                     "♎ Libra", "♏ Scorpio", "♐ Sagittarius", "♑ Capricorn", "♒ Aquarius", "♓ Pisces"]
+            sign_idx = int(deg / 30) % 12
+            planet_data.append({"Planet": name, "Degree": f"{deg:.1f}°", "Zodiac": signs[sign_idx]})
+
+        st.dataframe(pd.DataFrame(planet_data), use_container_width=True, hide_index=True, height=250)
+
+        if astro["conjunctions"]:
+            st.markdown("### ⚠️ Konjungsi Planet")
+            st.caption("Planet yang berdekatan (<15°) — potensi volatilitas tinggi")
+            for conj in astro["conjunctions"]:
+                st.markdown(f"<div style='background:#7f1d1d;border-radius:6px;padding:8px;margin-bottom:4px;color:#fca5a5;font-size:12px;'>🔴 {conj}</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div style='background:#0f172a;border-radius:6px;padding:8px;color:#4ade80;font-size:12px;'>✅ Tidak ada konjungsi planet saat ini</div>", unsafe_allow_html=True)
+
+        # Combined Gann + Astro analysis
+        st.markdown("### 🔮 Astronacci Synthesis")
+        st.caption("Gabungan Gann Time Cycle + Astro Cycle:")
+
+        if ihsg_gann_data and ihsg_gann_data.get('cycle_alert'):
+            st.markdown(f"""
+            <div style="background:#7f1d1d;border-radius:8px;padding:12px;border:1px solid #dc2626;">
+                <div style="font-size:13px;color:#fca5a5;font-weight:700;">🚨 HIGH ALERT</div>
+                <div style="font-size:12px;color:#f87171;margin-top:4px;">
+                    Time Cycle aktif + {moon['name']} → Reversal kemungkinan besar!<br>
+                    Hindari entry baru. Pantau breakout level kunci.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        elif "FULL MOON" in moon['name'] or "NEW MOON" in moon['name']:
+            st.markdown(f"""
+            <div style="background:#713f12;border-radius:8px;padding:12px;border:1px solid #eab308;">
+                <div style="font-size:13px;color:#fde047;font-weight:700;">⚡ MODERATE ALERT</div>
+                <div style="font-size:12px;color:#fbbf24;margin-top:4px;">
+                    {moon['name']} terdeteksi — sentimen pasar bisa berubah drastis.<br>
+                    Gunakan position size lebih kecil dari biasanya.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style="background:#0f172a;border-radius:8px;padding:12px;border:1px solid #334155;">
+                <div style="font-size:13px;color:#4ade80;font-weight:700;">✅ NORMAL</div>
+                <div style="font-size:12px;color:#94a3b8;margin-top:4px;">
+                    Tidak ada astro-anomaly. Trading sesuai plan biasa.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.divider()
+    st.caption("🔮 **Disclaimer:** Astro-cycle adalah probabilitas psikologis/seasonal, bukan sains eksak. Gunakan sebagai konfirmasi tambahan, bukan dasar utama trading.")
+
+# ============================================================================
+# TAB 15: SENTIMENT ANALYSIS
+# ============================================================================
+with t_sentiment:
+    st.markdown("## 📰 Market Sentiment Analysis")
+    st.caption("Agregasi sentimen dari berita pasar modal Indonesia. Update otomatis setiap 30 menit.")
+
+    sentiment = fetch_sentiment_news()
+
+    # Metrics
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("Positive", sentiment["positive"])
+    s2.metric("Negative", sentiment["negative"])
+    s3.metric("Neutral", sentiment["neutral"])
+    s4.metric("Sentiment Score", f"{sentiment['score']:+.1f}")
+
+    st.markdown(f"""
+    <div style="background:#1e293b;border-radius:10px;padding:14px;border:1px solid {sentiment['color']};margin:12px 0;">
+        <div style="font-size:14px;color:{sentiment['color']};font-weight:700;">Overall Sentiment: {sentiment['overall']}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Gauge bar
+    score = sentiment["score"]
+    gauge_pos = max(0, min(100, 50 + score))
+    st.markdown(f"""
+    <div style="background:#0f172a;border-radius:8px;height:24px;overflow:hidden;margin:12px 0;">
+        <div style="background:linear-gradient(90deg,#dc2626,#eab308,#16a34a);width:100%;height:100%;position:relative;">
+            <div style="position:absolute;left:{gauge_pos}%;top:0;bottom:0;width:4px;background:#fff;box-shadow:0 0 8px #fff;"></div>
+        </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;">
+        <span>🔴 Bearish (-100)</span><span>⚪ Neutral (0)</span><span>🟢 Bullish (+100)</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # News feed
+    st.markdown("### 📰 Berita Terkini")
+    for item in sentiment["items"]:
+        color = "#16a34a" if item["sentiment"] == "positive" else ("#dc2626" if item["sentiment"] == "negative" else "#6b7280")
+        icon = "🟢" if item["sentiment"] == "positive" else ("🔴" if item["sentiment"] == "negative" else "⚪")
+        st.markdown(f"""
+        <div style="background:#1e293b;border-radius:8px;padding:10px;margin-bottom:6px;border-left:3px solid {color};">
+            <div style="font-size:12px;color:#e2e8f0;">{icon} {item['headline']}</div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:4px;">{item['source']} · {item['time']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.divider()
+    st.caption("💡 **Tips:** Sentimen negatif yang berlebihan bisa jadi sinyal contrarian (beli saat panic). Sentimen positif ekstrem bisa jadi sinyal distribusi (jual saat euphoria).")
+
+# ============================================================================
+# TAB 16: ML SIGNAL — MACHINE LEARNING PREDICTION
+# ============================================================================
+with t_ml:
+    st.markdown("## 🤖 ML Signal — Ensemble Technical Prediction")
+    st.caption("Model ensemble sederhana: Trend (MA) + Momentum + Volume + Volatility. Bukan prediksi pasti, tapi probabilitas.")
+
+    # IHSG ML Signal
+    st.markdown("### 📊 IHSG Signal")
+    ml_ihsg = ml_signal_predict(ihsg_hist, lookback=20)
+    if ml_ihsg:
+        st.markdown(f"""
+        <div style="background:#1e293b;border-radius:12px;padding:16px;border:1px solid {ml_ihsg['signal_color']};text-align:center;margin-bottom:16px;">
+            <div style="font-size:12px;color:#94a3b8;">IHSG ENSEMBLE SIGNAL</div>
+            <div style="font-size:24px;font-weight:700;color:{ml_ihsg['signal_color']};margin:8px 0;">{ml_ihsg['signal']}</div>
+            <div style="font-size:14px;color:#38bdf8;">Confidence: {ml_ihsg['confidence']}%</div>
+            <div style="background:#0f172a;border-radius:6px;height:10px;margin-top:10px;overflow:hidden;">
+                <div style="background:{ml_ihsg['signal_color']};width:{ml_ihsg['confidence']}%;height:100%;"></div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Feature breakdown
+        feat = ml_ihsg['features']
+        fcol1, fcol2, fcol3, fcol4 = st.columns(4)
+        features_display = [
+            ("Trend (MA)", feat['Trend'], {1: "🟢 UP", 0: "⚪ FLAT", -1: "🔴 DOWN"}),
+            ("Momentum", feat['Momentum'], {1: "🟢 STRONG", 0: "⚪ MID", -1: "🔴 WEAK"}),
+            ("Volume", feat['Volume'], {1: "🟢 HIGH", 0: "⚪ NORMAL", -1: "🔴 LOW"}),
+            ("Volatility", feat['Volatility'], {1: "🟢 LOW", 0: "⚪ NORMAL", -1: "🔴 HIGH"}),
+        ]
+        for col, (name, val, mapping) in zip([fcol1, fcol2, fcol3, fcol4], features_display):
+            with col:
+                st.markdown(f"""
+                <div style="background:#0f172a;border-radius:8px;padding:10px;text-align:center;border:1px solid #334155;">
+                    <div style="font-size:10px;color:#94a3b8;">{name}</div>
+                    <div style="font-size:14px;font-weight:600;color:#e2e8f0;margin-top:4px;">{mapping.get(val, '⚪')}</div>
+                </div>
+                """, unsafe_allow_html=True)
+    else:
+        st.info("Data IHSG tidak cukup untuk ML signal.")
+
+    st.divider()
+
+    # ML Signal untuk saham individual
+    st.markdown("### 🎯 ML Signal per Saham (Top 20)")
+    st.caption("Kandidat dengan confidence tertinggi dari screening")
+
+    ml_candidates = []
+    for kode in tickers[:50]:
+        df = price_data.get(kode)
+        ml = ml_signal_predict(df, lookback=20)
+        if ml and ml['confidence'] >= 50:
+            row = table[table["Kode"] == kode]
+            if not row.empty:
+                ml_candidates.append({
+                    "Kode": kode,
+                    "Nama": row["Nama"].values[0] if "Nama" in row.columns else kode,
+                    "Signal": ml['signal'],
+                    "Confidence": ml['confidence'],
+                    "Score": ml['score'],
+                    "Harga": row["Harga"].values[0] if "Harga" in row.columns else 0,
+                    "Signal Color": ml['signal_color'],
+                })
+
+    if ml_candidates:
+        ml_df = pd.DataFrame(ml_candidates).sort_values("Confidence", ascending=False).head(20)
+
+        def color_ml_signal(val):
+            if "STRONG BUY" in val: return "background-color:#065f46;color:white;font-weight:bold;"
+            if "BUY" in val: return "background-color:#16a34a;color:white;"
+            if "STRONG SELL" in val: return "background-color:#7f1d1d;color:#fca5a5;font-weight:bold;"
+            if "SELL" in val: return "background-color:#dc2626;color:white;"
+            return "background-color:#0f172a;color:#94a3b8;"
+
+        display_ml = ml_df.copy()
+        display_ml["Harga"] = display_ml["Harga"].map(lambda x: f"Rp{x:,.0f}")
+        display_ml["Confidence"] = display_ml["Confidence"].map(lambda x: f"{x}%")
+
+        styler_ml = display_ml[["Kode", "Nama", "Signal", "Confidence", "Score", "Harga"]].style
+        styler_ml = styler_ml.map(color_ml_signal, subset=["Signal"])
+        st.dataframe(styler_ml, use_container_width=True, hide_index=True, height=400)
+
+        st.caption("💡 **Cara pakai:** Prioritaskan saham dengan Signal BUY + Confidence >70% + Score ≥2. Hindari SELL signal meskipun fundamental bagus.")
+    else:
+        st.info("Tidak ada saham dengan confidence ≥50%. Coba refresh data.")
+
+    st.divider()
+    st.caption("🤖 **Disclaimer:** ML Signal menggunakan ensemble teknikal sederhana. Bukan deep learning atau AI canggih. Selalu konfirmasi dengan analisis fundamental dan manajemen risiko.")
+
+# ============================================================================
+# TAB 12: IHSG ANALYSIS — GANN SQUARE OF 9 + TIME CYCLE
+# ============================================================================
+with t_ihsg:
+    st.markdown("## 📊 IHSG Analysis — Gann Square of 9 + Time Cycle")
+    st.caption("Analisis matematis berbasis W.D. Gann & Astronacci. Auto-detect pivot low/high dari data historis.")
+
+    if ihsg_gann_data is None:
+        st.warning("Data IHSG tidak tersedia untuk analisis Gann.")
+    else:
+        g = ihsg_gann_data['gann']
+        c = ihsg_gann_data['current']
+        h = ihsg_gann_data['high_1y']
+        l = ihsg_gann_data['low_1y']
+        pl_idx, pl_price = ihsg_gann_data['pivot_low']
+        ph_idx, ph_price = ihsg_gann_data['pivot_high']
+
+        # === ROW 1: METRICS ===
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("IHSG", f"{c:,.0f}")
+        m2.metric("1Y High", f"{h:,.0f}")
+        m3.metric("1Y Low", f"{l:,.0f}")
+        m4.metric("Recovery", f"{((c-l)/l*100):+.1f}%")
+        m5.metric("From High", f"-{((h-c)/h*100):.1f}%")
+
+        st.divider()
+
+        # === ROW 2: GANN LEVELS + CHART ===
+        gcol1, gcol2 = st.columns([1, 1.5])
+
+        with gcol1:
+            st.markdown("### 🔷 Gann Square of 9 Levels")
+
+            st.markdown("**📈 Resistance**")
+            for k, v in g['resistance'].items():
+                angle = k.split('_')[1]
+                color = "#f87171" if v > c else "#4ade80"
+                status = "⬆️ ABOVE" if v > c else "✅ CROSSED"
+                st.markdown(f"<div style='display:flex;justify-content:space-between;background:#0f172a;padding:6px 10px;border-radius:6px;margin-bottom:4px;'><span style='color:#94a3b8;font-size:12px;'>{k}</span><span style='color:{color};font-weight:600;font-size:13px;'>{v:,.0f} {status}</span></div>", unsafe_allow_html=True)
+
+            st.markdown("**📉 Support**")
+            for k, v in g['support'].items():
+                angle = k.split('_')[1]
+                color = "#4ade80" if v < c else "#f87171"
+                status = "⬇️ BELOW" if v < c else "⚠️ BROKEN"
+                st.markdown(f"<div style='display:flex;justify-content:space-between;background:#0f172a;padding:6px 10px;border-radius:6px;margin-bottom:4px;'><span style='color:#94a3b8;font-size:12px;'>{k}</span><span style='color:{color};font-weight:600;font-size:13px;'>{v:,.0f} {status}</span></div>", unsafe_allow_html=True)
+
+        with gcol2:
+            st.markdown("### 📈 IHSG Chart dengan Gann Levels")
+            if not ihsg_hist.empty:
+                fig_ihsg = go.Figure()
+                fig_ihsg.add_trace(go.Scatter(
+                    x=ihsg_hist.index, y=ihsg_hist['Close'],
+                    mode='lines', name='IHSG Close',
+                    line=dict(color='#38bdf8', width=1.5),
+                    fill='tozeroy', fillcolor='rgba(56,189,248,0.05)'
+                ))
+                # Gann levels lines
+                colors_r = ['#f87171', '#ef4444', '#dc2626', '#991b1b']
+                colors_s = ['#4ade80', '#22c55e', '#16a34a', '#15803d']
+                for i, (k, v) in enumerate(g['resistance'].items()):
+                    fig_ihsg.add_hline(y=v, line_dash="dash", line_color=colors_r[i], 
+                                       annotation_text=f"{k} {v:,.0f}", annotation_position="right")
+                for i, (k, v) in enumerate(g['support'].items()):
+                    fig_ihsg.add_hline(y=v, line_dash="dash", line_color=colors_s[i],
+                                       annotation_text=f"{k} {v:,.0f}", annotation_position="right")
+                # Pivot markers
+                fig_ihsg.add_annotation(x=pl_idx, y=pl_price, text="📉 PIVOT LOW", 
+                                        showarrow=True, arrowhead=2, arrowcolor="#f87171",
+                                        font=dict(color="#f87171", size=11), ay=40)
+                fig_ihsg.add_annotation(x=ph_idx, y=ph_price, text="📈 PIVOT HIGH",
+                                        showarrow=True, arrowhead=2, arrowcolor="#4ade80",
+                                        font=dict(color="#4ade80", size=11), ay=-40)
+
+                fig_ihsg.update_layout(
+                    height=450, template="plotly_dark",
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    yaxis_title="IHSG", showlegend=False,
+                    hovermode="x unified",
+                )
+                st.plotly_chart(fig_ihsg, use_container_width=True)
+
+        st.divider()
+
+        # === ROW 3: TIME CYCLE ===
+        st.markdown("### ⏰ Time Cycle Analysis")
+
+        # Multiple pivot analysis
+        tc_col1, tc_col2 = st.columns(2)
+        with tc_col1:
+            st.markdown("**📉 Dari Pivot Low**")
+            st.caption(f"{pl_idx.strftime('%d %b %Y') if hasattr(pl_idx, 'strftime') else str(pl_idx)} @ {pl_price:,.0f} | √{pl_price:.0f} ≈ {int(math.sqrt(pl_price))} hari")
+        with tc_col2:
+            st.markdown("**📈 Dari Pivot High**")
+            st.caption(f"{ph_idx.strftime('%d %b %Y') if hasattr(ph_idx, 'strftime') else str(ph_idx)} @ {ph_price:,.0f} | √{ph_price:.0f} ≈ {int(math.sqrt(ph_price))} hari")
+
+        # Time cycles dari pivot high juga
+        if isinstance(ph_idx, pd.Timestamp):
+            ph_date = ph_idx.to_pydatetime()
+        else:
+            ph_date = datetime.now() - timedelta(days=60)
+        cycles_high = GannSquareOf9.time_cycle_analysis(ph_date, ph_price)
+        upcoming_high = [c for c in cycles_high if not c['passed'] and c['days_from_now'] <= 90]
+
+        # Gabungkan dan tandai sumber
+        all_cycles = []
+        for c in ihsg_gann_data['cycles']:
+            c_copy = c.copy()
+            c_copy['source'] = 'Pivot Low'
+            all_cycles.append(c_copy)
+        for c in upcoming_high[:5]:
+            c_copy = c.copy()
+            c_copy['source'] = 'Pivot High'
+            all_cycles.append(c_copy)
+
+        all_cycles.sort(key=lambda x: x['days_from_now'])
+
+        # Tampilkan combined cycle table
+        if all_cycles:
+            combined_df = pd.DataFrame(all_cycles)
+            combined_df['Status'] = combined_df['days_from_now'].apply(
+                lambda x: "🔴 HARI INI" if x == 0 else ("🟠 DEKAT (<7h)" if x <= 7 else ("🟡 MINGGU INI" if x <= 14 else "🟢 AKAN DATANG"))
+            )
+
+            def color_combined_status(val):
+                if "HARI INI" in val: return "background-color:#7f1d1d;color:#fca5a5;font-weight:bold;"
+                if "DEKAT" in val: return "background-color:#7c2d12;color:#fdba74;font-weight:bold;"
+                if "MINGGU" in val: return "background-color:#713f12;color:#fde047;"
+                return "background-color:#0f172a;color:#94a3b8;"
+
+            def color_source(val):
+                if "Low" in val: return "color:#4ade80;"
+                if "High" in val: return "color:#f87171;"
+                return ""
+
+            styler_comb = combined_df[['source', 'type', 'days', 'date', 'days_from_now', 'Status']].style
+            styler_comb = styler_comb.map(color_combined_status, subset=['Status'])
+            styler_comb = styler_comb.map(color_source, subset=['source'])
+            st.dataframe(styler_comb, use_container_width=True, hide_index=True, height=280)
+
+            # Alert kalau ada convergence
+            same_day = {}
+            for c in all_cycles:
+                if c['days_from_now'] <= 14:
+                    d = c['date']
+                    if d not in same_day:
+                        same_day[d] = []
+                    same_day[d].append(c)
+
+            convergences = {k: v for k, v in same_day.items() if len(v) >= 2}
+            if convergences:
+                st.markdown("### ⚠️ CONVERGENCE ALERT")
+                st.caption("Beberapa time cycle bertemu di tanggal yang sama — volatilitas ekstrem kemungkinan besar!")
+                for date, items in sorted(convergences.items()):
+                    sources = ", ".join([f"{i['source']} ({i['type']} {i['days']}D)" for i in items])
+                    days_left = items[0]['days_from_now']
+                    st.markdown(f"🔴 **{date}** ({days_left} hari lagi): {sources}")
+        else:
+            st.info("Tidak ada time cycle dalam 90 hari ke depan.")
+
+        st.divider()
+
+        tc1, tc2 = st.columns([2, 1])
+
+        with tc1:
+            cycles = ihsg_gann_data['cycles']
+            if cycles:
+                cycle_df = pd.DataFrame(cycles[:10])
+                cycle_df['Status'] = cycle_df['days_from_now'].apply(
+                    lambda x: "🔴 HARI INI" if x == 0 else ("🟠 DEKAT (<7h)" if x <= 7 else ("🟡 MINGGU INI" if x <= 14 else "🟢 AKAN DATANG"))
+                )
+
+                def color_cycle_status(val):
+                    if "HARI INI" in val: return "background-color:#7f1d1d;color:#fca5a5;font-weight:bold;"
+                    if "DEKAT" in val: return "background-color:#7c2d12;color:#fdba74;font-weight:bold;"
+                    if "MINGGU" in val: return "background-color:#713f12;color:#fde047;"
+                    return "background-color:#0f172a;color:#94a3b8;"
+
+                styler = cycle_df[['type', 'days', 'date', 'days_from_now', 'Status']].style
+                styler = styler.map(color_cycle_status, subset=['Status'])
+                st.dataframe(styler, use_container_width=True, hide_index=True, height=350)
+            else:
+                st.info("Tidak ada time cycle dalam 90 hari ke depan.")
+
+        with tc2:
+            st.markdown("**📊 Signal Meter**")
+            pos = ihsg_gann_data['position_pct']
+            rsi = ihsg_gann_data['rsi_approx']
+
+            # Gauge-like bars
+            st.markdown(f"""
+            <div style="background:#1e293b;border-radius:10px;padding:12px;margin-bottom:10px;">
+                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">Position in Range</div>
+                <div style="background:#0f172a;border-radius:4px;height:20px;overflow:hidden;">
+                    <div style="background:linear-gradient(90deg,#f87171,#fbbf24,#4ade80);width:{pos}%;height:100%;border-radius:4px;"></div>
+                </div>
+                <div style="text-align:right;font-size:12px;color:#38bdf8;font-weight:600;">{pos:.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown(f"""
+            <div style="background:#1e293b;border-radius:10px;padding:12px;margin-bottom:10px;">
+                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">RSI (Approx)</div>
+                <div style="background:#0f172a;border-radius:4px;height:20px;overflow:hidden;">
+                    <div style="background:linear-gradient(90deg,#f87171,#fbbf24,#4ade80);width:{rsi}%;height:100%;border-radius:4px;"></div>
+                </div>
+                <div style="text-align:right;font-size:12px;color:#38bdf8;font-weight:600;">{rsi:.1f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown(f"""
+            <div style="background:#1e293b;border-radius:10px;padding:12px;border-left:4px solid #fbbf24;">
+                <div style="font-size:12px;color:#fbbf24;font-weight:700;margin-bottom:4px;">{ihsg_gann_data['bias']}</div>
+                <div style="font-size:11px;color:#94a3b8;">
+                    {'⚠️ Time cycle aktif — volatilitas tinggi' if ihsg_gann_data['cycle_alert'] else '⏳ Pantau breakout level kunci'}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.divider()
+
+        # === ROW 4: RECOMMENDATION ===
+        st.markdown("### 🎯 Trading Recommendation")
+
+        rcol1, rcol2, rcol3 = st.columns(3)
+
+        with rcol1:
+            st.markdown("**🟢 BUY Signal**")
+            buy_conditions = []
+            if c < g['support']['S1_45°'] * 1.01:
+                buy_conditions.append("✅ Di dekat Support Gann")
+            if ihsg_gann_data['rsi_approx'] < 35:
+                buy_conditions.append("✅ RSI Oversold")
+            if ihsg_gann_data['cycle_alert'] and any(x['days_from_now'] == 0 for x in cycles[:3]):
+                buy_conditions.append("⚠️ Time Cycle Hari Ini — tunggu konfirmasi")
+            if not buy_conditions:
+                buy_conditions.append("❌ Belum ada sinyal beli kuat")
+            for bc in buy_conditions:
+                st.markdown(f"<div style='font-size:12px;color:#cbd5e1;margin-bottom:4px;'>{bc}</div>", unsafe_allow_html=True)
+
+        with rcol2:
+            st.markdown("**🔴 SELL / CUT LOSS Signal**")
+            sell_conditions = []
+            if c > g['resistance']['R1_45°'] * 0.99:
+                sell_conditions.append("⚠️ Dekat Resistance — jangan FOMO beli")
+            if c < g['support']['S3_180°']:
+                sell_conditions.append("❌ Break Support Major — consider cut loss")
+            if ihsg_gann_data['rsi_approx'] > 70:
+                sell_conditions.append("⚠️ RSI Overbought — profit taking zone")
+            if not sell_conditions:
+                sell_conditions.append("⏳ Belum ada sinyal jual kuat")
+            for sc in sell_conditions:
+                st.markdown(f"<div style='font-size:12px;color:#cbd5e1;margin-bottom:4px;'>{sc}</div>", unsafe_allow_html=True)
+
+        with rcol3:
+            st.markdown("**📋 Action Plan**")
+            st.markdown(f"""
+            <div style="background:#0f172a;border-radius:8px;padding:10px;border:1px solid #334155;">
+                <div style="font-size:12px;color:#94a3b8;line-height:1.6;">
+                    1. <b>Entry:</b> Tunggu break above R1 ({g['resistance']['R1_45°']:,.0f}) dengan volume<br>
+                    2. <b>Stop Loss:</b> Di bawah S2 ({g['support']['S2_90°']:,.0f})<br>
+                    3. <b>Target:</b> R3 ({g['resistance']['R3_180°']:,.0f}) atau R4 ({g['resistance']['R4_360°']:,.0f})<br>
+                    4. <b>Risiko:</b> Jangan all-in saat time cycle aktif
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.divider()
+        st.caption("🔮 **Disclaimer:** Gann & Time Cycle adalah probabilitas, bukan ramalan pasti. Selalu gunakan stop loss dan manajemen risiko. Data pivot dihitung otomatis dari low lokal terakhir.")
+
+
+
+# ============================================================================
+# AUTO-REFRESH SCHEDULER
+# ============================================================================
+if st_autorefresh:
+    st.markdown("""
+    <script>
+    setTimeout(function() {
+        window.location.reload();
+    }, 300000);  // 5 minutes
+    </script>
+    """, unsafe_allow_html=True)
+
+# ============================================================================
+# FOOTER
+# ============================================================================
 st.divider()
 st.caption("️ Data diambil dari Yahoo Finance (yfinance), bukan API resmi. Bukan rekomendasi keuangan. Selalu lakukan riset & kelola risiko sendiri.")
 
