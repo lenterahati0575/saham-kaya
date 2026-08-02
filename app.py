@@ -1578,7 +1578,7 @@ with t_options:
         S = float(df_opt['Close'].iloc[-1])
         st.markdown("### ⚙️ Parameters")
         oc1, oc2, oc3, oc4 = st.columns(4)
-        with oc1: K = st.number_input("Strike Price (Rp)", min_value=0.0, value=round(S / 25) * 25, step=25.0, key="opt_K")
+        with oc1: K = st.number_input("Strike Price (Rp)", min_value=0.0, value=float(round(S / 25) * 25), step=25.0, key="opt_K")
         with oc2: days = st.number_input("Days to Expiry", min_value=1, value=30, step=1, key="opt_days")
         with oc3: r = st.number_input("Risk-Free Rate (%)", min_value=0.0, value=6.5, step=0.1, key="opt_r") / 100
         with oc4: vol_input = st.number_input("Volatility (%)", min_value=1.0, value=30.0, step=1.0, key="opt_vol")
