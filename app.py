@@ -1166,6 +1166,9 @@ with st.sidebar:
     filter_market = st.checkbox("Sembunyikan kandidat BUY saat IHSG Bearish", value=False)
 
     st.divider()
+    # Fetch IHSG data untuk sidebar
+    ihsg_hist = fetch_ihsg_history()
+    regime = market_regime(ihsg_hist) if ihsg_hist is not None and not ihsg_hist.empty else {'status': 'UNKNOWN', 'close': 0, 'ma': 0}
     st.subheader("🔮 IHSG Gann + Time Cycle")
 
     # Auto-analyze IHSG Gann
@@ -1224,7 +1227,10 @@ with st.sidebar:
     st.divider()
     st.subheader("📊 Market Breadth")
 
-    breadth = market_breadth(price_data, tickers[:int(n_scan)], lookback=20)
+    try:
+        breadth = market_breadth(price_data, tickers[:int(n_scan)], lookback=20)
+    except Exception:
+        breadth = None
     if breadth:
         st.markdown(f"""
         <div style="background:#1e293b;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid #334155;">
@@ -1244,7 +1250,10 @@ with st.sidebar:
     st.divider()
     st.subheader("⚡ Volatility Regime")
 
-    vol = volatility_regime(ihsg_hist)
+    try:
+        vol = volatility_regime(ihsg_hist)
+    except Exception:
+        vol = None
     if vol:
         st.markdown(f"""
         <div style="background:#1e293b;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid {vol['color']};">
@@ -1259,7 +1268,10 @@ with st.sidebar:
     st.subheader("📱 Telegram Alert")
 
     # Cek alert conditions
-    alert_messages = check_alert_conditions(ihsg_gann_data, regime.get("close", 0) if regime else 0)
+    try:
+        alert_messages = check_alert_conditions(ihsg_gann_data, regime.get("close", 0) if regime else 0)
+    except Exception:
+        alert_messages = []
     if alert_messages:
         st.markdown(f"""
         <div style="background:#7f1d1d;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid #dc2626;">
@@ -1319,8 +1331,6 @@ else:
 st.caption(f"Terakhir refresh: {datetime.now().strftime('%d %b %Y, %H:%M')} · {len(table)}/{len(tickers)} saham")
 
 # ---------------- Kondisi Pasar ----------------
-ihsg_hist = fetch_ihsg_history()
-regime = market_regime(ihsg_hist)
 if regime["status"] == "BEARISH":
     st.error(f"📉 IHSG BEARISH (Close {regime['close']:,.0f} < MA50 {regime['ma']:,.0f})")
 elif regime["status"] == "BULLISH":
@@ -1695,8 +1705,7 @@ with t_grafik:
         if not swing_df.empty:
             st.dataframe(swing_df.tail(6).sort_values("Tanggal", ascending=False), use_container_width=True, hide_index=True, height=210)
         else:
-            st.caption("Belum ada swing point terdeteksi pada rentang data ini.")        
-            st.divider()
+            st.caption("Belum ada swing point terdeteksi pada rentang data ini.")        st.divider()
 
         # === FITUR PROFESIONAL: SMART MONEY + FIBONACCI + ELLIOTT WAVE ===
         st.markdown("### 🔬 Analisis Profesional")
