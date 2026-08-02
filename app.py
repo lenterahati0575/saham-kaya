@@ -1,4 +1,24 @@
 import streamlit as st
+# ============================================================================
+# IDX SCREENER DASHBOARD — MERGED VERSION (Lama + Premium v3.0)
+# ============================================================================
+# Fitur:
+#   • 18 Tab lengkap (Kandidat, Semua, Grafik, Backtest, Top 10, Jurnal Real,
+#     Equity, Performance, Kalkulator, Fundamental, Value Invest, IHSG Analysis,
+#     Correlation, Astronacci, Sentiment, ML Signal, Options, Broker)
+#   • Data Jurnal Real & Equity tersimpan di Google Sheets (persistent)
+#   • Gann Square of 9, Time Cycle, Astro-Cycle, Smart Money, Fibonacci,
+#     Elliott Wave, ML Ensemble Signal, Options Greeks, Broker Integration
+#   • Market Session WIB, Auto-refresh, Market Breadth, Volatility Regime
+#
+# Koneksi Google Sheets:
+#   Pastikan `gcp_service_account` dan `GOOGLE_SHEET_ID` di Streamlit Secrets.
+#   Sheet yang digunakan: POSISI, JURNAL_REAL, SEKURITAS, EQUITY_LOG
+#
+# Module dependencies: screener, gsheet_journal, real_journal, equity,
+#                      indicators, calculators, sectors, telegram_notify
+# ============================================================================
+
 import streamlit.components.v1 as components
 import pandas as pd
 import plotly.graph_objects as go
@@ -1715,8 +1735,8 @@ with t_grafik:
         if not swing_df.empty:
             st.dataframe(swing_df.tail(6).sort_values("Tanggal", ascending=False), use_container_width=True, hide_index=True, height=210)
         else:
-            st.caption("Belum ada swing point terdeteksi pada rentang data ini.")        
-            st.divider()
+            st.caption("Belum ada swing point terdeteksi pada rentang data ini.")
+        st.divider()
 
         # === FITUR PROFESIONAL: SMART MONEY + FIBONACCI + ELLIOTT WAVE ===
         st.markdown("### 🔬 Analisis Profesional")
@@ -3044,8 +3064,8 @@ with t_equity:
 
                 try:
                     # Hitung daily returns dari equity curve
-                    if len(eq_df) > 5:
-                        eq_returns = eq_df["Equity"].pct_change().dropna()
+                    if len(total_series) > 5:
+                        eq_returns = total_series["Total Equity (Rp)"].pct_change().dropna()
                         rm = risk_metrics(eq_returns)
                         if rm:
                             rm1, rm2, rm3, rm4 = st.columns(4)
