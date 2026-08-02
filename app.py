@@ -1061,7 +1061,10 @@ with t_fundamental:
                     mos = ((graham - price) / graham * 100) if graham > 0 else -999
                     ey = (1 / pe * 100) if pe and pe > 0 else 0; fcfy = (fcf / mc * 100) if fcf and mc else 0
                     q_score = 0
-                    if roe > 0.15: q_score += 20; elif roe > 0.10: q_score += 10
+                    if roe > 0.15:
+                        q_score += 20
+                    elif roe > 0.10: 
+                        q_score += 10
                     if de < 0.5: q_score += 20; elif de < 1.0: q_score += 10
                     if pe < 15: q_score += 15; elif pe < 25: q_score += 5
                     if pb < 1.5: q_score += 15; elif pb < 3: q_score += 5
