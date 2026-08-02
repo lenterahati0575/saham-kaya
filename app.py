@@ -96,10 +96,21 @@ class GannSquareOf9:
         }
 
     @staticmethod
+    @staticmethod
     def time_cycle_analysis(start_date, price_at_start, current_date=None):
         """Hitung tanggal-tanggal potensial reversal dari pivot"""
+        # Strip timezone agar tidak error saat subtract
+        if hasattr(start_date, 'tz_localize'):
+            start_date = start_date.tz_localize(None)
+        elif hasattr(start_date, 'tzinfo') and start_date.tzinfo is not None:
+            start_date = start_date.replace(tzinfo=None)
+
         if current_date is None:
             current_date = datetime.now()
+        elif hasattr(current_date, 'tz_localize'):
+            current_date = current_date.tz_localize(None)
+        elif hasattr(current_date, 'tzinfo') and current_date.tzinfo is not None:
+            current_date = current_date.replace(tzinfo=None)
 
         gann_cycles = [30, 45, 60, 90, 120, 180, 270, 360, 540, 720]
         fib_cycles = [8, 13, 21, 34, 55, 89, 144, 233, 377, 610]
@@ -121,7 +132,6 @@ class GannSquareOf9:
             })
         all_cycles.sort(key=lambda x: x['days_from_now'])
         return all_cycles
-
 def detect_pivot_low(df, window=10):
     """Deteksi pivot low terakhir dari dataframe OHLC"""
     if df is None or len(df) < window * 2 + 1:
@@ -1705,8 +1715,7 @@ with t_grafik:
         if not swing_df.empty:
             st.dataframe(swing_df.tail(6).sort_values("Tanggal", ascending=False), use_container_width=True, hide_index=True, height=210)
         else:
-            st.caption("Belum ada swing point terdeteksi pada rentang data ini.")        
-            st.divider()
+            st.caption("Belum ada swing point terdeteksi pada rentang data ini.")        st.divider()
 
         # === FITUR PROFESIONAL: SMART MONEY + FIBONACCI + ELLIOTT WAVE ===
         st.markdown("### 🔬 Analisis Profesional")
