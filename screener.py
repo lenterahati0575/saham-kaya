@@ -93,8 +93,18 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
     else:
         breakout_status = "NETRAL"
 
+    # Veto crash HARUS jadi hard block sungguhan - sebelumnya cuma penalti -3 poin, yang
+    # artinya saham lagi crash tajam masih bisa "lolos" jadi BUY kalau breakout+volume-nya
+    # cukup tinggi buat menutup penalti itu (mis. -3 breakout+3 volume+3 = tetap net positif).
+    # Itu bertentangan dengan nama fiturnya sendiri ("veto") - veto artinya diskualifikasi,
+    # bukan sekadar poin minus yang bisa di-offset sinyal lain. Sekarang begitu crash_veto
+    # tersentuh, skor langsung di-hard-cap sebelum komponen bonus lain dihitung.
+    is_crash = change_pct < params["crash_veto"]
+
     if not layak_likuiditas:
         score = -99
+    elif is_crash:
+        score = -50
     else:
         score = 0
         score += 1 if change_pct > 0 else 0
@@ -102,13 +112,14 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         score += 1 if change_pct > 0.05 else 0
         score += -1 if change_pct < 0 else 0
         score += -1 if change_pct < -0.02 else 0
-        score += -3 if change_pct < params["crash_veto"] else 0
         score += 3 if vol_ratio > 1.5 else (2 if vol_ratio > 1 else 0)
         score += 2 if vol_ratio > 3 else 0
         score += 3 if breakout_status == "BREAKOUT" else (-2 if breakout_status == "BREAKDOWN" else 0)
 
     if score == -99:
         signal = "SKIP (ILIKUID)"
+    elif score == -50:
+        signal = "SKIP (CRASH VETO)"
     elif score >= params["score_strong_buy"]:
         signal = "STRONG BUY"
     elif score >= params["score_buy"]:
@@ -219,6 +230,26 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
     if out.empty:
         return out
     return out.sort_values(["RR", "Score"], ascending=[False, False]).head(top_n).reset_index(drop=True)
+
+
+def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
+    """Tentukan kondisi pasar keseluruhan (regime) dari IHSG: BULLISH kalau Close di atas
+    MA(ma_period), BEARISH kalau di bawah, UNKNOWN kalau data belum cukup.
+
+    KENAPA INI PENTING: skor & sinyal di atas semuanya dihitung per-saham, tanpa tahu
+    kondisi pasar secara umum. Saat IHSG downtrend tajam, breakout individual saham jauh
+    lebih sering jadi false signal / bull trap (naik sebentar lalu turun lagi bersama pasar)
+    dibanding saat IHSG uptrend. Fungsi ini TIDAK otomatis mengubah skor saham manapun -
+    dipakai di dashboard sebagai filter OPSIONAL (default mati) supaya Bro yang memutuskan,
+    bukan logika tersembunyi yang mengubah hasil tanpa disadari."""
+    if ihsg_df is None or ihsg_df.empty or len(ihsg_df) < ma_period:
+        return {"status": "UNKNOWN", "close": None, "ma": None}
+    close = float(ihsg_df["Close"].iloc[-1])
+    ma = float(ihsg_df["Close"].rolling(ma_period).mean().iloc[-1])
+    if pd.isna(ma):
+        return {"status": "UNKNOWN", "close": close, "ma": None}
+    status = "BULLISH" if close > ma else "BEARISH"
+    return {"status": status, "close": close, "ma": ma}
 
 
 @st.cache_data(ttl=3600, show_spinner=False)  # cache 1 jam
