@@ -1695,8 +1695,7 @@ with t_grafik:
         if not swing_df.empty:
             st.dataframe(swing_df.tail(6).sort_values("Tanggal", ascending=False), use_container_width=True, hide_index=True, height=210)
         else:
-            st.caption("Belum ada swing point terdeteksi pada rentang data ini.")       
-            st.divider()
+            st.caption("Belum ada swing point terdeteksi pada rentang data ini.")        st.divider()
 
         # === FITUR PROFESIONAL: SMART MONEY + FIBONACCI + ELLIOTT WAVE ===
         st.markdown("### 🔬 Analisis Profesional")
