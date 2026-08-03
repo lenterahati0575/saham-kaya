@@ -75,9 +75,13 @@ def show_quick_start():
         st.code("""
         Min. Value Traded: 5.0 miliar
         Donchian Lookback Swing: 20 hari
-        Min RR: 2.5
+        Min RR: 1.5 (default tervalidasi backtest)
         Skor min BUY: 5
+        Filter IHSG Bearish: AKTIF
         """)
+        st.caption("Angka di atas BUKAN saran sembarangan - sudah diuji lewat backtest realistis "
+                   "+ out-of-sample (lihat README > Backtest Historis). Kalau Bro ubah manual, "
+                   "validasi ulang dulu pakai `backtest.py` sebelum percaya hasilnya.")
 
 def show_daily_trading():
     st.header("🏆 Trading Harian - Workflow Lengkap")
@@ -190,39 +194,42 @@ def show_technical_analysis():
     
     st.markdown("### 🔬 Analisis Profesional")
     
+    st.warning("⚠️ **Koreksi penting**: versi tutorial sebelumnya mencantumkan angka \"akurasi\" "
+               "(70-75%, 65-70%, dst.) untuk keempat metode di bawah - angka itu KARANGAN, tidak "
+               "pernah dihitung dari data apapun. Sudah dihapus. Satu-satunya yang benar-benar "
+               "diuji secara historis di dashboard ini adalah **Gann Time Cycle** (tab IHSG "
+               "Analysis) - hasilnya hit rate 40.3% (Gann) / 40.4% (Fibonacci), SETARA hari acak "
+               "42.9%, alias TIDAK terbukti prediktif untuk IHSG. Anggap 4 metode di bawah sebagai "
+               "kerangka konsep klasik untuk dipelajari, bukan alat dengan bukti win-rate.")
+
     pro_analysis = {
         "💰 Smart Money Flow": {
             "indikator": "VWAP + Volume Ratio",
             "sinyal_beli": "Harga > VWAP + Volume tinggi",
             "sinyal_jual": "Harga < VWAP + Volume tinggi",
-            "akurasi": "70-75%"
         },
         "📐 Fibonacci Retracement": {
             "indikator": "Level 23.6%, 38.2%, 50%, 61.8%",
             "sinyal_beli": "Harga di level 38.2% atau 50%",
             "sinyal_jual": "Harga di level 61.8% atau 78.6%",
-            "akurasi": "65-70%"
         },
         "🌊 Elliott Wave": {
             "indikator": "Pola 5 wave atau 3 wave",
             "sinyal_beli": "Impulse wave (1-2-3-4-5)",
             "sinyal_jual": "Corrective wave (A-B-C)",
-            "akurasi": "60-65%"
         },
         "🔷 Gann Levels": {
             "indikator": "Support/Resistance berbasis sudut Gann",
             "sinyal_beli": "Harga di support Gann",
             "sinyal_jual": "Harga di resistance Gann",
-            "akurasi": "55-60%"
         }
     }
-    
+
     for analysis, info in pro_analysis.items():
         with st.expander(f"{analysis}", expanded=False):
             st.write(f"**Indikator:** {info['indikator']}")
             st.write(f"**Sinyal Beli:** {info['sinyal_beli']}")
             st.write(f"**Sinyal Jual:** {info['sinyal_jual']}")
-            st.write(f"**Akurasi:** {info['akurasi']}")
 
 def show_portfolio_management():
     st.header("💼 Manajemen Portofolio")

@@ -329,6 +329,44 @@ filter kata kunci relevansi tambahan sebelum ditampilkan. Kalau `NEWSAPI_KEY` be
 atau API gagal, sekarang muncul peringatan jelas (dulu diam-diam pakai 3 berita contoh
 hardcoded dengan timestamp palsu tanpa tanda apapun).
 
+## Bug Produksi Tambahan yang Ditemukan & Diperbaiki (Babak 2)
+
+- **2 `st.stop()` yang salah tempat** (Fundamental Screener kalau scan gagal/kosong, Jurnal
+  Backtest kalau koneksi Google Sheets error saat tes) - keduanya menghentikan render SEMUA
+  tab sesudahnya begitu terpicu, persis kategori bug yang sama dengan `sub3` NameError
+  sebelumnya (cuma trigger-nya beda: rate-limit Yahoo / error koneksi, bukan Sheets belum
+  diisi). Diperbaiki jadi `try/except/else` atau `if/else` biasa - error di satu tab tidak
+  lagi mematikan tab lain. Dicek juga dengan `pyflakes` untuk pastikan tidak ada lagi
+  variabel dipakai-tapi-tak-terdefinisi sejenis di seluruh file.
+- **Time Cycle Gann + Fibonacci diuji historis** (IHSG 10 tahun, 154 pivot terdeteksi lewat
+  metode fractal window) - hasilnya hit rate Gann (40.3%) dan Fibonacci (40.4%) SETARA hari
+  acak (42.9%) dan baseline semua hari (42.6%). Artinya time cycle ini TIDAK terbukti lebih
+  prediktif dari kebetulan untuk IHSG - UI sekarang menampilkan angka ini secara jujur di
+  tab IHSG Analysis & Astronacci, bukan cuma disclaimer generik "bukan sains eksak".
+- **`portfolio_risk_summary()` di `real_journal.py` ternyata fitur yatim** - sudah ditulis
+  lengkap dengan dokumentasi (kenapa penting: menjumlahkan risiko SEMUA posisi OPEN, bukan
+  cuma satu-satu) tapi TIDAK PERNAH dipanggil di UI manapun. Disambungkan sekarang ke tab
+  **Equity > Ringkasan** (kartu "Risk Portofolio" dengan peringatan kalau risiko agregat
+  >10-20% dari modal) dan preview live di tab **Jurnal Real > Catat Trade** sebelum trade
+  baru disimpan.
+- **Tombol "Execute Order"/"Catat ke Jurnal Saja" di tab Broker mengklaim mencatat ke Jurnal
+  Real tapi TIDAK PERNAH benar-benar melakukannya** (`broker.place_order()` cuma placeholder
+  string, tidak memanggil `rj.open_trade()` sama sekali) - order BUY yang di-"Execute" lewat
+  tab ini hilang, tidak tercatat di manapun, padahal UI bilang "juga dicatat di Jurnal Real".
+  Sekarang benar-benar memanggil `rj.open_trade()` (order SELL diarahkan ke tab Tutup Posisi
+  karena perlu tahu posisi mana yang ditutup, tidak bisa otomatis dari form Quick Order).
+- **`tutorial.py` mencantumkan angka "akurasi" KARANGAN** (Smart Money Flow 70-75%,
+  Fibonacci Retracement 65-70%, Elliott Wave 60-65%, Gann Levels 55-60%) - tidak pernah
+  dihitung dari data apapun, dan BERTENTANGAN LANGSUNG dengan temuan validasi Time Cycle di
+  atas (Gann cuma 40.3%, setara acak). Dihapus, diganti peringatan jujur yang merujuk ke
+  satu-satunya angka yang benar-benar diuji (Time Cycle). Rekomendasi parameter Swing Trading
+  di tutorial juga diperbarui dari RR 2.5 (usang) ke RR 1.5 (default tervalidasi sekarang).
+
+Audit tambahan (tab Performance, Fundamental > Perbandingan, Value Invest, Jurnal Real >
+Edit/Hapus, Equity > Catat Snapshot) tidak menemukan bug sekelas ini - sudah cukup defensif
+(cek `.empty`, fallback nilai, dsb). Dicek juga dengan `pyflakes` di seluruh `app.py` setelah
+semua perbaikan - tidak ada lagi pola "variabel dipakai tapi tak terdefinisi" seperti `sub3`.
+
 ## Cara Kerja Fitur Trading
 
 ### Day Trading — BPJS & BSJP

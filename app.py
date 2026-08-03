@@ -526,6 +526,8 @@ with st.sidebar:
                                       "Day Trading (belum divalidasi serupa).")
     st.divider()
     st.subheader("🔮 IHSG Gann + Time Cycle")
+    st.caption("Sudah diuji historis (10 tahun IHSG) - hit rate-nya SETARA hari acak, bukan lebih akurat. "
+               "Detail di tab 'IHSG Analysis'.")
     ihsg_gann_data = analyze_ihsg_gann(ihsg_hist)
     if ihsg_gann_data:
         g = ihsg_gann_data['gann']; c = ihsg_gann_data['current']
@@ -893,125 +895,125 @@ with t_backtest:
             st.success(f"✅ Google Sheets terhubung - {len(test_conn)} posisi tercatat")
         except Exception as e:
             st.error(f" Error koneksi: {str(e)}")
-            st.stop()
-        price_lookup = dict(zip(table["Kode"], table["Harga"]))
-        try:
-            with st.spinner("🔍 Mengecek auto-close otomatis (TP/SL/Force-Sell)..."):
-                auto_closed = gj.auto_close_positions(price_lookup)
-            if auto_closed:
-                st.success(f" Auto-close otomatis: {', '.join(auto_closed)}")
-                st.balloons()
-                st.rerun()
-        except Exception as e:
-            st.error(f"❌ Error auto-close otomatis: {str(e)}")
-            import traceback
-            st.code(traceback.format_exc())
-        day_tipe = classify_daytrading_tipe()
-        st.caption(f"Waktu sekarang WIB terdeteksi sebagai tipe **{day_tipe}** untuk Day Trading ({'Beli Pagi, rencana Jual Sore' if day_tipe=='BPJS' else 'Beli Sore, rencana Jual besok Pagi'}).")
-        st.write(f" **Kandidat Day Trading tersedia:** {len(cands_day_all)}")
-        st.write(f" **Kandidat Swing Trading tersedia:** {len(cands_swing_all)}")
-        if not cands_swing_all.empty:
-            with st.expander("👁️ Lihat Kandidat Swing Trading"):
-                st.dataframe(cands_swing_all[["Saham", "Entry", "Stop Loss", "Target", "RR"]].head(10))
-        colb1, colb2, colb3 = st.columns(3)
-        with colb1:
-            if st.button(f"🟢 Buka Posisi Day Trading ({day_tipe})", use_container_width=True, key="btn_open_day"):
-                try:
-                    with st.spinner("Membuka posisi Day Trading..."):
-                        if cands_day_all.empty:
-                            st.warning("⚠️ Tidak ada kandidat Day Trading - mungkin belum ada yang lolos filter")
-                        else:
-                            opened = gj.open_positions_from_candidates(cands_day_all, day_tipe)
-                            if opened:
-                                st.success(f"✅ Berhasil dibuka: {', '.join(opened)}")
+        else:
+            price_lookup = dict(zip(table["Kode"], table["Harga"]))
+            try:
+                with st.spinner("🔍 Mengecek auto-close otomatis (TP/SL/Force-Sell)..."):
+                    auto_closed = gj.auto_close_positions(price_lookup)
+                if auto_closed:
+                    st.success(f" Auto-close otomatis: {', '.join(auto_closed)}")
+                    st.balloons()
+                    st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error auto-close otomatis: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+            day_tipe = classify_daytrading_tipe()
+            st.caption(f"Waktu sekarang WIB terdeteksi sebagai tipe **{day_tipe}** untuk Day Trading ({'Beli Pagi, rencana Jual Sore' if day_tipe=='BPJS' else 'Beli Sore, rencana Jual besok Pagi'}).")
+            st.write(f" **Kandidat Day Trading tersedia:** {len(cands_day_all)}")
+            st.write(f" **Kandidat Swing Trading tersedia:** {len(cands_swing_all)}")
+            if not cands_swing_all.empty:
+                with st.expander("👁️ Lihat Kandidat Swing Trading"):
+                    st.dataframe(cands_swing_all[["Saham", "Entry", "Stop Loss", "Target", "RR"]].head(10))
+            colb1, colb2, colb3 = st.columns(3)
+            with colb1:
+                if st.button(f"🟢 Buka Posisi Day Trading ({day_tipe})", use_container_width=True, key="btn_open_day"):
+                    try:
+                        with st.spinner("Membuka posisi Day Trading..."):
+                            if cands_day_all.empty:
+                                st.warning("⚠️ Tidak ada kandidat Day Trading - mungkin belum ada yang lolos filter")
+                            else:
+                                opened = gj.open_positions_from_candidates(cands_day_all, day_tipe)
+                                if opened:
+                                    st.success(f"✅ Berhasil dibuka: {', '.join(opened)}")
+                                    st.balloons()
+                                    st.rerun()
+                                else:
+                                    st.warning("⚠️ Tidak ada posisi baru dibuka (semua sudah ada)")
+                    except Exception as e:
+                        st.error(f"❌ Error buka Day Trading: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
+            with colb2:
+                if st.button("🟢 Buka Posisi Swing Trading", use_container_width=True, key="btn_open_swing"):
+                    try:
+                        with st.spinner("Membuka posisi Swing Trading..."):
+                            if cands_swing_all.empty:
+                                st.warning("⚠️ **Tidak ada kandidat Swing Trading!**")
+                                st.info("""
+                                Kemungkinan penyebab:
+                                1. Belum ada saham yang lolos screening untuk Swing
+                                2. Filter RR (Risk:Reward) terlalu ketat - coba turunkan di sidebar
+                                3. Donchian lookback terlalu panjang - coba turunkan di sidebar
+                                4. IHSG sedang Bearish dan filter pasar aktif
+                                **Solusi:**
+                                - Turunkan "Minimum Risk:Reward (RR)" di sidebar (mis. dari 2.0 ke 1.5)
+                                - Refresh data live
+                                - Cek tab "Top 10 Day/Swing" untuk melihat kandidat
+                                """)
+                            else:
+                                st.write("🎯 **Kandidat yang akan dibuka:**")
+                                st.dataframe(cands_swing_all[["Saham", "Entry", "Stop Loss", "Target", "RR"]].head(10))
+                                opened = gj.open_positions_from_candidates(cands_swing_all, "SWING")
+                                if opened:
+                                    st.success(f"✅ Berhasil dibuka: {', '.join(opened)}")
+                                    st.balloons()
+                                    st.rerun()
+                                else:
+                                    st.warning("⚠️ Tidak ada posisi baru dibuka (semua sudah ada di sheet)")
+                    except Exception as e:
+                        st.error(f"❌ Error buka Swing Trading: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
+            with colb3:
+                if st.button("🔴 Cek TP/SL & Force-Sell", use_container_width=True, key="btn_check_close"):
+                    try:
+                        with st.spinner("Mengecek posisi OPEN..."):
+                            positions = gj.load_positions()
+                            open_positions = positions[positions["Status"] == "OPEN"] if not positions.empty else pd.DataFrame()
+                            st.write(f"📋 Total posisi: {len(positions)}")
+                            st.write(f"🟢 Posisi OPEN: {len(open_positions)}")
+                            closed = []
+                            if open_positions.empty:
+                                st.info("ℹ️ Tidak ada posisi OPEN untuk dicek")
+                            else:
+                                st.write("**📊 Posisi yang dicek:**")
+                                debug_df = open_positions[["Saham", "Harga Beli", "TP", "SL", "Tipe", "Lot", "Tanggal Open"]].copy()
+                                debug_df["Harga Sekarang"] = debug_df["Saham"].map(lambda x: f"Rp{price_lookup.get(x, 0):,.0f}" if x in price_lookup else "N/A")
+                                def check_status(row):
+                                    saham = row["Saham"]
+                                    if saham not in price_lookup: return "⚠️ Harga tidak tersedia"
+                                    current = price_lookup[saham]
+                                    tp = float(row["TP"]) if pd.notna(row["TP"]) else None
+                                    sl = float(row["SL"]) if pd.notna(row["SL"]) else None
+                                    if tp and current >= tp: return f"✅ HIT TP"
+                                    elif sl and current <= sl: return f"❌ HIT SL"
+                                    else: return f"⏳ HOLD"
+                                debug_df["Status"] = debug_df.apply(check_status, axis=1)
+                                st.dataframe(debug_df, use_container_width=True)
+                                st.write("\n🔄 **Memproses penutupan posisi...**")
+                                closed = gj.auto_close_positions(price_lookup)
+                            if closed:
+                                st.success(f"✅ Berhasil ditutup: {', '.join(closed)}")
                                 st.balloons()
                                 st.rerun()
                             else:
-                                st.warning("⚠️ Tidak ada posisi baru dibuka (semua sudah ada)")
-                except Exception as e:
-                    st.error(f"❌ Error buka Day Trading: {str(e)}")
-                    import traceback
-                    st.code(traceback.format_exc())
-        with colb2:
-            if st.button("🟢 Buka Posisi Swing Trading", use_container_width=True, key="btn_open_swing"):
-                try:
-                    with st.spinner("Membuka posisi Swing Trading..."):
-                        if cands_swing_all.empty:
-                            st.warning("⚠️ **Tidak ada kandidat Swing Trading!**")
-                            st.info("""
-                            Kemungkinan penyebab:
-                            1. Belum ada saham yang lolos screening untuk Swing
-                            2. Filter RR (Risk:Reward) terlalu ketat - coba turunkan di sidebar
-                            3. Donchian lookback terlalu panjang - coba turunkan di sidebar
-                            4. IHSG sedang Bearish dan filter pasar aktif
-                            **Solusi:**
-                            - Turunkan "Minimum Risk:Reward (RR)" di sidebar (mis. dari 2.0 ke 1.5)
-                            - Refresh data live
-                            - Cek tab "Top 10 Day/Swing" untuk melihat kandidat
-                            """)
-                        else:
-                            st.write("🎯 **Kandidat yang akan dibuka:**")
-                            st.dataframe(cands_swing_all[["Saham", "Entry", "Stop Loss", "Target", "RR"]].head(10))
-                            opened = gj.open_positions_from_candidates(cands_swing_all, "SWING")
-                            if opened:
-                                st.success(f"✅ Berhasil dibuka: {', '.join(opened)}")
-                                st.balloons()
-                                st.rerun()
-                            else:
-                                st.warning("⚠️ Tidak ada posisi baru dibuka (semua sudah ada di sheet)")
-                except Exception as e:
-                    st.error(f"❌ Error buka Swing Trading: {str(e)}")
-                    import traceback
-                    st.code(traceback.format_exc())
-        with colb3:
-            if st.button("🔴 Cek TP/SL & Force-Sell", use_container_width=True, key="btn_check_close"):
-                try:
-                    with st.spinner("Mengecek posisi OPEN..."):
-                        positions = gj.load_positions()
-                        open_positions = positions[positions["Status"] == "OPEN"] if not positions.empty else pd.DataFrame()
-                        st.write(f"📋 Total posisi: {len(positions)}")
-                        st.write(f"🟢 Posisi OPEN: {len(open_positions)}")
-                        closed = []
-                        if open_positions.empty:
-                            st.info("ℹ️ Tidak ada posisi OPEN untuk dicek")
-                        else:
-                            st.write("**📊 Posisi yang dicek:**")
-                            debug_df = open_positions[["Saham", "Harga Beli", "TP", "SL", "Tipe", "Lot", "Tanggal Open"]].copy()
-                            debug_df["Harga Sekarang"] = debug_df["Saham"].map(lambda x: f"Rp{price_lookup.get(x, 0):,.0f}" if x in price_lookup else "N/A")
-                            def check_status(row):
-                                saham = row["Saham"]
-                                if saham not in price_lookup: return "⚠️ Harga tidak tersedia"
-                                current = price_lookup[saham]
-                                tp = float(row["TP"]) if pd.notna(row["TP"]) else None
-                                sl = float(row["SL"]) if pd.notna(row["SL"]) else None
-                                if tp and current >= tp: return f"✅ HIT TP"
-                                elif sl and current <= sl: return f"❌ HIT SL"
-                                else: return f"⏳ HOLD"
-                            debug_df["Status"] = debug_df.apply(check_status, axis=1)
-                            st.dataframe(debug_df, use_container_width=True)
-                            st.write("\n🔄 **Memproses penutupan posisi...**")
-                            closed = gj.auto_close_positions(price_lookup)
-                        if closed:
-                            st.success(f"✅ Berhasil ditutup: {', '.join(closed)}")
-                            st.balloons()
-                            st.rerun()
-                        else:
-                            st.info("ℹ️ Belum ada yang perlu ditutup (belum kena TP/SL atau belum waktunya force-sell)")
-                except Exception as e:
-                    st.error(f"❌ Error cek TP/SL: {str(e)}")
-                    import traceback
-                    st.code(traceback.format_exc())
-        st.divider()
-        positions = gj.load_positions()
-        stats = gj.summarize(positions)
-        s1, s2, s3, s4, s5 = st.columns(5)
-        s1.metric("Total Posisi", stats["total"])
-        s2.metric("Sedang OPEN", stats["open"])
-        s3.metric("WIN", stats["win"])
-        s4.metric("LOSS", stats["loss"])
-        s5.metric("Win Rate", f"{stats['winrate']:.1f}%")
-        st.dataframe(positions, use_container_width=True, hide_index=True, height=420)
-        st.caption("Aturan force-sell otomatis: SWING maksimal 15 hari, BPJS maksimal 1 hari, BSJP maksimal 2 hari kalau belum kena TP/SL. Auto-close sekarang juga berjalan otomatis saat tab ini dibuka.")
+                                st.info("ℹ️ Belum ada yang perlu ditutup (belum kena TP/SL atau belum waktunya force-sell)")
+                    except Exception as e:
+                        st.error(f"❌ Error cek TP/SL: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
+            st.divider()
+            positions = gj.load_positions()
+            stats = gj.summarize(positions)
+            s1, s2, s3, s4, s5 = st.columns(5)
+            s1.metric("Total Posisi", stats["total"])
+            s2.metric("Sedang OPEN", stats["open"])
+            s3.metric("WIN", stats["win"])
+            s4.metric("LOSS", stats["loss"])
+            s5.metric("Win Rate", f"{stats['winrate']:.1f}%")
+            st.dataframe(positions, use_container_width=True, hide_index=True, height=420)
+            st.caption("Aturan force-sell otomatis: SWING maksimal 15 hari, BPJS maksimal 1 hari, BSJP maksimal 2 hari kalau belum kena TP/SL. Auto-close sekarang juga berjalan otomatis saat tab ini dibuka.")
 
 # ============================================================================
 # TAB 5: TOP 10 DAY/SWING
@@ -1290,6 +1292,16 @@ with t_real:
             with fc7: sl_in2 = st.number_input("Stop Loss (Rp)", min_value=0.0, step=1.0, key="sl_rj")
             with fc8: target_in2 = st.number_input("Target (Rp)", min_value=0.0, step=1.0, key="target_rj")
             catatan_in = st.text_area("Catatan", height=70, key="catatan_rj")
+            # Preview risiko SEBELUM disimpan - risiko trade baru ini digabung dengan semua posisi
+            # OPEN yang sudah ada, supaya user tahu total eksposur sebelum klik simpan (bukan cuma
+            # tahu belakangan lewat tab Equity > Risk Portofolio).
+            if entry_in2 > 0 and sl_in2 > 0 and sl_in2 < entry_in2 and lot_in2 > 0:
+                risiko_trade_baru = (entry_in2 - sl_in2) * lot_in2 * 100
+                existing_summary = rj.portfolio_risk_summary(rj.load_trades(), None)
+                total_risiko_estimasi = existing_summary["total_risk_rp"] + risiko_trade_baru
+                st.caption(f"💡 Risiko trade ini: Rp{risiko_trade_baru:,.0f} · Ditambah posisi OPEN lain yang "
+                           f"sudah ada: total estimasi Rp{total_risiko_estimasi:,.0f} - cek tab **Equity > "
+                           "Risk Portofolio** untuk lihat % dari modal Bro setelah trade ini disimpan.")
             if st.button("💾 Simpan Trade (OPEN)", type="primary", key="btn_open_rj"):
                 if not saham_in or entry_in2 <= 0: st.error("Kode saham dan Entry wajib diisi.")
                 else:
@@ -1629,6 +1641,34 @@ with t_equity:
                     elif cash_ratio <= 25: r3.success(f"✅ Cash Ratio {cash_ratio:.1f}% — IDEAL.")
                     else: r3.info(f"💡 Cash Ratio {cash_ratio:.1f}% — Tinggi.")
                 st.divider()
+                # Risk Portofolio - fungsi rj.portfolio_risk_summary() sudah ada di real_journal.py
+                # dari awal (dengan dokumentasi lengkap kenapa ini penting: menjumlahkan risiko SEMUA
+                # posisi OPEN, bukan cuma satu-satu di Kalkulator Manajemen Risiko) tapi TIDAK PERNAH
+                # dipanggil di UI manapun - fitur "yatim". Disambungkan di sini sesuai desain aslinya.
+                st.markdown("### 🛡️ Risk Portofolio (Semua Posisi OPEN)")
+                trades_for_risk = rj.load_trades()
+                risk_summary = rj.portfolio_risk_summary(trades_for_risk, latest_total if latest_total > 0 else None)
+                if risk_summary["n_open"] == 0:
+                    st.info("Tidak ada posisi OPEN di Jurnal Real saat ini.")
+                else:
+                    rp1, rp2, rp3 = st.columns(3)
+                    rp1.metric("Total Risiko (Rp)", f"Rp{risk_summary['total_risk_rp']:,.0f}")
+                    rp2.metric("Jumlah Posisi OPEN", risk_summary["n_open"])
+                    pct = risk_summary["pct_of_equity"]
+                    if pct is None:
+                        rp3.info("Isi snapshot Equity dulu untuk lihat % dari modal.")
+                    else:
+                        rp3.metric("% dari Total Equity", f"{pct:.1f}%")
+                        if pct >= 20: st.error(f"🚨 Risiko agregat {pct:.1f}% dari modal - SANGAT TINGGI. "
+                                                "Banyak trader profesional membatasi total risiko portofolio di bawah 10-20%.")
+                        elif pct >= 10: st.warning(f"⚡ Risiko agregat {pct:.1f}% dari modal - cukup tinggi, pertimbangkan "
+                                                    "kurangi posisi baru sampai beberapa yang ada ini closed.")
+                        else: st.success(f"✅ Risiko agregat {pct:.1f}% dari modal - masih terkendali.")
+                    if risk_summary["n_sl_kosong"] > 0:
+                        st.warning(f"⚠️ {risk_summary['n_sl_kosong']} posisi OPEN belum diisi Stop Loss - risiko di atas "
+                                   "UNDER-ESTIMATE (posisi itu dianggap 0 risiko di total, bukan diabaikan diam-diam).")
+                    st.dataframe(risk_summary["detail"], use_container_width=True, hide_index=True)
+                st.divider()
                 st.markdown("### 📈 Kurva Total Equity vs IHSG")
                 fig_eq2 = go.Figure()
                 fig_eq2.add_trace(go.Scatter(x=total_series["Tanggal"], y=total_series["Total Equity (Rp)"], mode="lines+markers", name="🟦 Total Equity", line=dict(color="#4ade80", width=2.5), fill="tozeroy", fillcolor="rgba(74,222,128,0.12)"))
@@ -1804,52 +1844,53 @@ with t_fundamental:
             return pd.DataFrame(results)
         if st.button("🔍 Scan Fundamental", type="primary", use_container_width=True):
             df_fund = fetch_fundamental_batch(tickers[:scan_limit])
-            if df_fund.empty: st.error("❌ Tidak ada data fundamental yang berhasil diambil."); st.stop()
-            filtered = df_fund.copy()
-            if max_pe > 0: filtered = filtered[filtered["P/E"].notna() & (filtered["P/E"] <= max_pe)]
-            if min_roe > 0: filtered = filtered[filtered["ROE %"].notna() & (filtered["ROE %"] >= min_roe)]
-            if max_de > 0: filtered = filtered[filtered["Debt/Eq"].notna() & (filtered["Debt/Eq"] <= max_de)]
-            if min_divy > 0: filtered = filtered[filtered["Div Yield %"] >= min_divy]
-            if max_pb > 0: filtered = filtered[filtered["P/B"].notna() & (filtered["P/B"] <= max_pb)]
-            if min_fcfy > 0: filtered = filtered[filtered["FCF Yield %"].notna() & (filtered["FCF Yield %"] >= min_fcfy)]
-            if min_mos > -100: filtered = filtered[filtered["Margin of Safety %"].notna() & (filtered["Margin of Safety %"] >= min_mos)]
-            if max_peg > 0: filtered = filtered[filtered["PEG"].notna() & (filtered["PEG"] <= max_peg)]
-            filtered = filtered.sort_values(["Margin of Safety %", "Quality Score"], ascending=[False, False])
-            st.markdown(f"**📋 Hasil: {len(filtered)} saham lolos dari {len(df_fund)} yang di-scan**")
-            if not filtered.empty:
-                display = filtered.copy()
-                for col in ["Harga", "EPS", "BVPS", "Graham Number"]:
-                    if col in display.columns: display[col] = display[col].map(lambda x: f"Rp{x:,.0f}" if pd.notna(x) else "-")
-                for col in ["P/E", "P/B", "PEG", "ROE %", "ROA %", "Debt/Eq", "Margin of Safety %", "Earnings Yield %", "FCF Yield %", "Div Yield %", "Payout %", "Earnings Growth %", "Revenue Growth %", "Quality Score"]:
-                    if col in display.columns: display[col] = display[col].map(lambda x: f"{x:.1f}" if pd.notna(x) else "-")
-                def color_mos(val):
-                    try:
-                        v = float(str(val).replace("%", ""))
-                        if v >= 50: return "background-color: #065f46; color: white; font-weight: bold;"
-                        elif v >= 30: return "background-color: #16a34a; color: white;"
-                        elif v >= 10: return "background-color: #eab308; color: black;"
-                        else: return "background-color: #7f1d1d; color: white;"
-                    except: return ""
-                def color_q(val):
-                    try:
-                        v = float(str(val))
-                        if v >= 80: return "background-color: #065f46; color: white; font-weight: bold;"
-                        elif v >= 60: return "background-color: #16a34a; color: white;"
-                        elif v >= 40: return "background-color: #eab308; color: black;"
-                        else: return "background-color: #7f1d1d; color: white;"
-                    except: return ""
-                styler = display.style
-                if "Margin of Safety %" in display.columns: styler = styler.map(color_mos, subset=["Margin of Safety %"])
-                if "Quality Score" in display.columns: styler = styler.map(color_q, subset=["Quality Score"])
-                st.dataframe(styler, use_container_width=True, hide_index=True, height=500)
-                st.download_button("⬇️ Download CSV Fundamental", filtered.to_csv(index=False).encode("utf-8"), file_name=f"fundamental_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
-                st.divider()
-                st.markdown("### 💡 Insight")
-                c_ins1, c_ins2, c_ins3 = st.columns(3)
-                with c_ins1: st.metric("Deep Value", len(filtered[filtered["Kategori"] == "🟥 Deep Value"]))
-                with c_ins2: st.metric("Dividend Aristocrat", len(filtered[filtered["Kategori"] == "🟦 Dividend Aristocrat"]))
-                with c_ins3: st.metric("GARP", len(filtered[filtered["Kategori"] == "🟩 GARP"]))
-            else: st.info("Tidak ada saham yang lolos filter. Coba longgarkan kriteria.")
+            if df_fund.empty: st.error("❌ Tidak ada data fundamental yang berhasil diambil.")
+            else:
+                filtered = df_fund.copy()
+                if max_pe > 0: filtered = filtered[filtered["P/E"].notna() & (filtered["P/E"] <= max_pe)]
+                if min_roe > 0: filtered = filtered[filtered["ROE %"].notna() & (filtered["ROE %"] >= min_roe)]
+                if max_de > 0: filtered = filtered[filtered["Debt/Eq"].notna() & (filtered["Debt/Eq"] <= max_de)]
+                if min_divy > 0: filtered = filtered[filtered["Div Yield %"] >= min_divy]
+                if max_pb > 0: filtered = filtered[filtered["P/B"].notna() & (filtered["P/B"] <= max_pb)]
+                if min_fcfy > 0: filtered = filtered[filtered["FCF Yield %"].notna() & (filtered["FCF Yield %"] >= min_fcfy)]
+                if min_mos > -100: filtered = filtered[filtered["Margin of Safety %"].notna() & (filtered["Margin of Safety %"] >= min_mos)]
+                if max_peg > 0: filtered = filtered[filtered["PEG"].notna() & (filtered["PEG"] <= max_peg)]
+                filtered = filtered.sort_values(["Margin of Safety %", "Quality Score"], ascending=[False, False])
+                st.markdown(f"**📋 Hasil: {len(filtered)} saham lolos dari {len(df_fund)} yang di-scan**")
+                if not filtered.empty:
+                    display = filtered.copy()
+                    for col in ["Harga", "EPS", "BVPS", "Graham Number"]:
+                        if col in display.columns: display[col] = display[col].map(lambda x: f"Rp{x:,.0f}" if pd.notna(x) else "-")
+                    for col in ["P/E", "P/B", "PEG", "ROE %", "ROA %", "Debt/Eq", "Margin of Safety %", "Earnings Yield %", "FCF Yield %", "Div Yield %", "Payout %", "Earnings Growth %", "Revenue Growth %", "Quality Score"]:
+                        if col in display.columns: display[col] = display[col].map(lambda x: f"{x:.1f}" if pd.notna(x) else "-")
+                    def color_mos(val):
+                        try:
+                            v = float(str(val).replace("%", ""))
+                            if v >= 50: return "background-color: #065f46; color: white; font-weight: bold;"
+                            elif v >= 30: return "background-color: #16a34a; color: white;"
+                            elif v >= 10: return "background-color: #eab308; color: black;"
+                            else: return "background-color: #7f1d1d; color: white;"
+                        except: return ""
+                    def color_q(val):
+                        try:
+                            v = float(str(val))
+                            if v >= 80: return "background-color: #065f46; color: white; font-weight: bold;"
+                            elif v >= 60: return "background-color: #16a34a; color: white;"
+                            elif v >= 40: return "background-color: #eab308; color: black;"
+                            else: return "background-color: #7f1d1d; color: white;"
+                        except: return ""
+                    styler = display.style
+                    if "Margin of Safety %" in display.columns: styler = styler.map(color_mos, subset=["Margin of Safety %"])
+                    if "Quality Score" in display.columns: styler = styler.map(color_q, subset=["Quality Score"])
+                    st.dataframe(styler, use_container_width=True, hide_index=True, height=500)
+                    st.download_button("⬇️ Download CSV Fundamental", filtered.to_csv(index=False).encode("utf-8"), file_name=f"fundamental_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+                    st.divider()
+                    st.markdown("### 💡 Insight")
+                    c_ins1, c_ins2, c_ins3 = st.columns(3)
+                    with c_ins1: st.metric("Deep Value", len(filtered[filtered["Kategori"] == "🟥 Deep Value"]))
+                    with c_ins2: st.metric("Dividend Aristocrat", len(filtered[filtered["Kategori"] == "🟦 Dividend Aristocrat"]))
+                    with c_ins3: st.metric("GARP", len(filtered[filtered["Kategori"] == "🟩 GARP"]))
+                else: st.info("Tidak ada saham yang lolos filter. Coba longgarkan kriteria.")
     with sub_gainer:
         st.markdown("### 🏆 Top Gainer & Loser")
         periode = st.selectbox("Periode", ["1 Hari", "1 Minggu", "1 Bulan", "3 Bulan", "6 Bulan", "1 Tahun"], index=2)
@@ -2058,6 +2099,12 @@ with t_ihsg:
                 st.plotly_chart(fig_ihsg, use_container_width=True)
         st.divider()
         st.markdown("### ⏰ Time Cycle Analysis")
+        st.warning("⚠️ **Sudah diuji secara historis** (IHSG 10 tahun, 154 pivot terdeteksi): hari-hari "
+                   "Gann Cycle (30/45/60/.../720 hari) & Fibonacci Cycle (8/13/21/.../610 hari) sesudah "
+                   "sebuah pivot ternyata TIDAK lebih sering bertepatan dengan reversal dibanding hari "
+                   "acak manapun (Gann 40.3%, Fibonacci 40.4%, hari acak 42.9%, baseline semua hari "
+                   "42.6% - semuanya setara, bukan Gann/Fib yang menang). Anggap fitur ini eksploratif "
+                   "berbasis numerologi klasik Gann, BUKAN sinyal dengan bukti statistik untuk IHSG.")
         tc_col1, tc_col2 = st.columns(2)
         with tc_col1: st.markdown(f"**📉 Dari Pivot Low**<br><span style='font-size:12px;color:#94a3b8;'>{pl_idx.strftime('%d %b %Y') if hasattr(pl_idx, 'strftime') else str(pl_idx)} @ {pl_price:,.0f}</span>", unsafe_allow_html=True)
         with tc_col2: st.markdown(f"**📈 Dari Pivot High**<br><span style='font-size:12px;color:#94a3b8;'>{ph_idx.strftime('%d %b %Y') if hasattr(ph_idx, 'strftime') else str(ph_idx)} @ {ph_price:,.0f}</span>", unsafe_allow_html=True)
@@ -2209,7 +2256,10 @@ with t_astro:
         else:
             st.markdown(f"""<div style="background:#0f172a;border-radius:8px;padding:12px;border:1px solid #334155;"><div style="font-size:13px;color:#4ade80;font-weight:700;">✅ NORMAL</div><div style="font-size:12px;color:#94a3b8;margin-top:4px;">Tidak ada astro-anomaly. Trading sesuai plan biasa.</div></div>""", unsafe_allow_html=True)
     st.divider()
-    st.caption("🔮 **Disclaimer:** Astro-cycle adalah probabilitas psikologis/seasonal, bukan sains eksak. Gunakan sebagai konfirmasi tambahan.")
+    st.caption("🔮 **Disclaimer:** Astro-cycle adalah probabilitas psikologis/seasonal, bukan sains eksak. "
+               "Time Cycle Gann yang jadi salah satu komponennya SUDAH diuji historis untuk IHSG dan hit "
+               "rate-nya setara hari acak (lihat tab 'IHSG Analysis') - anggap Astronacci sepenuhnya "
+               "eksploratif/hiburan, jangan jadi dasar keputusan entry/exit sendirian.")
 
 # ============================================================================
 # TAB 15: SENTIMENT ANALYSIS (Dari app_premium_complete.py)
@@ -2413,16 +2463,38 @@ with t_broker:
         if valid:
             st.success(msg)
             st.markdown(f"""<div style="background:#0f172a;border-radius:10px;padding:14px;border:1px solid #16a34a;margin:12px 0;"><div style="font-size:13px;color:#16a34a;font-weight:700;">✅ ORDER SUMMARY</div><div style="font-size:12px;color:#e2e8f0;margin-top:8px;line-height:1.6;"><b>Broker:</b> {st.session_state.get('broker_name', 'Manual')}<br><b>Saham:</b> {order_kode}<br><b>Side:</b> {order_side}<br><b>Qty:</b> {order_qty} lot ({order_qty * 100:,} lembar)<br><b>Harga:</b> Rp{order_price:,.0f}<br><b>Total:</b> Rp{total:,.0f}</div></div>""", unsafe_allow_html=True)
+            # PENTING: dulu tombol-tombol ini KLAIM mencatat ke Jurnal Real ("Order juga
+            # dicatat di tab Jurnal Real") tapi TIDAK PERNAH benar-benar memanggil
+            # rj.open_trade() - broker.place_order() cuma placeholder string, jadi klaimnya
+            # bohong (order hilang, tidak ada di Jurnal Real manapun). Sekarang benar-benar
+            # ditulis ke Jurnal Real (BUY dicatat, SELL cuma validasi - lihat catatan di bawah).
             col_exec, col_journal = st.columns(2)
+
+            def _catat_order_ke_jurnal():
+                if order_side != "BUY":
+                    st.warning("Order SELL belum bisa dicatat otomatis di sini (perlu tahu posisi mana yang "
+                               "ditutup) - buka tab **Jurnal Real > Tutup Posisi** untuk mencatat penjualan.")
+                    return
+                if not gj.is_configured():
+                    st.error("Google Sheets belum terhubung - isi `gcp_service_account` & `GOOGLE_SHEET_ID` "
+                             "di Settings > Secrets dulu (lihat README) sebelum bisa mencatat ke Jurnal Real.")
+                    return
+                no = rj.open_trade(datetime.now().strftime("%Y-%m-%d"),
+                                    st.session_state.get('broker_name', broker_pilih), order_kode, "Lainnya",
+                                    order_price, 0, 0, order_qty, "Dicatat dari tab Broker > Quick Order Entry")
+                st.success(f"✅ Trade #{no} ({order_kode}) BENAR-BENAR tercatat di Jurnal Real (bukan simulasi).")
+
             with col_exec:
                 if st.button("🚀 Execute Order", type="primary", use_container_width=True, key="btn_exec_order"):
                     broker = BrokerAPI(st.session_state.get('broker_name', 'Manual'))
                     ok, msg = broker.place_order(order_kode, order_side, order_qty, order_price)
-                    if ok: st.success(msg); st.info("💡 Order juga dicatat di tab Jurnal Real untuk tracking.")
+                    if ok:
+                        st.success(msg)
+                        _catat_order_ke_jurnal()
                     else: st.error(msg)
             with col_journal:
                 if st.button("📝 Catat ke Jurnal Saja", use_container_width=True, key="btn_journal_only"):
-                    st.info("Silakan buka tab Jurnal Real untuk mencatat manual.")
+                    _catat_order_ke_jurnal()
         else: st.error(msg)
     st.divider()
     st.markdown("### 📊 Perbandingan Broker Indonesia")
