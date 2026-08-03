@@ -2483,6 +2483,14 @@ with t_options:
     if opt_kode in price_data:
         df_opt = price_data[opt_kode]
         S = float(df_opt['Close'].iloc[-1])
+        # Reset Strike Price ke ATM kalau saham GANTI - widget dgn key="opt_K" tidak pernah
+        # membaca ulang value= sesudah render pertama (perilaku standar Streamlit), jadi
+        # tanpa ini Strike bisa nyangkut di harga saham SEBELUMNYA sewaktu pindah saham -
+        # call/put jadi ekstrem deep ITM/OTM (Delta 1/0, Gamma & Vega ~0) tanpa user sadar
+        # itu bukan mispricing, cuma strike yang salah nyangkut.
+        if st.session_state.get("_opt_last_kode") != opt_kode:
+            st.session_state["opt_K"] = float(round(S / 25) * 25)
+            st.session_state["_opt_last_kode"] = opt_kode
         st.markdown("### ⚙️ Parameters")
         oc1, oc2, oc3, oc4 = st.columns(4)
         with oc1: K = st.number_input("Strike Price (Rp)", min_value=0.0, value=float(round(S / 25) * 25), step=25.0, key="opt_K")
