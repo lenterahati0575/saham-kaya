@@ -519,10 +519,11 @@ with st.sidebar:
                          help="Default 5 (bukan 4) - skor 4 net rugi setelah fee di backtest out-of-sample.")
     s = st.number_input("Skor maks. SELL", value=-2); ss = st.number_input("Skor maks. STRONG SELL", value=-4)
     st.divider()
-    n_scan = st.select_slider("Jumlah saham dipindai", options=[50, 100, 200, 400, 615], value=200)
+    n_scan = st.select_slider("Jumlah saham dipindai", options=[50, 100, 200, 400, 615, 962], value=200,
+                               help="962 = seluruh saham tercatat di IDX (per tickers_idx.csv resmi BEI). "
+                                    "Makin banyak saham dipindai, makin banyak request ke Yahoo Finance - "
+                                    "bisa lebih lambat/rawan rate-limit.")
     refresh = st.button("🔄 Refresh Data Live", use_container_width=True, type="primary")
-    st.divider()
-    aktifkan_sektor = st.checkbox("🏷️ Aktifkan Filter Sektor", value=False)
     st.divider()
     st.subheader("🌐 Kondisi Pasar (IHSG)")
     filter_market = st.checkbox("Sembunyikan kandidat Swing saat IHSG Bearish", value=True,
@@ -572,11 +573,10 @@ if failed_tickers:
                       "diabaikan - hasil scan di bawah TIDAK lengkap)", expanded=False):
         st.write(", ".join(failed_tickers))
 
-if aktifkan_sektor:
-    with st.spinner("Mengambil data sektor..."):
-        sector_map = sec.fetch_sectors(table["Kode"].tolist())
-        table["Sektor"] = table["Kode"].map(sector_map).fillna("TIDAK DIKETAHUI")
-else: table["Sektor"] = None
+# Sektor & Syariah dari data resmi BEI (tickers_idx.csv) - statis, instan, tanpa fetch
+# tambahan (beda dgn versi lama yg fetch live per-saham ke Yahoo Finance & opt-in krn lambat).
+table["Sektor"] = table["Kode"].map(dict(zip(universe["Kode"], universe["Sektor"])))
+table["Syariah"] = table["Kode"].map(dict(zip(universe["Kode"], universe["Syariah"])))
 
 st.caption(f"Terakhir refresh: {datetime.now().strftime('%d %b %Y, %H:%M')} · {len(table)}/{len(tickers)} saham")
 if regime["status"] == "BEARISH": st.error(f"📉 IHSG BEARISH (Close {regime['close']:,.0f} < MA50 {regime['ma']:,.0f})")
@@ -633,21 +633,18 @@ if breadth:
 <div style="font-size:10px;color:#94a3b8;margin-top:2px;">Trend (di atas MA20): {breadth['above_pct']}% dari {breadth['total']} saham</div>
 </div>""", unsafe_allow_html=True)
 
-# Kinerja Sektor - butuh table["Sektor"] terisi (checkbox "Aktifkan Filter Sektor" di sidebar,
-# fetch dari Yahoo Finance yg di-cache 7 hari). Kalau aktif, tampilkan SEMUA sektor yang
-# muncul (bukan cuma sebagian) - rata-rata Perubahan % antar saham per sektor.
+# Kinerja Sektor - dari klasifikasi IDX-IC resmi di tickers_idx.csv (statis, instan, tidak
+# perlu fetch tambahan lagi). Tampilkan SEMUA sektor yang muncul (bukan cuma sebagian).
 sect_perf = sec.sector_performance(table)
 with st.expander(f"🏷️ Kinerja Sektor{' (' + str(len(sect_perf)) + ' sektor)' if not sect_perf.empty else ''}",
                   expanded=False):
     if sect_perf.empty:
-        st.caption("Aktifkan '🏷️ Aktifkan Filter Sektor' di sidebar utk melihat kinerja per "
-                    "sektor dari saham yang dipindai (butuh fetch tambahan per saham dari "
-                    "Yahoo Finance, di-cache 7 hari).")
+        st.caption("Data sektor tidak tersedia utk saham yang dipindai.")
     else:
         st.caption("Rata-rata Perubahan % antar saham per sektor (equal-weight) - BUKAN "
-                    "cap-weighted resmi seperti indeks sektoral IDX-IC, karena data kapitalisasi "
-                    "pasar per saham tidak tersedia gratis. Sektor diklasifikasi dari taksonomi "
-                    "Yahoo Finance, dipetakan ke istilah lazim IDX (lihat sectors.py).")
+                    "cap-weighted resmi seperti indeks sektoral IDX-IC, karena free float "
+                    "weight per saham tidak diikutkan dalam agregasi ini. Sektor dari "
+                    "klasifikasi IDX-IC resmi (tickers_idx.csv, evaluasi BEI per 6 bulan).")
         n_cols_sect = 4
         for start in range(0, len(sect_perf), n_cols_sect):
             chunk = sect_perf.iloc[start:start + n_cols_sect]
@@ -663,6 +660,24 @@ with st.expander(f"🏷️ Kinerja Sektor{' (' + str(len(sect_perf)) + ' sektor)
 <div style="font-size:9px;color:#64748b;">{int(r['jumlah_saham'])} saham</div>
 </div>""", unsafe_allow_html=True)
 
+# Syariah vs Konvensional - dari keanggotaan ISSI resmi (tickers_idx.csv) - supaya kelihatan
+# apakah pergerakan pasar hari ini lebih ditopang saham syariah atau konvensional, bukan
+# cuma angka Market Health gabungan yang menyembunyikan perbedaan itu.
+syar_breadth = sec.syariah_breadth(table)
+if syar_breadth is not None and not syar_breadth.empty:
+    with st.expander("☯️ Syariah vs Konvensional", expanded=False):
+        st.caption("Keanggotaan ISSI (Indeks Saham Syariah Indonesia) resmi BEI, evaluasi per 6 bulan.")
+        cols_syar = st.columns(len(syar_breadth))
+        for i, (_, r) in enumerate(syar_breadth.iterrows()):
+            pct = r["rata_rata"] * 100
+            color = "#4ade80" if pct >= 0 else "#f87171"
+            with cols_syar[i]:
+                st.markdown(f"""<div style="background:#1e293b;border-radius:10px;padding:12px;border:1px solid #334155;text-align:center;">
+<div style="font-size:13px;color:#cbd5e1;font-weight:600;">{r['Kelompok']}</div>
+<div style="font-size:17px;font-weight:700;color:{color};margin-top:4px;">{pct:+.2f}%</div>
+<div style="font-size:10px;color:#94a3b8;margin-top:2px;">{int(r['naik'])}↑ {int(r['turun'])}↓ dari {int(r['jumlah_saham'])} saham</div>
+</div>""", unsafe_allow_html=True)
+
 t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_broker, t_tutorial = st.tabs([
     "🏆 Kandidat", "📋 Semua", "📉 Grafik", "📒 Backtest", "🎯 Top 10", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
     "🧮 Kalkulator", "📊 Fundamental", "🏛️ Value Invest", "📊 IHSG Analysis", "🔗 Correlation", "🌙 Astronacci", "📰 Sentiment", "🤖 ML Signal", "📉 Options", "🏦 Broker", "📚 Tutorial"
@@ -676,7 +691,7 @@ with t_kandidat:
     if not market_ok:
         st.info("🚦 Kandidat BUY disembunyikan sementara karena IHSG Bearish.")
         picks = picks.iloc[0:0]
-    if aktifkan_sektor and not picks.empty:
+    if not picks.empty:
         sektor_pilih_1 = st.multiselect("🏷️ Filter Sektor", options=sorted(picks["Sektor"].dropna().unique().tolist()), key="sektor_tab1")
         if sektor_pilih_1:
             picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
@@ -769,8 +784,7 @@ with t_kandidat:
             "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
             "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
         ]
-        if aktifkan_sektor:
-            kolom_tampil.insert(2, "Sektor")
+        kolom_tampil.insert(2, "Sektor")
         kolom_tampil = [col for col in kolom_tampil if col in show.columns]
         def color_rec(val):
             val = str(val)
@@ -855,9 +869,7 @@ with t_semua:
     with colf2:
         sig_filter = st.multiselect("Filter Signal", options=sorted(table["Signal"].unique().tolist()), default=[])
     with colf3:
-        sektor_filter = []
-        if aktifkan_sektor:
-            sektor_filter = st.multiselect("🏷️ Filter Sektor", options=sorted(table["Sektor"].dropna().unique().tolist()), default=[], key="sektor_tab2")
+        sektor_filter = st.multiselect("🏷️ Filter Sektor", options=sorted(table["Sektor"].dropna().unique().tolist()), default=[], key="sektor_tab2")
     view = table.copy()
     if search:
         mask = view["Kode"].str.contains(search.upper()) | view["Nama"].str.upper().str.contains(search.upper())
@@ -872,8 +884,7 @@ with t_semua:
     view_display["Value Traded (Rp)"] = view_display["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
     view_display["Volume Ratio"] = view_display["Volume Ratio"].map(lambda x: f"{x:.1f}x")
     kolom_tampil2 = ["Kode", "Nama", "Signal", "Score", "Quality", "Quality Score", "Trend", "Smart Money", "Momentum", "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout", "Layak Likuiditas"]
-    if aktifkan_sektor:
-        kolom_tampil2.insert(2, "Sektor")
+    kolom_tampil2.insert(2, "Sektor")
     kolom_tampil2 = [col for col in kolom_tampil2 if col in view_display.columns]
     dataframe_with_chart(view_display[kolom_tampil2], kode_col="Kode", height=520, key="df_semua")
     st.caption(f"Menampilkan {len(view)} dari {len(table)} saham")

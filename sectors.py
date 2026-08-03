@@ -1,78 +1,30 @@
 """
-Fetch sektor saham dari Yahoo Finance (yf.Ticker().info), lalu diterjemahkan/dipetakan
-ke istilah yang lazim dipakai di IDX (mis. "Perbankan", bukan "Financial Services").
+Klasifikasi sektor & status syariah saham - dari data RESMI Bursa Efek Indonesia (kolom
+"Sektor" & "Syariah" di tickers_idx.csv, hasil olah dokumen resmi IDX: daftar 962 saham
+tercatat + 11 breakdown sektor IDX-IC + Pengumuman BEI ISSI Mei 2026), BUKAN lagi tebakan
+dari taksonomi Yahoo Finance (GICS).
 
-CATATAN JUJUR:
-- Yahoo Finance pakai taksonomi GICS (bahasa Inggris, kategori global), BUKAN IDX-IC resmi
-  (klasifikasi industri resmi Bursa Efek Indonesia). Pemetaan di bawah ini pendekatan praktis
-  berdasar kata kunci sektor & industri dari Yahoo, bukan data resmi IDX-IC.
-- Fetch sektor per-saham lumayan lambat (beda dengan fetch harga yang bisa di-batch), makanya
-  fitur ini dibuat OPT-IN (ada checkbox di sidebar) dan di-cache lama (7 hari) supaya tidak
-  perlu fetch ulang tiap buka dashboard.
+Versi sebelumnya fetch sektor live per-saham ke Yahoo Finance (yf.Ticker().info, dipetakan
+kata kunci industri Yahoo -> label ala IDX) - lambat (opt-in, cache 7 hari) DAN cuma
+pendekatan kasar (GICS ≠ IDX-IC resmi). Sekarang klasifikasinya statis dari tickers_idx.csv
+(instan, official, 100% saham tercakup, tanpa fetch tambahan) - fungsi lama dihapus, bukan
+disembunyikan, karena strictly digantikan data yang lebih baik.
+
+CATATAN: klasifikasi resmi IDX-IC & keanggotaan ISSI dievaluasi ulang oleh BEI tiap 6 bulan
+(Mei & November) - kalau tickers_idx.csv sudah lebih dari ~6 bulan, cek ulang ke idx.co.id.
 """
 
-import concurrent.futures
 import pandas as pd
-import streamlit as st
-import yfinance as yf
-
-# Kata kunci industri Yahoo -> label sektor ala IDX. Dicek berurutan dari atas (lebih spesifik dulu).
-_INDUSTRY_KEYWORDS = [
-    (("bank",), "Perbankan"),
-    (("insurance",), "Asuransi"),
-    (("capital markets", "asset management", "financial data"), "Perusahaan Sekuritas & Investasi"),
-    (("reit", "real estate",), "Properti & Real Estat"),
-    (("coal",), "Batu Bara"),
-    (("oil & gas", "oil and gas", "petroleum"), "Minyak & Gas"),
-    (("gold", "silver", "copper", "steel", "aluminum", "mining"), "Pertambangan & Logam"),
-    (("agricultural", "farm", "plantation", "palm"), "Perkebunan & Agrikultur"),
-    (("telecom",), "Telekomunikasi"),
-    (("software", "information technology services", "internet"), "Teknologi"),
-    (("semiconductor", "electronic"), "Teknologi"),
-    (("auto", "vehicle"), "Otomotif"),
-    (("airline", "marine", "railroad", "trucking", "logistics"), "Transportasi & Logistik"),
-    (("utilit", "electric", "power"), "Utilitas & Energi"),
-    (("construction", "engineering", "building materials", "cement"), "Konstruksi & Bahan Bangunan"),
-    (("retail", "department store", "specialty retail"), "Ritel"),
-    (("food", "beverage", "grocery", "packaged foods"), "Makanan & Minuman"),
-    (("tobacco",), "Rokok"),
-    (("pharmaceutical", "healthcare", "medical", "drug", "biotechnology", "hospital"), "Kesehatan & Farmasi"),
-    (("hotel", "restaurant", "leisure", "travel"), "Pariwisata, Hotel & Restoran"),
-    (("media", "entertainment", "publishing"), "Media & Hiburan"),
-    (("textile", "apparel", "furnishings"), "Tekstil & Garmen"),
-    (("paper", "packaging", "chemicals", "specialty chemicals"), "Kimia & Bahan Dasar"),
-    (("conglomerates", "industrial", "machinery"), "Perindustrian"),
-]
-
-_SECTOR_FALLBACK = {
-    "Financial Services": "Keuangan (Lainnya)",
-    "Basic Materials": "Material Dasar",
-    "Energy": "Energi",
-    "Consumer Cyclical": "Konsumer Siklikal",
-    "Consumer Defensive": "Konsumer Non-Siklikal",
-    "Healthcare": "Kesehatan & Farmasi",
-    "Industrials": "Perindustrian",
-    "Real Estate": "Properti & Real Estat",
-    "Technology": "Teknologi",
-    "Communication Services": "Telekomunikasi & Media",
-    "Utilities": "Utilitas & Energi",
-}
 
 TIDAK_DIKETAHUI = "Tidak Diketahui"
 
-# Ikon per label sektor, cuma utk tampilan kartu "Kinerja Sektor" - tidak memengaruhi
-# klasifikasi. Sektor yang tidak ada di daftar ini (jarang muncul) pakai _DEFAULT_ICON.
+# Ikon per label sektor IDX-IC resmi (11 sektor) - cuma utk tampilan kartu, tidak
+# memengaruhi klasifikasi. Sektor di luar daftar ini pakai _DEFAULT_ICON.
 _SECTOR_ICON = {
-    "Perbankan": "🏦", "Asuransi": "🛡️", "Perusahaan Sekuritas & Investasi": "📈",
-    "Properti & Real Estat": "🏢", "Batu Bara": "⛏️", "Minyak & Gas": "🛢️",
-    "Pertambangan & Logam": "⚒️", "Perkebunan & Agrikultur": "🌴", "Telekomunikasi": "📡",
-    "Teknologi": "💻", "Otomotif": "🚗", "Transportasi & Logistik": "✈️",
-    "Utilitas & Energi": "⚡", "Konstruksi & Bahan Bangunan": "🏗️", "Ritel": "🛒",
-    "Makanan & Minuman": "🍔", "Rokok": "🚬", "Kesehatan & Farmasi": "💊",
-    "Pariwisata, Hotel & Restoran": "🏨", "Media & Hiburan": "🎬", "Tekstil & Garmen": "🧵",
-    "Kimia & Bahan Dasar": "🧪", "Perindustrian": "🏭", "Keuangan (Lainnya)": "💰",
-    "Material Dasar": "🧱", "Konsumer Siklikal": "🛍️", "Konsumer Non-Siklikal": "🧺",
-    "Telekomunikasi & Media": "📶",
+    "Energy": "🛢️", "Basic Materials": "⛏️", "Industrials": "🏭",
+    "Consumer Non-Cyclicals": "🧺", "Consumer Cyclicals": "🛍️", "Healthcare": "💊",
+    "Financials": "🏦", "Properties & Real Estate": "🏢", "Technology": "💻",
+    "Infrastructures": "🏗️", "Transportation & Logistic": "✈️",
 }
 _DEFAULT_ICON = "📊"
 
@@ -86,8 +38,8 @@ def sector_performance(table: pd.DataFrame) -> pd.DataFrame:
     top-N) - rata-rata "Perubahan %" antar saham per sektor + jumlah saham anggotanya.
 
     CATATAN JUJUR: ini rata-rata sederhana antar saham (equal-weight), BUKAN cap-weighted
-    seperti indeks sektoral resmi IDX-IC - data kapitalisasi pasar per saham tidak tersedia
-    gratis dari sumber yang dipakai app ini.
+    seperti indeks sektoral resmi IDX-IC - data kapitalisasi pasar (free float weight) per
+    saham tidak diikutkan dalam agregasi ini.
     """
     if "Sektor" not in table.columns or table["Sektor"].isna().all():
         return pd.DataFrame()
@@ -102,32 +54,21 @@ def sector_performance(table: pd.DataFrame) -> pd.DataFrame:
     return perf
 
 
-def _classify(sector: str, industry: str) -> str:
-    industry_l = (industry or "").lower()
-    for keywords, label in _INDUSTRY_KEYWORDS:
-        if any(k in industry_l for k in keywords):
-            return label
-    return _SECTOR_FALLBACK.get(sector, sector or TIDAK_DIKETAHUI)
-
-
-def _fetch_one(kode: str) -> tuple[str, str]:
-    try:
-        info = yf.Ticker(f"{kode}.JK").info
-        sector = info.get("sector", "")
-        industry = info.get("industry", "")
-        return kode, _classify(sector, industry)
-    except Exception:
-        return kode, TIDAK_DIKETAHUI
-
-
-@st.cache_data(ttl=604800, show_spinner=False)  # cache 7 hari - sektor jarang berubah
-def fetch_sectors(tickers: list[str], max_workers: int = 20) -> dict[str, str]:
-    """Fetch sektor untuk daftar ticker secara paralel (thread pool, karena yf.Ticker().info
-    lambat kalau dipanggil satu-satu berurutan). Hasil di-cache 7 hari."""
-    results: dict[str, str] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(_fetch_one, t): t for t in tickers}
-        for future in concurrent.futures.as_completed(futures):
-            kode, sektor = future.result()
-            results[kode] = sektor
-    return results
+def syariah_breadth(table: pd.DataFrame) -> pd.DataFrame | None:
+    """Ringkas Market Breadth (rata-rata Perubahan %, jumlah naik/turun) dipisah Syariah
+    (anggota ISSI resmi) vs Konvensional - supaya kelihatan apakah pergerakan IHSG hari ini
+    lebih ditopang saham syariah atau konvensional, bukan cuma angka gabungan yang
+    menyembunyikan perbedaan itu."""
+    if "Syariah" not in table.columns or table["Syariah"].isna().all():
+        return None
+    df = table.dropna(subset=["Syariah", "Perubahan %"])
+    if df.empty:
+        return None
+    grp = df.groupby("Syariah").agg(
+        rata_rata=("Perubahan %", "mean"),
+        naik=("Perubahan %", lambda s: (s > 0).sum()),
+        turun=("Perubahan %", lambda s: (s < 0).sum()),
+        jumlah_saham=("Kode", "count"),
+    ).reset_index()
+    grp["Kelompok"] = grp["Syariah"].map({True: "Syariah (ISSI)", False: "Konvensional"})
+    return grp[["Kelompok", "rata_rata", "naik", "turun", "jumlah_saham"]]

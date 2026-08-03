@@ -28,7 +28,8 @@ from telegram_notify import send_telegram_message
 WIB = ZoneInfo("Asia/Jakarta")
 
 # Parameter sama seperti default di sidebar dashboard - ubah di sini kalau mau beda
-N_SCAN = 615                 # pindai semua saham (bukan cuma top-N seperti default dashboard)
+N_SCAN = 962                 # pindai semua saham (bukan cuma top-N seperti default dashboard) -
+                              # 962 = seluruh saham tercatat IDX per tickers_idx.csv resmi BEI
 DONCHIAN_LB_SWING = 20
 DONCHIAN_LB_DAY = 10
 # MIN_RR_SWING=1.5 divalidasi lewat backtest realistis + out-of-sample (README > Backtest

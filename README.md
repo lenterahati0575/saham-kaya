@@ -423,14 +423,9 @@ perubahan perilaku kalau fitur ini belum "diaktifkan" (lewat isi snapshot Equity
   jalan gratis yang ditemukan untuk keduanya.
 - **Kartu Kinerja Sektor** (expander di bawah Market Health) - menampilkan SEMUA sektor yang
   muncul di saham yang dipindai (bukan cuma sebagian/top-N), rata-rata "Perubahan %" antar
-  saham per sektor + jumlah saham anggotanya, diurutkan dari yang paling naik. Butuh checkbox
-  **"🏷️ Aktifkan Filter Sektor"** di sidebar aktif dulu (fetch sektor per saham dari Yahoo
-  Finance `.info`, di-cache 7 hari - makanya opt-in, bukan otomatis, supaya tidak menambah
-  waktu tunggu load pertama kalau Bro tidak butuh tampilan ini). **CATATAN JUJUR**: ini
-  rata-rata equal-weight antar saham, BUKAN cap-weighted resmi seperti indeks sektoral
-  IDX-IC - data kapitalisasi pasar per saham tidak tersedia gratis dari sumber yang dipakai
-  app ini. Klasifikasi sektor sendiri dari taksonomi GICS Yahoo Finance yang dipetakan ke
-  istilah lazim IDX (lihat `sectors.py`), bukan data resmi IDX-IC.
+  saham per sektor + jumlah saham anggotanya, diurutkan dari yang paling naik. **Update:**
+  sejak perbaikan universe saham di bawah, sektornya dari klasifikasi IDX-IC resmi (statis,
+  instan) - bukan lagi fetch Yahoo Finance opt-in seperti versi awal fitur ini.
 
 **Bug produksi dari fitur ini, ditemukan & diperbaiki sehari setelah rilis**: versi awal
 `fetch_index_snapshot()` fetch ulang `^JKSE` sendiri (padahal `fetch_ihsg_history()` sudah
@@ -445,6 +440,55 @@ parameter alih-alih fetch baru - IHSG tidak lagi dobel request, cuma LQ45 & JII 
 request baru; (2) `volatility_regime()` ditambah guard `if df is None or df.empty or
 len(df) < period + 1: return None` - konsisten dengan pola fungsi sejenis lain
 (`market_regime`, `analyze_ihsg_gann`) yang sudah menjaga kasus ini sejak awal.
+
+## Universe Saham Diperbaiki: 615 → 962 Saham (BUG BESAR Ditemukan & Diperbaiki)
+
+**Temuan**: `tickers_idx.csv` (daftar saham yang dipindai dashboard) ternyata **TIDAK
+PERNAH memuat satu pun saham perbankan konvensional** - dicek 33 kode bank yang dikenal
+luas (termasuk **BBCA, BBRI, BMRI, BBNI** - 4 perusahaan terbesar di seluruh Bursa Efek
+Indonesia dari sisi kapitalisasi pasar), SEMUANYA tidak ada di file. Yang lolos cuma 4 bank
+syariah kecil (BANK, BRIS, BTPS, PNBS). Dicek lagi ke 20 perusahaan asuransi/multifinance
+konvensional (ADMF, BFIN, PNIN, dst) - 19 dari 20 juga tidak ada.
+
+**Akar masalah**: `tickers_idx.csv` ternyata daftar saham SYARIAH (mirip ISSI), bukan
+universe IDX penuh - sementara UI dashboard ("615 saham", "Semua saham") memberi kesan itu
+cakupan penuh pasar. Akibatnya screener, Kandidat, Top 10, dan statistik Market Breadth
+**selalu kehilangan seluruh sektor perbankan konvensional** (bank terbesar sekalipun) sejak
+app ini pertama dibuat.
+
+**Perbaikan**: `tickers_idx.csv` diganti total, dibangun dari dokumen RESMI Bursa Efek
+Indonesia (bukan scraping/tebakan):
+- Daftar lengkap 962 saham tercatat + 11 breakdown sektor IDX-IC resmi (Energy, Basic
+  Materials, Industrials, Consumer Non-Cyclicals, Consumer Cyclicals, Healthcare,
+  Financials, Properties & Real Estate, Technology, Infrastructures, Transportation &
+  Logistic) - jumlahnya pas 962, tanpa saham bocor atau dobel sektor.
+- Pengumuman BEI ISSI Mei 2026 (Peng-00089/BEI.POP/05-2026) - 649 saham anggota resmi
+  Indeks Saham Syariah Indonesia, sisanya (313 saham) ditandai Konvensional.
+- File sekarang punya 4 kolom: `Kode, Nama, Sektor, Syariah` (dulu cuma `Kode, Nama`).
+
+**Dampak ke kode**:
+- `sectors.py` ditulis ulang total - klasifikasi sektor sekarang lookup instan dari kolom
+  `Sektor` resmi (statis, 100% saham tercakup), BUKAN lagi fetch live ke Yahoo Finance
+  `.info` per saham (lambat, opt-in, cuma pendekatan kasar taksonomi GICS). Checkbox
+  "🏷️ Aktifkan Filter Sektor" di sidebar **dihapus** - filter sektor & kartu Kinerja Sektor
+  sekarang selalu aktif tanpa perlu diaktifkan manual (karena sudah instan, tidak ada lagi
+  alasan opt-in).
+- Kartu baru **"☯️ Syariah vs Konvensional"** (expander, di bawah Kinerja Sektor) -
+  Market Breadth dipecah per kelompok syariah/konvensional (rata-rata Perubahan %, jumlah
+  naik/turun), supaya kelihatan kalau pergerakan pasar hari ini lebih ditopang salah satu
+  kelompok - bukan cuma angka gabungan yang menyembunyikan perbedaan itu.
+- Slider "Jumlah saham dipindai" (sidebar) ditambah opsi **962** (dulu maksimum 615).
+  `auto_run.py` (`N_SCAN`) ikut diperbarui ke 962.
+
+**Risiko yang perlu diperhatikan**: 962 saham = ~56% lebih banyak request ke Yahoo Finance
+dibanding 615 - lebih rawan rate-limit (2 insiden serupa sudah terjadi sesi ini). Default
+slider TETAP 200 (bukan otomatis 962) - retry+backoff yang sudah ada (lihat bagian
+"Reliabilitas & Position Sizing") tetap jalan kalau Bro pilih scan lebih besar.
+
+**Catatan pemeliharaan**: klasifikasi IDX-IC & keanggotaan ISSI dievaluasi ulang BEI tiap 6
+bulan (Mei & November). Kalau `tickers_idx.csv` sudah lebih dari ~6 bulan, unduh ulang
+dokumen terbaru dari idx.co.id dan minta diproses ulang - bukan sekali dibangun lalu selesai
+selamanya.
 
 ## Cara Kerja Fitur Trading
 
