@@ -222,8 +222,15 @@ def get_market_session():
     elif 15 <= time_val < 15.25: return {"session": "🟢 CLOSING AUCTION", "color": "#16a34a", "desc": "Closing auction.", "next_open": None, "countdown": 0, "is_open": True}
     elif 15.25 <= time_val < 16: return {"session": "🟡 POST-MARKET", "color": "#eab308", "desc": "After hours.", "next_open": None, "countdown": 0, "is_open": False}
     else:
-        next_day = now + timedelta(days=1); next_open = next_day.replace(hour=8, minute=0, second=0)
-        if next_open.weekday() >= 5: next_open += timedelta(days=(7 - next_open.weekday()) % 7)
+        # time_val < 8 (dini hari/subuh, SEBELUM jam buka hari ini) vs time_val >= 16 (sesudah
+        # tutup) itu DUA kasus beda - dulu keduanya dipaksa +1 hari (bug: jam 05:00 pagi hari
+        # kerja dibilang next open BESOK, padahal harusnya HARI INI jam 08:00, selisihnya
+        # nyaris 24 jam lebih lama dari yang seharusnya).
+        if time_val < 8:
+            next_open = now.replace(hour=8, minute=0, second=0, microsecond=0)
+        else:
+            next_day = now + timedelta(days=1); next_open = next_day.replace(hour=8, minute=0, second=0, microsecond=0)
+            if next_open.weekday() >= 5: next_open += timedelta(days=(7 - next_open.weekday()) % 7)
         return {"session": "🔴 CLOSED", "color": "#7f1d1d", "desc": "Pasar tutup.", "next_open": next_open, "countdown": (next_open - now).total_seconds(), "is_open": False}
 
 def format_countdown(seconds):
@@ -2480,7 +2487,11 @@ with t_options:
     st.markdown("## 📉 Options Analysis (Theoretical)")
     st.caption("Analisis opsi teoritis menggunakan Black-Scholes Model. Untuk edukasi & hedging strategy.")
     opt_kode = st.selectbox("Pilih Saham", options=table["Kode"].tolist() if not table.empty else [], key="opt_kode")
-    if opt_kode in price_data:
+    # pd.notna & > 0 - saham dgn histori tipis/gappy (umum sesudah universe diperluas ke 962
+    # saham) bisa punya Close terakhir NaN. round(NaN/25) crash ValueError kalau tidak
+    # dijaga di sini (S<=0 di black_scholes() TIDAK menangkap NaN krn "NaN <= 0" == False).
+    opt_data_valid = opt_kode in price_data and pd.notna(price_data[opt_kode]['Close'].iloc[-1]) and price_data[opt_kode]['Close'].iloc[-1] > 0
+    if opt_data_valid:
         df_opt = price_data[opt_kode]
         S = float(df_opt['Close'].iloc[-1])
         # Reset Strike Price ke ATM kalau saham GANTI - widget dgn key="opt_K" tidak pernah
@@ -2551,6 +2562,8 @@ with t_options:
         elif "Bull Call" in strat: st.info("📗 **Bull Call Spread**: Beli Call ITM + jual Call OTM. Biaya lebih murah dari Long Call. Profit terbatas.")
         elif "Bear Put" in strat: st.info("📕 **Bear Put Spread**: Beli Put ITM + jual Put OTM. Biaya lebih murah dari Long Put. Profit terbatas.")
         elif "Iron Condor" in strat: st.info("📊 **Iron Condor**: Jual Call Spread + Jual Put Spread. Profit kalau saham sideways. Risiko terbatas.")
+    elif opt_kode in price_data:
+        st.warning(f"⚠️ Data harga {opt_kode} tidak valid (kosong/NaN) - tidak bisa menghitung opsi. Coba saham lain.")
     else: st.info("Pilih saham untuk melihat analisis options.")
     st.divider()
     st.caption("⚠️ **Disclaimer:** IDX tidak memiliki options market aktif untuk retail. Modul ini untuk edukasi dan hedging simulation.")
