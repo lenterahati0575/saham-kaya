@@ -523,6 +523,10 @@ with st.sidebar:
                                help="962 = seluruh saham tercatat di IDX (per tickers_idx.csv resmi BEI). "
                                     "Makin banyak saham dipindai, makin banyak request ke Yahoo Finance - "
                                     "bisa lebih lambat/rawan rate-limit.")
+    universe_filter = st.selectbox("Universe Saham", ["Semua", "Syariah (ISSI)", "Konvensional"], index=0,
+                                    help="Filter saham yang DIPINDAI berdasarkan keanggotaan ISSI resmi BEI "
+                                         "(Indeks Saham Syariah Indonesia). 'Semua' = 962 saham penuh, "
+                                         "'Syariah (ISSI)' = 649 saham, 'Konvensional' = 313 saham.")
     refresh = st.button("🔄 Refresh Data Live", use_container_width=True, type="primary")
     st.divider()
     st.subheader("🌐 Kondisi Pasar (IHSG)")
@@ -562,7 +566,13 @@ with st.sidebar:
             except Exception as e: st.error(f"Gagal kirim: {str(e)}")
 
 params = {"min_value_traded": min_vt * 1_000_000_000, "crash_veto": crash_veto, "donchian_lookback": int(donchian_lb), "score_strong_buy": sb, "score_buy": b, "score_sell": s, "score_strong_sell": ss}
-tickers = universe["Kode"].tolist()[:int(n_scan)]
+if universe_filter == "Syariah (ISSI)":
+    universe_scan = universe[universe["Syariah"] == True]
+elif universe_filter == "Konvensional":
+    universe_scan = universe[universe["Syariah"] == False]
+else:
+    universe_scan = universe
+tickers = universe_scan["Kode"].tolist()[:int(n_scan)]
 if refresh: st.cache_data.clear()
 with st.spinner(f"Mengambil data live untuk {len(tickers)} saham..."):
     price_data, failed_tickers = get_price_history_with_report(tickers)

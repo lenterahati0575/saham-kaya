@@ -490,6 +490,12 @@ bulan (Mei & November). Kalau `tickers_idx.csv` sudah lebih dari ~6 bulan, unduh
 dokumen terbaru dari idx.co.id dan minta diproses ulang - bukan sekali dibangun lalu selesai
 selamanya.
 
+**Filter Universe Saham** (sidebar) - dropdown baru "Universe Saham" (Semua / Syariah (ISSI)
+/ Konvensional) supaya Bro bisa memindai cuma saham syariah atau cuma konvensional saja
+kalau perlu, bukan cuma "semua atau tidak sama sekali". Filter ini menentukan saham APA yang
+DIPINDAI (bukan cuma disembunyikan di tampilan) - jadi juga mengurangi jumlah request ke
+Yahoo Finance kalau Bro pilih salah satu subset.
+
 ## Cara Kerja Fitur Trading
 
 ### Day Trading — BPJS & BSJP
