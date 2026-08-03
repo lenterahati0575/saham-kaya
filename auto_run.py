@@ -22,6 +22,7 @@ from screener import (
     build_trade_candidates, classify_daytrading_tipe, fetch_ihsg_history, market_regime,
 )
 import gsheet_journal as gj
+import equity as eq
 from telegram_notify import send_telegram_message
 
 WIB = ZoneInfo("Asia/Jakarta")
@@ -34,6 +35,7 @@ DONCHIAN_LB_DAY = 10
 # Historis). MIN_RR_DAY dipertahankan di nilai lama - belum divalidasi serupa.
 MIN_RR_SWING = 1.5
 MIN_RR_DAY = 2.0
+RISK_PCT_PER_TRADE = 1.0     # sama seperti default sidebar dashboard
 
 
 def log(msg: str):
@@ -50,8 +52,11 @@ def main():
     tickers = universe["Kode"].tolist()[:N_SCAN]
 
     log(f"Mengambil data live Yahoo Finance untuk {len(tickers)} saham (bisa beberapa menit)...")
-    price_data = fetch_price_history(tickers)
+    price_data, failed_tickers = fetch_price_history(tickers)
     log(f"Berhasil ambil data {len(price_data)}/{len(tickers)} saham.")
+    if failed_tickers:
+        log(f"⚠️ {len(failed_tickers)} saham gagal diambil setelah retry: {', '.join(failed_tickers[:20])}"
+            f"{' ...' if len(failed_tickers) > 20 else ''}")
 
     table = build_screener_table(price_data, universe, DEFAULT_PARAMS)
     if table.empty:
@@ -59,9 +64,23 @@ def main():
         sys.exit(1)
     log(f"Screener selesai: {len(table)} saham lolos data historis minimum.")
 
+    # Total Equity terbaru (kalau ada snapshot) - dipakai utk hitung Lot berbasis risiko,
+    # bukan angka tetap 10 lot utk semua saham tanpa peduli harga/modal (lihat README).
+    total_equity_now = None
+    try:
+        eq_df_now = eq.load_equity()
+        if not eq_df_now.empty:
+            ts_now = eq.total_equity_over_time(eq_df_now)
+            if not ts_now.empty:
+                total_equity_now = float(ts_now["Total Equity (Rp)"].iloc[-1])
+    except Exception:
+        total_equity_now = None
+    log(f"Total Equity utk position sizing: {'Rp{:,.0f}'.format(total_equity_now) if total_equity_now else 'belum ada snapshot - Lot fallback ke default'}")
+
     # ---- Auto-BUY: Day Trading (tidak digate regime IHSG - belum divalidasi seperti Swing) ----
     day_tipe = classify_daytrading_tipe()
-    cands_day = build_trade_candidates(table, price_data, DONCHIAN_LB_DAY, MIN_RR_DAY, top_n=10)
+    cands_day = build_trade_candidates(table, price_data, DONCHIAN_LB_DAY, MIN_RR_DAY, top_n=10,
+                                        total_equity=total_equity_now, risk_pct=RISK_PCT_PER_TRADE)
     opened_day = gj.open_positions_from_candidates(cands_day, day_tipe)
     log(f"Auto-BUY Day Trading ({day_tipe}): {opened_day if opened_day else 'tidak ada posisi baru'}")
 
@@ -71,7 +90,8 @@ def main():
     regime = market_regime(ihsg_hist)
     log(f"Regime IHSG: {regime['status']}")
     cands_swing = build_trade_candidates(table, price_data, DONCHIAN_LB_SWING, MIN_RR_SWING, top_n=10,
-                                          require_bullish_regime=True, regime_status=regime["status"])
+                                          require_bullish_regime=True, regime_status=regime["status"],
+                                          total_equity=total_equity_now, risk_pct=RISK_PCT_PER_TRADE)
     opened_swing = gj.open_positions_from_candidates(cands_swing, "SWING")
     if regime["status"] != "BULLISH":
         log(f"Auto-BUY Swing Trading: dilewati (IHSG {regime['status']}, filter regime aktif)")

@@ -464,22 +464,38 @@ def load_ticker_universe(path: str = "tickers_idx.csv") -> pd.DataFrame:
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def fetch_price_history(tickers: list[str], period: str = "1y") -> dict[str, pd.DataFrame]:
-    """Ambil histori harga batch dari Yahoo Finance."""
+def fetch_price_history(tickers: list[str], period: str = "1y",
+                         max_retries: int = 3) -> tuple[dict[str, pd.DataFrame], list[str]]:
+    """Ambil histori harga batch dari Yahoo Finance, dengan retry+backoff per chunk kalau
+    gagal (rate-limit/timeout Yahoo Finance sering & transient - dulu satu chunk gagal
+    langsung `continue` diam-diam, saham di chunk itu hilang dari scan TANPA ada yang tahu).
+
+    Return (results, failed_tickers) - failed_tickers berisi kode saham yang TETAP gagal
+    setelah semua retry, supaya caller bisa kasih tahu user "N saham gagal diambil" alih-alih
+    diam-diam menganggap hasil scan lengkap padahal sebagian hilang."""
+    import time
+
     results: dict[str, pd.DataFrame] = {}
     yf_tickers = [f"{t}.JK" for t in tickers]
     chunk_size = 80
     for i in range(0, len(yf_tickers), chunk_size):
         chunk = yf_tickers[i : i + chunk_size]
-        try:
-            # auto_adjust=True: harga disesuaikan terhadap stock split/rights issue/dividen.
-            # Dulu False -> lonjakan/anjlok harga akibat aksi korporasi (umum di IDX) terbaca
-            # sebagai crash/breakout palsu dan merusak level Donchian/MA/RSI di sekitar tanggal itu.
-            data = yf.download(
-                chunk, period=period, interval="1d",
-                group_by="ticker", threads=True, progress=False, auto_adjust=True,
-            )
-        except Exception:
+        data = None
+        for attempt in range(max_retries):
+            try:
+                # auto_adjust=True: harga disesuaikan terhadap stock split/rights issue/dividen.
+                # Dulu False -> lonjakan/anjlok harga akibat aksi korporasi (umum di IDX) terbaca
+                # sebagai crash/breakout palsu dan merusak level Donchian/MA/RSI di sekitar tanggal itu.
+                data = yf.download(
+                    chunk, period=period, interval="1d",
+                    group_by="ticker", threads=True, progress=False, auto_adjust=True,
+                )
+                break
+            except Exception:
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** (attempt + 1))  # backoff 2s, 4s, ...
+                continue
+        if data is None:
             continue
         for yft in chunk:
             kode = yft.replace(".JK", "")
@@ -490,7 +506,8 @@ def fetch_price_history(tickers: list[str], period: str = "1y") -> dict[str, pd.
                     results[kode] = df
             except Exception:
                 continue
-    return results
+    failed_tickers = [t for t in tickers if t not in results]
+    return results, failed_tickers
 
 
 def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
@@ -682,7 +699,8 @@ def _donchian_levels(df: pd.DataFrame, lookback: int):
 
 def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int, min_rr: float = 2.0,
                             top_n: int = 10, signal_filter=("STRONG BUY", "BUY"),
-                            require_bullish_regime: bool = False, regime_status: str | None = None) -> pd.DataFrame:
+                            require_bullish_regime: bool = False, regime_status: str | None = None,
+                            total_equity: float | None = None, risk_pct: float = 1.0) -> pd.DataFrame:
     """
     Entry = harga sekarang. Stop Loss = Donchian Low (lookback) - stop struktural, bukan persen tetap.
     Target = Donchian High + (Donchian High - Donchian Low) - proyeksi measured-move dari lebar channel.
@@ -693,6 +711,13 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
     Swing (lookback=20): breakout system ini net RUGI di pasar sideways/bearish IHSG, net
     PROFIT konsisten di kedua periode uji kalau cuma aktif saat IHSG > MA50. TIDAK divalidasi
     untuk Day Trading (lookback pendek) - jangan diaktifkan di sana tanpa bukti serupa.
+
+    total_equity + risk_pct: kalau total_equity diisi (>0), kolom "Lot" dihitung otomatis dari
+    risiko (risk_pct% dari total_equity dibagi jarak Entry-SL dalam Rupiah) - BUKAN lagi angka
+    tetap 10 lot untuk semua saham tanpa peduli harga atau modal. Sama seperti rumus
+    `calculators.risk_management_calculator()`, cuma dihitung inline di sini. Kalau total_equity
+    kosong (default, mis. belum ada snapshot Equity), "Lot" tidak diisi - caller/consumer di
+    hilir (open_positions_from_candidates) tetap fallback ke default lama.
     """
     if require_bullish_regime and regime_status != "BULLISH":
         return pd.DataFrame()
@@ -716,12 +741,23 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
         rr = reward / risk
         if rr < min_rr:
             continue
-        rows.append({
+        row_out = {
             "Saham": kode, "RR": round(rr, 2), "Entry": round(entry, 0),
             "Target": round(target, 0), "Stop Loss": round(sl, 0),
             "Score": int(r["Score"]), "Nilai Transaksi": r["Value Traded (Rp)"],
             "Chart": tradingview_url(kode),
-        })
+        }
+        if total_equity and total_equity > 0:
+            risiko_rp = total_equity * (risk_pct / 100)
+            lembar = risiko_rp / risk  # risk = entry - sl (Rupiah per lembar), sudah divalidasi > 0 di atas
+            lot = int(lembar // 100)  # dibulatkan KE BAWAH, sesuai aturan 1 lot = 100 lembar
+            if lot < 1:
+                # Jarak Entry-SL saham ini terlalu lebar utk risk budget - beli 1 lot pun sudah
+                # melebihi risk_pct% dari modal. JANGAN fallback ke lot default (itu justru
+                # melanggar batas risiko yang diminta) - lewati saham ini sepenuhnya.
+                continue
+            row_out["Lot"] = lot
+        rows.append(row_out)
     out = pd.DataFrame(rows)
     if out.empty:
         return out

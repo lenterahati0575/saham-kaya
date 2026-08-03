@@ -506,6 +506,11 @@ with st.sidebar:
                                          "(lihat README > Backtest Historis).")
     min_rr_day = st.number_input("Minimum Risk:Reward (RR) - Day Trading", min_value=1.0, value=2.0, step=0.1,
                                   help="Belum divalidasi ulang seperti Swing - default lama dipertahankan.")
+    risk_pct_per_trade = st.number_input("Risiko per Trade (%)", min_value=0.1, max_value=10.0, value=1.0, step=0.1,
+                                          help="Lot Auto-BUY di Jurnal Backtest dihitung dari % ini terhadap Total "
+                                               "Equity Bro (tab Equity), bukan lagi angka tetap 10 lot untuk semua "
+                                               "saham. Butuh snapshot Equity terisi - kalau belum ada, tetap fallback "
+                                               "ke lot default lama.")
     st.divider()
     st.subheader("Ambang Skor Sinyal")
     sb = st.number_input("Skor min. STRONG BUY", value=7)
@@ -558,9 +563,13 @@ params = {"min_value_traded": min_vt * 1_000_000_000, "crash_veto": crash_veto, 
 tickers = universe["Kode"].tolist()[:int(n_scan)]
 if refresh: st.cache_data.clear()
 with st.spinner(f"Mengambil data live untuk {len(tickers)} saham..."):
-    price_data = fetch_price_history(tickers)
+    price_data, failed_tickers = fetch_price_history(tickers)
     table = build_screener_table(price_data, universe, params)
     if table.empty: st.warning("Belum ada data yang berhasil diambil."); st.stop()
+if failed_tickers:
+    with st.expander(f"⚠️ {len(failed_tickers)} saham gagal diambil setelah retry (bukan diam-diam "
+                      "diabaikan - hasil scan di bawah TIDAK lengkap)", expanded=False):
+        st.write(", ".join(failed_tickers))
 
 if aktifkan_sektor:
     with st.spinner("Mengambil data sektor..."):
@@ -576,9 +585,29 @@ elif regime["status"] == "BULLISH": st.success(f"📈 IHSG BULLISH (Close {regim
 # backtest realistis + out-of-sample, lihat README > Backtest Historis).
 market_ok = not (filter_market and regime["status"] == "BEARISH")
 
-cands_day_all = build_trade_candidates(table, price_data, int(donchian_lb_day), min_rr_day, top_n=10)
+# Total Equity terbaru (kalau ada snapshot) - dipakai utk hitung Lot Auto-BUY berbasis risiko
+# (risk_pct_per_trade% dari modal / jarak Entry-SL), bukan lagi angka tetap 10 lot utk semua
+# saham. Gagal ambil (belum ada snapshot/Sheets belum terhubung) -> None, build_trade_candidates
+# fallback ke perilaku lama (Lot tidak diisi disini, default 10 di gsheet_journal.py).
+total_equity_now = None
+if gj.is_configured():
+    try:
+        eq_df_now = eq.load_equity()
+        if not eq_df_now.empty:
+            ts_now = eq.total_equity_over_time(eq_df_now)
+            if not ts_now.empty:
+                total_equity_now = float(ts_now["Total Equity (Rp)"].iloc[-1])
+    except Exception:
+        total_equity_now = None
+
+cands_day_all = build_trade_candidates(table, price_data, int(donchian_lb_day), min_rr_day, top_n=10,
+                                        total_equity=total_equity_now, risk_pct=risk_pct_per_trade)
 cands_swing_all = build_trade_candidates(table, price_data, int(donchian_lb), min_rr_swing, top_n=10,
-                                          require_bullish_regime=filter_market, regime_status=regime["status"])
+                                          require_bullish_regime=filter_market, regime_status=regime["status"],
+                                          total_equity=total_equity_now, risk_pct=risk_pct_per_trade)
+if total_equity_now is None:
+    st.sidebar.caption("💡 Lot Auto-BUY masih default (10 lot/saham) - isi snapshot di tab **Equity > Catat "
+                        "Snapshot** supaya position sizing dihitung dari Total Equity + Risiko per Trade.")
 
 # Tampilkan Market Breadth di main area (karena price_data baru di-load di sini)
 breadth = market_breadth(price_data, tickers[:int(n_scan)], lookback=20)
@@ -2074,6 +2103,13 @@ with t_ihsg:
         m1.metric("IHSG", f"{c:,.0f}"); m2.metric("1Y High", f"{h:,.0f}"); m3.metric("1Y Low", f"{l:,.0f}")
         m4.metric("Recovery", f"{((c-l)/l*100):+.1f}%"); m5.metric("From High", f"-{((h-c)/h*100):.1f}%")
         st.divider()
+        st.warning("⚠️ **Sudah diuji secara historis** (IHSG 10 tahun, forward return 5 hari): menyentuh "
+                   "level Resistance di bawah rata-rata return sesudahnya +0.123% (baseline semua hari "
+                   "+0.056%) - BUKAN turun/reversal seperti prediksi teori Gann. Menyentuh level Support "
+                   "rata-rata -0.004% - BUKAN naik seperti prediksinya. Arahnya malah TERBALIK dari teori,"
+                   " dan levelnya sendiri tersentuh 55-66% dari SEMUA hari (karena dihitung selalu dekat "
+                   "harga kemarin) - jadi bukan level istimewa. Anggap ini referensi angka bulat/psikologis "
+                   "biasa, bukan level dengan bukti statistik.")
         gcol1, gcol2 = st.columns([1, 1.5])
         with gcol1:
             st.markdown("### 🔷 Gann Square of 9 Levels")

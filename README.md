@@ -367,6 +367,47 @@ Edit/Hapus, Equity > Catat Snapshot) tidak menemukan bug sekelas ini - sudah cuk
 (cek `.empty`, fallback nilai, dsb). Dicek juga dengan `pyflakes` di seluruh `app.py` setelah
 semua perbaikan - tidak ada lagi pola "variabel dipakai tapi tak terdefinisi" seperti `sub3`.
 
+## Validasi Level Harga Gann Square of 9 (Beda dari Time Cycle)
+
+Time Cycle (di atas) soal TANGGAL; Gann Square of 9 (Resistance/Support di tab IHSG
+Analysis) soal LEVEL HARGA - beda klaim, diuji terpisah (IHSG 10 tahun, forward return 5
+hari, level dihitung dari Close KEMARIN supaya tidak lookahead). Hasilnya:
+
+- Menyentuh Resistance: avg forward return **+0.123%** (baseline semua hari +0.056%) -
+  BUKAN turun/reversal seperti prediksi teori Gann, malah arahnya terbalik.
+- Menyentuh Support: avg forward return **-0.004%** (baseline +0.056%) - BUKAN naik seperti
+  prediksinya, juga terbalik.
+- Level-level ini tersentuh **65.7% (Resistance) dan 54.5% (Support) dari SEMUA hari** -
+  karena secara matematis levelnya selalu dekat harga kemarin (~0.3-2.5%), bukan level
+  istimewa yang jarang terjadi.
+
+Kesimpulan: level harga Gann Square of 9 TIDAK terbukti prediktif untuk IHSG, sama seperti
+Time Cycle-nya. UI sekarang menampilkan temuan ini di tab IHSG Analysis.
+
+## Reliabilitas & Position Sizing (Fitur Baru)
+
+**Retry + backoff Yahoo Finance** (`fetch_price_history` di `screener.py`): dulu kalau satu
+chunk (80 saham) gagal diambil (rate-limit/timeout - sering & transient di yfinance), kodenya
+`except: continue` diam-diam - saham di chunk itu hilang dari hasil scan TANPA ada yang tahu,
+seolah scan-nya lengkap. Sekarang retry otomatis sampai 3x dengan backoff (2s, 4s) sebelum
+menyerah, dan fungsi ini return `(hasil, daftar_saham_gagal)` - dashboard menampilkan expander
+peringatan "N saham gagal diambil" kalau ada yang tetap gagal setelah retry, `auto_run.py` dan
+`backtest.py` mencatatnya di log. **Ini mengubah signature fungsi** (dulu return dict saja,
+sekarang return tuple) - kalau Bro punya skrip sendiri yang import `fetch_price_history`,
+sesuaikan jadi `price_data, failed = fetch_price_history(...)`.
+
+**Position sizing berbasis risiko** (`build_trade_candidates` di `screener.py`): dulu Lot
+Auto-BUY di Jurnal Backtest selalu 10 lot flat untuk SEMUA saham, tidak peduli harga saham
+atau modal Bro - beli 10 lot saham Rp50.000 (Rp50 juta) diperlakukan sama dengan 10 lot saham
+Rp200 (Rp200 ribu), padahal risikonya beda jauh. Sekarang kalau tab **Equity** sudah ada
+snapshot terbaru, Lot dihitung otomatis dari `Risiko per Trade (%)` (default 1%, atur di
+sidebar) dibagi jarak Entry-Stop Loss saham itu - sama seperti rumus di Kalkulator Manajemen
+Risiko, tapi otomatis dipakai saat auto-buy, bukan cuma alat terpisah. Kalau hasil hitungnya
+kurang dari 1 lot (jarak Entry-SL terlalu lebar utk risk budget), saham itu DILEWATI sepenuhnya
+- bukan fallback ke 10 lot (itu justru melanggar batas risiko yang diminta). Kalau belum ada
+snapshot Equity, tetap fallback ke lot default lama (10) seperti sebelumnya - tidak ada
+perubahan perilaku kalau fitur ini belum "diaktifkan" (lewat isi snapshot Equity).
+
 ## Cara Kerja Fitur Trading
 
 ### Day Trading — BPJS & BSJP

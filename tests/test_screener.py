@@ -158,6 +158,35 @@ class TestBuildTradeCandidates:
         out_default = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
         assert not out_default.empty  # require_bullish_regime default False - perilaku lama tidak berubah
 
+    def test_tanpa_total_equity_lot_tidak_diisi(self):
+        # Entry=910, Donchian Low=900, Donchian High=1000 (sama seperti fixture regime test)
+        table = pd.DataFrame([{"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 910.0, "Value Traded (Rp)": 5e9}])
+        price_data = {"AAA": _flat_ohlcv(25, price=1000).assign(
+            **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)})}
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
+        assert "Lot" not in out.columns  # perilaku lama: fallback ke default 10 lot di gsheet_journal.py
+
+    def test_dengan_total_equity_lot_dihitung_dari_risiko(self):
+        # risk = entry - sl = 910 - 900 = 10 (Rupiah/lembar). Modal 10jt, risiko 1% = Rp100rb.
+        # lembar = 100_000 / 10 = 10_000 -> lot = 10_000 // 100 = 100.
+        table = pd.DataFrame([{"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 910.0, "Value Traded (Rp)": 5e9}])
+        price_data = {"AAA": _flat_ohlcv(25, price=1000).assign(
+            **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)})}
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10,
+                                      total_equity=10_000_000, risk_pct=1.0)
+        assert "Lot" in out.columns
+        assert out.iloc[0]["Lot"] == 100
+
+    def test_risiko_terlalu_kecil_saham_dilewati_bukan_fallback_default(self):
+        # Modal sangat kecil -> lot hasil hitung < 1 -> JANGAN fallback ke lot default (itu
+        # melanggar batas risiko yang diminta), saham ini harus DIKELUARKAN dari hasil.
+        table = pd.DataFrame([{"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 910.0, "Value Traded (Rp)": 5e9}])
+        price_data = {"AAA": _flat_ohlcv(25, price=1000).assign(
+            **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)})}
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10,
+                                      total_equity=100.0, risk_pct=1.0)
+        assert out.empty
+
 
 if __name__ == "__main__":
     import sys

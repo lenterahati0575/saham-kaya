@@ -36,7 +36,7 @@ Atau import langsung:
     from screener import load_ticker_universe, fetch_price_history, DEFAULT_PARAMS
     from backtest import run_historical_backtest, run_realistic_backtest
     universe = load_ticker_universe()
-    price_data = fetch_price_history(universe["Kode"].tolist()[:100], period="3y")
+    price_data, failed_tickers = fetch_price_history(universe["Kode"].tolist()[:100], period="3y")
     prediktif = run_historical_backtest(price_data, DEFAULT_PARAMS, forward_days=10)
     print(prediktif["summary"])
     realistis = run_realistic_backtest(price_data, DEFAULT_PARAMS)
@@ -260,8 +260,11 @@ def _main():
         tickers = universe["Kode"].tolist()[: args.n]
 
     print(f"Mengambil data {len(tickers)} saham, {args.years} tahun terakhir dari Yahoo Finance...")
-    price_data = fetch_price_history(tickers, period=f"{args.years}y")
+    price_data, failed_tickers = fetch_price_history(tickers, period=f"{args.years}y")
     print(f"Berhasil ambil {len(price_data)}/{len(tickers)} saham. Menjalankan backtest...")
+    if failed_tickers:
+        print(f"⚠️ {len(failed_tickers)} saham gagal diambil setelah retry (tidak ikut backtest): "
+              f"{', '.join(failed_tickers[:20])}{' ...' if len(failed_tickers) > 20 else ''}")
 
     hasil = run_historical_backtest(price_data, DEFAULT_PARAMS, forward_days=args.forward_days, step=args.step)
     if hasil["summary"].empty:
