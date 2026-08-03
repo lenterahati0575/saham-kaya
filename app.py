@@ -2135,13 +2135,26 @@ with t_ihsg:
             st.markdown("### 📈 IHSG Chart dengan Gann Levels")
             if not ihsg_hist.empty:
                 fig_ihsg = go.Figure()
-                fig_ihsg.add_trace(go.Scatter(x=ihsg_hist.index, y=ihsg_hist['Close'], mode='lines', name='IHSG Close', line=dict(color='#38bdf8', width=1.5), fill='tozeroy', fillcolor='rgba(56,189,248,0.05)'))
+                # TANPA fill='tozeroy' - itu yang dulu memaksa sumbu Y ikut turun sampai 0,
+                # menekan pergerakan IHSG (5.000-7.200) jadi pita tipis di atas dan level
+                # Gann/pivot sulit terbaca. Chart index/harga (beda dgn bar chart perbandingan
+                # nilai) standarnya di-zoom ke rentang datanya, bukan mulai dari 0 - sama
+                # seperti TradingView/Bloomberg.
+                fig_ihsg.add_trace(go.Scatter(x=ihsg_hist.index, y=ihsg_hist['Close'], mode='lines', name='IHSG Close', line=dict(color='#38bdf8', width=1.5)))
                 colors_r = ['#f87171', '#ef4444', '#dc2626', '#991b1b']; colors_s = ['#4ade80', '#22c55e', '#16a34a', '#15803d']
                 for i, (k, v) in enumerate(g['resistance'].items()): fig_ihsg.add_hline(y=v, line_dash="dash", line_color=colors_r[i], annotation_text=f"{k} {v:,.0f}", annotation_position="right")
                 for i, (k, v) in enumerate(g['support'].items()): fig_ihsg.add_hline(y=v, line_dash="dash", line_color=colors_s[i], annotation_text=f"{k} {v:,.0f}", annotation_position="right")
                 fig_ihsg.add_annotation(x=pl_idx, y=pl_price, text="📉 PIVOT LOW", showarrow=True, arrowhead=2, arrowcolor="#f87171", font=dict(color="#f87171", size=11), ay=40)
                 fig_ihsg.add_annotation(x=ph_idx, y=ph_price, text="📈 PIVOT HIGH", showarrow=True, arrowhead=2, arrowcolor="#4ade80", font=dict(color="#4ade80", size=11), ay=-40)
-                fig_ihsg.update_layout(height=450, template="plotly_dark", margin=dict(l=10, r=10, t=30, b=10), yaxis_title="IHSG", showlegend=False, hovermode="x unified")
+                # Rentang sumbu Y: zoom ke harga+level Gann+pivot yang benar-benar relevan,
+                # dengan sedikit padding (0.5%) - bukan dari 0.
+                y_candidates = [ihsg_hist['Close'].min(), ihsg_hist['Close'].max(), pl_price, ph_price,
+                                 *g['resistance'].values(), *g['support'].values()]
+                y_lo, y_hi = min(y_candidates), max(y_candidates)
+                y_pad = (y_hi - y_lo) * 0.05 if y_hi > y_lo else y_hi * 0.02
+                fig_ihsg.update_layout(height=450, template="plotly_dark", margin=dict(l=10, r=10, t=30, b=10),
+                                        yaxis_title="IHSG", yaxis=dict(range=[y_lo - y_pad, y_hi + y_pad]),
+                                        showlegend=False, hovermode="x unified")
                 st.plotly_chart(fig_ihsg, use_container_width=True)
         st.divider()
         st.markdown("### ⏰ Time Cycle Analysis")
