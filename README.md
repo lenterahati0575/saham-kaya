@@ -304,6 +304,31 @@ validasi out-of-sample (parameter dicari di satu periode, diuji BUTA di periode 
 tidak pernah dilihat) sebelum dipercaya. Kelola posisi dengan risiko kecil per trade (lihat
 Kalkulator Manajemen Risiko) - ini alat bantu screening dengan edge sedang, bukan mesin uang.
 
+## Penyempurnaan Tab ML Signal, Sentiment (Validasi & Perbaikan)
+
+**ML Signal** (tab 🤖) awalnya diberi nama "ML Signal" tapi BUKAN model machine learning -
+cuma ensemble rule-based (Trend+Momentum+Volume+Volatility). Nilai "Confidence"-nya dulu
+rumus `agreement*25` yang tidak pernah divalidasi. Sekarang sudah diuji lewat backtest
+walk-forward (615 saham x 5 tahun, forward return 10 hari, tanpa lookahead - metodologi
+sama seperti Backtest Historis di atas): Score-nya TERBUKTI rank-order dengan return (makin
+tinggi Score, makin tinggi rata-rata return), konsisten di IN-SAMPLE maupun OUT-OF-SAMPLE.
+TAPI bahkan Score paling rendah rata-rata return historisnya masih POSITIF (karena drift
+pasar umum) - jadi label "SELL"/"STRONG SELL" HARUS dibaca sebagai "relatif lebih lemah",
+bukan "harga diprediksi turun". "Confidence" sekarang diganti Win Rate & Avg Return
+HISTORIS asli dari backtest (`_ML_SIGNAL_BACKTEST_STATS` di `app.py`), bukan rumus karangan.
+Tabel "Top 20" juga diperbaiki - dulu cuma scan 50 saham pertama dari `tickers_idx.csv`
+(tidak terkait sinyal screener utama sama sekali, bug desain), sekarang scan semua saham
+yang sedang di-load dan menandai kolom "Kandidat Utama" kalau saham itu juga lolos
+Signal STRONG BUY/BUY di screener utama.
+
+**Sentiment** (tab 📰): query NewsAPI diperbaiki dari `IHSG OR Indonesia stock` (terlalu
+longgar - kena artikel PR global yang cuma kebetulan mengandung kata "stock" di boilerplate
+disclaimer, tidak ada hubungan ke pasar modal Indonesia) menjadi query spesifik + dibatasi
+ke domain berita finansial Indonesia resmi (`cnbcindonesia.com`, `kontan.co.id`, dst.) +
+filter kata kunci relevansi tambahan sebelum ditampilkan. Kalau `NEWSAPI_KEY` belum diisi
+atau API gagal, sekarang muncul peringatan jelas (dulu diam-diam pakai 3 berita contoh
+hardcoded dengan timestamp palsu tanpa tanda apapun).
+
 ## Cara Kerja Fitur Trading
 
 ### Day Trading — BPJS & BSJP

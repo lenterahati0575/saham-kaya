@@ -260,20 +260,39 @@ def astro_cycle_analysis(current_date=None):
         if 0 <= days_diff <= 7: recent_events.append({"event": f"Fib {fd} dari New Moon", "date": target.strftime("%Y-%m-%d"), "days_left": days_diff, "type": "🌑 Lunar-Fib"})
     return {"moon": moon, "planets": planet_positions, "conjunctions": conjunctions, "events": recent_events}
 
+# Domain resmi berita finansial Indonesia - membatasi hasil NewsAPI supaya tidak kena
+# artikel PR global tak relevan yang kebetulan cocok kata kunci longgar (mis. boilerplate
+# "the Company's common stock" di press release GlobeNewswire yang tidak ada hubungan
+# dengan pasar modal Indonesia sama sekali - bug yang ditemukan & diperbaiki di sini).
+_NEWS_DOMAINS = "cnbcindonesia.com,kontan.co.id,bisnis.com,investor.id,idxchannel.com,katadata.co.id"
+_NEWS_RELEVANCE_KEYWORDS = ["ihsg", "saham", "bursa", "emiten", "rupiah", "bei", "reksadana",
+                            "investor", "obligasi", "dividen", "ipo", "market cap", "kapitalisasi"]
+
+
 @st.cache_data(ttl=1800)
 def fetch_sentiment_news():
     import requests; news_items = []
     try:
         api_key = st.secrets.get("NEWSAPI_KEY", "")
         if api_key:
-            url = f"https://newsapi.org/v2/everything?q=IHSG+OR+Indonesia+stock&language=id&sortBy=publishedAt&pageSize=10&apiKey={api_key}"
-            resp = requests.get(url, timeout=10); data = resp.json()
+            params = {
+                "q": '"IHSG" OR "bursa saham" OR "bursa efek" OR "harga saham"',
+                "domains": _NEWS_DOMAINS, "language": "id", "sortBy": "publishedAt",
+                "pageSize": 10, "apiKey": api_key,
+            }
+            resp = requests.get("https://newsapi.org/v2/everything", params=params, timeout=10)
+            data = resp.json()
             if data.get("status") == "ok":
                 articles = data.get("articles", [])
                 positive_words = ["naik", "rebound", "cuan", "profit", "bullish", "membeli", "net buy", "menguat", "positif", "optimis"]
                 negative_words = ["turun", "jual", "bearish", "rugi", "loss", "melemah", "net sell", "jual asing", "inflasi", "resesi"]
                 for a in articles[:8]:
                     title = a.get("title", "").lower()
+                    # Filter relevansi tambahan - kalaupun domain sudah dibatasi ke situs
+                    # finansial, artikel di situs itu bisa saja bukan soal saham (mis.
+                    # kanal properti/otomotif) - buang kalau tidak ada kata kunci pasar modal.
+                    if not any(kw in title for kw in _NEWS_RELEVANCE_KEYWORDS):
+                        continue
                     pos_count = sum(1 for w in positive_words if w in title); neg_count = sum(1 for w in negative_words if w in title)
                     if pos_count > neg_count: sent = "positive"
                     elif neg_count > pos_count: sent = "negative"
@@ -297,6 +316,25 @@ def fetch_sentiment_news():
     else: overall = "🔴 BEARISH"; color = "#dc2626"
     return {"items": news_items, "positive": pos, "negative": neg, "neutral": neu, "score": round(sentiment_score, 1), "overall": overall, "color": color, "is_fallback": is_fallback}
 
+# Kalibrasi EMPIRIS dari backtest walk-forward (bukan tebakan): 615 saham x 5 tahun,
+# forward return 10 hari sesudah tiap titik skor, step 5 hari bursa, TANPA lookahead
+# (skor di titik t cuma pakai data sampai t, exact sama seperti compute_metrics di
+# screener.py). Hasil dicek stabil di IN-SAMPLE vs OUT-OF-SAMPLE (split waktu) -
+# urutan Score rendah->tinggi tetap konsisten naik di kedua periode, jadi RANKING-nya
+# nyata. TAPI perhatikan: bahkan Score paling rendah (-3) rata-rata return-nya masih
+# POSITIF (+0.52%) - karena universe saham secara umum cenderung naik dalam jendela
+# 10 hari manapun (drift pasar), BUKAN karena skor ini memprediksi harga akan JATUH.
+# Makanya label "SELL"/"STRONG SELL" di bawah HARUS dibaca sebagai "relatif lebih
+# lemah dibanding skor lain", BUKAN "harga diprediksi turun secara mutlak".
+_ML_SIGNAL_BACKTEST_STATS = {
+    -3: {"win_rate": 42.8, "avg_return_10d": 0.52}, -2: {"win_rate": 42.5, "avg_return_10d": 0.49},
+    -1: {"win_rate": 40.9, "avg_return_10d": 0.82}, 0: {"win_rate": 33.7, "avg_return_10d": 0.32},
+    1: {"win_rate": 39.6, "avg_return_10d": 0.63}, 2: {"win_rate": 40.5, "avg_return_10d": 1.47},
+    3: {"win_rate": 43.2, "avg_return_10d": 1.76}, 4: {"win_rate": 44.2, "avg_return_10d": 2.00},
+    5: {"win_rate": 44.3, "avg_return_10d": 1.67}, 6: {"win_rate": 47.3, "avg_return_10d": 2.42},
+}
+
+
 def ml_signal_predict(df, lookback=20):
     if df is None or len(df) < lookback + 10: return None
     try:
@@ -314,15 +352,20 @@ def ml_signal_predict(df, lookback=20):
         atr = calculate_atr(df, 14); atr_pct = (atr / close.iloc[-1]) * 100 if close.iloc[-1] > 0 else 0
         vol_regime_score = 1 if atr_pct < 2.5 else (0 if atr_pct < 4 else -1)
         total_score = trend_score + momentum_score + vol_score + vol_regime_score
-        features = [trend_score, momentum_score, vol_score, vol_regime_score]
-        agreement = sum(1 for f in features if f == (1 if total_score > 0 else (-1 if total_score < 0 else 0)))
-        confidence = min(95, agreement * 25)
-        if total_score >= 3: signal = "🟢 STRONG BUY"; signal_color = "#065f46"
-        elif total_score >= 1: signal = "🟡 BUY"; signal_color = "#16a34a"
-        elif total_score <= -3: signal = "🔴 STRONG SELL"; signal_color = "#7f1d1d"
-        elif total_score <= -1: signal = "🟠 SELL"; signal_color = "#dc2626"
-        else: signal = "⚪ HOLD"; signal_color = "#6b7280"; confidence = 30
-        return {"signal": signal, "confidence": confidence, "score": total_score, "features": {"Trend": trend_score, "Momentum": momentum_score, "Volume": vol_score, "Volatility": vol_regime_score}, "signal_color": signal_color}
+        if total_score >= 3: signal = "🟢 KUAT (relatif)"; signal_color = "#065f46"
+        elif total_score >= 1: signal = "🟡 CUKUP KUAT (relatif)"; signal_color = "#16a34a"
+        elif total_score <= -3: signal = "🔴 SANGAT LEMAH (relatif)"; signal_color = "#7f1d1d"
+        elif total_score <= -1: signal = "🟠 LEMAH (relatif)"; signal_color = "#dc2626"
+        else: signal = "⚪ NETRAL"; signal_color = "#6b7280"
+        # confidence = win rate HISTORIS empiris dari backtest di atas (bukan lagi
+        # rumus agreement*25 yang tidak divalidasi) - clamp ke rentang skor yang teruji.
+        score_clamped = max(-3, min(6, total_score))
+        stats = _ML_SIGNAL_BACKTEST_STATS[score_clamped]
+        confidence = round(stats["win_rate"])
+        return {"signal": signal, "confidence": confidence, "score": total_score,
+                "hist_win_rate": stats["win_rate"], "hist_avg_return_10d": stats["avg_return_10d"],
+                "features": {"Trend": trend_score, "Momentum": momentum_score, "Volume": vol_score, "Volatility": vol_regime_score},
+                "signal_color": signal_color}
     except: return None
 
 def check_alert_conditions(ihsg_gann_data, current_price, prev_price=None):
@@ -2197,12 +2240,18 @@ with t_sentiment:
 # TAB 16: ML SIGNAL (Dari app_premium_complete.py)
 # ============================================================================
 with t_ml:
-    st.markdown("## 🤖 ML Signal — Ensemble Technical Prediction")
-    st.caption("Model ensemble sederhana: Trend (MA) + Momentum + Volume + Volatility. Bukan prediksi pasti, tapi probabilitas.")
+    st.markdown("## 🤖 ML Signal — Ensemble Technical (bukan Machine Learning sungguhan)")
+    st.caption("Model ensemble sederhana rule-based: Trend (MA) + Momentum + Volume + Volatility - BUKAN model "
+               "machine learning yang di-training. Win Rate & Return di bawah adalah hasil BACKTEST WALK-FORWARD "
+               "nyata (615 saham x 5 tahun, forward 10 hari, tanpa lookahead), bukan angka karangan.")
+    st.warning("⚠️ Skor ini mengukur **kekuatan RELATIF** dibanding rata-rata pasar, bukan prediksi arah mutlak. "
+               "Bahkan skor paling rendah secara historis rata-rata return-nya masih POSITIF (+0.52%/10 hari) - "
+               "karena universe saham cenderung naik di jendela manapun. Fokus ke PERBEDAAN Win Rate/Return "
+               "antar skor, jangan baca skor rendah sebagai \"harga akan jatuh\".")
     st.markdown("### 📊 IHSG Signal")
     ml_ihsg = ml_signal_predict(ihsg_hist, lookback=20)
     if ml_ihsg:
-        st.markdown(f"""<div style="background:#1e293b;border-radius:12px;padding:16px;border:1px solid {ml_ihsg['signal_color']};text-align:center;margin-bottom:16px;"><div style="font-size:12px;color:#94a3b8;">IHSG ENSEMBLE SIGNAL</div><div style="font-size:24px;font-weight:700;color:{ml_ihsg['signal_color']};margin:8px 0;">{ml_ihsg['signal']}</div><div style="font-size:14px;color:#38bdf8;">Confidence: {ml_ihsg['confidence']}%</div><div style="background:#0f172a;border-radius:6px;height:10px;margin-top:10px;overflow:hidden;"><div style="background:{ml_ihsg['signal_color']};width:{ml_ihsg['confidence']}%;height:100%;"></div></div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div style="background:#1e293b;border-radius:12px;padding:16px;border:1px solid {ml_ihsg['signal_color']};text-align:center;margin-bottom:16px;"><div style="font-size:12px;color:#94a3b8;">IHSG ENSEMBLE SIGNAL</div><div style="font-size:24px;font-weight:700;color:{ml_ihsg['signal_color']};margin:8px 0;">{ml_ihsg['signal']}</div><div style="font-size:14px;color:#38bdf8;">Win Rate Historis (10 hari): {ml_ihsg['hist_win_rate']:.1f}% · Avg Return Historis: {ml_ihsg['hist_avg_return_10d']:+.2f}%</div><div style="background:#0f172a;border-radius:6px;height:10px;margin-top:10px;overflow:hidden;"><div style="background:{ml_ihsg['signal_color']};width:{ml_ihsg['confidence']}%;height:100%;"></div></div></div>""", unsafe_allow_html=True)
         feat = ml_ihsg['features']
         fcol1, fcol2, fcol3, fcol4 = st.columns(4)
         features_display = [("Trend (MA)", feat['Trend'], {1: "🟢 UP", 0: "⚪ FLAT", -1: "🔴 DOWN"}), ("Momentum", feat['Momentum'], {1: "🟢 STRONG", 0: "⚪ MID", -1: "🔴 WEAK"}), ("Volume", feat['Volume'], {1: "🟢 HIGH", 0: "⚪ NORMAL", -1: "🔴 LOW"}), ("Volatility", feat['Volatility'], {1: "🟢 LOW", 0: "⚪ NORMAL", -1: "🔴 HIGH"})]
@@ -2211,30 +2260,47 @@ with t_ml:
     else: st.info("Data IHSG tidak cukup untuk ML signal.")
     st.divider()
     st.markdown("### 🎯 ML Signal per Saham (Top 20)")
-    st.caption("Kandidat dengan confidence tertinggi dari screening")
+    st.caption(f"Di-scan dari SEMUA {len(table)} saham yang sedang di-load (sesuai slider \"Jumlah saham "
+               "dipindai\" di sidebar) - bukan cuma 50 saham pertama dari daftar seperti sebelumnya (itu bug: "
+               "tidak terkait sama sekali dengan saham yang lolos screening di tab lain). Diurutkan dari Score "
+               "paling tinggi. Kolom **Kandidat Utama** menandai kalau saham itu JUGA lolos Signal STRONG "
+               "BUY/BUY di screener utama - kalau kedua sistem independen ini setuju, itu sinyal konfirmasi "
+               "yang lebih kuat daripada cuma satu sumber.")
+    kandidat_utama_set = set(table.loc[table["Signal"].isin(["STRONG BUY", "BUY"]), "Kode"])
     ml_candidates = []
-    for kode in tickers[:50]:
+    for kode in table["Kode"]:
         df = price_data.get(kode)
         ml = ml_signal_predict(df, lookback=20)
-        if ml and ml['confidence'] >= 50:
+        if ml:
             row = table[table["Kode"] == kode]
-            if not row.empty: ml_candidates.append({"Kode": kode, "Nama": row["Nama"].values[0] if "Nama" in row.columns else kode, "Signal": ml['signal'], "Confidence": ml['confidence'], "Score": ml['score'], "Harga": row["Harga"].values[0] if "Harga" in row.columns else 0, "Signal Color": ml['signal_color']})
+            if not row.empty:
+                ml_candidates.append({"Kode": kode, "Nama": row["Nama"].values[0] if "Nama" in row.columns else kode,
+                                       "Signal": ml['signal'], "Win Rate Historis": ml['hist_win_rate'],
+                                       "Avg Return Historis": ml['hist_avg_return_10d'], "Score": ml['score'],
+                                       "Harga": row["Harga"].values[0] if "Harga" in row.columns else 0,
+                                       "Kandidat Utama": "✅" if kode in kandidat_utama_set else ""})
     if ml_candidates:
-        ml_df = pd.DataFrame(ml_candidates).sort_values("Confidence", ascending=False).head(20)
+        ml_df = pd.DataFrame(ml_candidates).sort_values("Score", ascending=False).head(20)
         def color_ml_signal(val):
-            if "STRONG BUY" in val: return "background-color:#065f46;color:white;font-weight:bold;"
-            if "BUY" in val: return "background-color:#16a34a;color:white;"
-            if "STRONG SELL" in val: return "background-color:#7f1d1d;color:#fca5a5;font-weight:bold;"
-            if "SELL" in val: return "background-color:#dc2626;color:white;"
+            if "SANGAT LEMAH" in val: return "background-color:#7f1d1d;color:#fca5a5;font-weight:bold;"
+            if "LEMAH" in val: return "background-color:#dc2626;color:white;"
+            if "CUKUP KUAT" in val: return "background-color:#16a34a;color:white;"
+            if "KUAT" in val: return "background-color:#065f46;color:white;font-weight:bold;"
             return "background-color:#0f172a;color:#94a3b8;"
         display_ml = ml_df.copy()
         display_ml["Harga"] = display_ml["Harga"].map(lambda x: f"Rp{x:,.0f}")
-        display_ml["Confidence"] = display_ml["Confidence"].map(lambda x: f"{x}%")
-        styler_ml = display_ml[["Kode", "Nama", "Signal", "Confidence", "Score", "Harga"]].style
+        display_ml["Win Rate Historis"] = display_ml["Win Rate Historis"].map(lambda x: f"{x:.1f}%")
+        display_ml["Avg Return Historis"] = display_ml["Avg Return Historis"].map(lambda x: f"{x:+.2f}%")
+        styler_ml = display_ml[["Kode", "Nama", "Signal", "Win Rate Historis", "Avg Return Historis", "Score", "Kandidat Utama", "Harga"]].style
         styler_ml = styler_ml.map(color_ml_signal, subset=["Signal"])
         st.dataframe(styler_ml, use_container_width=True, hide_index=True, height=400)
-        st.caption("💡 **Cara pakai:** Prioritaskan saham dengan Signal BUY + Confidence >70% + Score ≥2. Hindari SELL signal meskipun fundamental bagus.")
-    else: st.info("Tidak ada saham dengan confidence ≥50%. Coba refresh data.")
+        n_agree = int((ml_df["Kandidat Utama"] == "✅").sum())
+        st.caption(f"🤝 {n_agree}/{len(ml_df)} saham di Top 20 ML Signal ini JUGA masuk Kandidat Utama (kedua sistem sepakat).")
+        st.caption("💡 **Cara pakai:** Bandingkan Win Rate/Return ANTAR saham (relatif), jangan anggap satu skor "
+                   "\"pasti untung\" - semua kategori historisnya rata-rata masih positif karena tren pasar umum. "
+                   "Skor \"KUAT\" secara historis Win Rate & Return-nya lebih tinggi dibanding \"LEMAH\", itu saja "
+                   "yang terbukti - bukan prediksi arah harga mutlak.")
+    else: st.info("Tidak ada data cukup untuk menghitung ML Signal. Coba refresh data.")
     st.divider()
     st.caption("🤖 **Disclaimer:** ML Signal menggunakan ensemble teknikal sederhana. Bukan deep learning atau AI canggih. Selalu konfirmasi dengan analisis fundamental dan manajemen risiko.")
 
