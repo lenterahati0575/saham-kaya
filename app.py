@@ -388,6 +388,7 @@ def calculate_atr(df, period=14):
     return tr.rolling(period).mean().iloc[-1]
 
 def volatility_regime(df, period=14):
+    if df is None or df.empty or len(df) < period + 1: return None
     atr = calculate_atr(df, period); close = df['Close'].iloc[-1]; atr_pct = (atr / close) * 100 if close > 0 else 0
     if atr_pct < 1.0: return {"regime": "LOW", "atr_pct": atr_pct, "color": "#4ade80", "desc": "Volatilitas rendah"}
     elif atr_pct < 2.5: return {"regime": "NORMAL", "atr_pct": atr_pct, "color": "#38bdf8", "desc": "Volatilitas normal"}
@@ -583,7 +584,7 @@ elif regime["status"] == "BULLISH": st.success(f"📈 IHSG BULLISH (Close {regim
 
 # Index utama (IHSG/LQ45/JII) - IDX30 & SRI-KEHATI tidak dimasukkan krn tidak ada data
 # gratis dari Yahoo Finance utk keduanya (sudah dicoba beberapa simbol, lihat screener.py).
-idx_snapshot = fetch_index_snapshot()
+idx_snapshot = fetch_index_snapshot(ihsg_hist)
 if idx_snapshot:
     idx_cols = st.columns(len(idx_snapshot))
     for i, (label, d) in enumerate(idx_snapshot.items()):

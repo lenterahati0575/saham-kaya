@@ -432,6 +432,20 @@ perubahan perilaku kalau fitur ini belum "diaktifkan" (lewat isi snapshot Equity
   app ini. Klasifikasi sektor sendiri dari taksonomi GICS Yahoo Finance yang dipetakan ke
   istilah lazim IDX (lihat `sectors.py`), bukan data resmi IDX-IC.
 
+**Bug produksi dari fitur ini, ditemukan & diperbaiki sehari setelah rilis**: versi awal
+`fetch_index_snapshot()` fetch ulang `^JKSE` sendiri (padahal `fetch_ihsg_history()` sudah
+fetch simbol yang sama di tempat lain) - dobel request ke Yahoo Finance untuk simbol yang
+sama di setiap load dashboard bikin salah satu panggilan lebih sering kena rate-limit,
+sampai suatu saat `fetch_ihsg_history()` pulang DataFrame kosong. `volatility_regime()`
+(tab sidebar "Volatility Regime") ternyata tidak pernah menjaga kasus DataFrame kosong ini
+(`df['Close'].iloc[-1]` langsung tanpa cek) - jadi `IndexError: single positional indexer
+is out-of-bounds` yang mematikan seluruh dashboard begitu rate-limit itu terjadi. Diperbaiki
+dua arah: (1) `fetch_index_snapshot()` sekarang menerima `ihsg_hist` yang sudah ada sebagai
+parameter alih-alih fetch baru - IHSG tidak lagi dobel request, cuma LQ45 & JII yang benar-benar
+request baru; (2) `volatility_regime()` ditambah guard `if df is None or df.empty or
+len(df) < period + 1: return None` - konsisten dengan pola fungsi sejenis lain
+(`market_regime`, `analyze_ihsg_gann`) yang sudah menjaga kasus ini sejak awal.
+
 ## Cara Kerja Fitur Trading
 
 ### Day Trading — BPJS & BSJP

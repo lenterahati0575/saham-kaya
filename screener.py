@@ -814,15 +814,26 @@ def fetch_ihsg_history(period: str = "3mo") -> pd.DataFrame:
 # IDX30 & SRI-KEHATI TIDAK dimasukkan - sudah dicoba beberapa kemungkinan simbol Yahoo
 # Finance (^IDX30, ^JKIDX30, ^JKSRI, IDX30.JK) dan semuanya 404/kosong. Cuma 3 index ini
 # yang terkonfirmasi punya data historis valid dari Yahoo Finance (gratis).
-_INDEX_TICKERS = {"IHSG": "^JKSE", "LQ45": "^JKLQ45", "JII": "^JKII"}
+# IHSG TIDAK di-fetch ulang di sini - dashboard sudah panggil fetch_ihsg_history() terpisah
+# (dipakai jg utk MA50/Gann/dst). Fetch ^JKSE dobel di 2 fungsi cache berbeda cuma nambah
+# beban ke Yahoo Finance tanpa guna, dan pernah memicu rate-limit yg bikin salah satu
+# panggilan pulang kosong (crash IndexError di volatility_regime - lihat README).
+_INDEX_TICKERS_TAMBAHAN = {"LQ45": "^JKLQ45", "JII": "^JKII"}
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_index_snapshot() -> dict[str, dict]:
-    """Ambil harga close + perubahan harian utk index utama (IHSG, LQ45, JII) dari Yahoo
-    Finance. Index lain (IDX30, SRI-KEHATI, sektor IDX-IC resmi) tidak tersedia gratis."""
+def fetch_index_snapshot(ihsg_hist: pd.DataFrame | None = None) -> dict[str, dict]:
+    """Ambil harga close + perubahan harian utk index utama (IHSG, LQ45, JII). IHSG diambil
+    dari histori yang sudah di-fetch dashboard (`ihsg_hist`, param) - BUKAN request baru ke
+    Yahoo Finance - supaya tidak dobel fetch simbol yang sama. LQ45 & JII tetap request baru
+    (belum ada yang fetch simbol itu di tempat lain). Index lain (IDX30, SRI-KEHATI, sektor
+    IDX-IC resmi) tidak tersedia gratis."""
     out: dict[str, dict] = {}
-    for label, ticker in _INDEX_TICKERS.items():
+    if ihsg_hist is not None and not ihsg_hist.empty and len(ihsg_hist) >= 2:
+        close = float(ihsg_hist["Close"].iloc[-1])
+        prev = float(ihsg_hist["Close"].iloc[-2])
+        out["IHSG"] = {"close": close, "change_pct": (close - prev) / prev}
+    for label, ticker in _INDEX_TICKERS_TAMBAHAN.items():
         try:
             df = yf.download(ticker, period="5d", interval="1d", progress=False, auto_adjust=True)
             if isinstance(df.columns, pd.MultiIndex):
