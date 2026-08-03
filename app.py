@@ -612,7 +612,17 @@ if total_equity_now is None:
 # Tampilkan Market Breadth di main area (karena price_data baru di-load di sini)
 breadth = market_breadth(price_data, tickers[:int(n_scan)], lookback=20)
 if breadth:
-    st.markdown(f"""<div style="background:#1e293b;border-radius:8px;padding:10px;margin-bottom:12px;border:1px solid #334155;"><div style="font-size:11px;color:#94a3b8;">MARKET HEALTH: {breadth['health']}</div><div style="font-size:10px;color:#94a3b8;margin-top:4px;">{breadth['advancers']}↑ {breadth['decliners']}↓ dari {breadth['total']} saham ({breadth['above_pct']}% above MA20)</div></div>""", unsafe_allow_html=True)
+    # Dipisah jadi 2 baris - "advancers/decliners" (naik/turun HARI INI dibanding kemarin)
+    # dan "% above MA20" (posisi tren) itu DUA metrik independen, bukan satu angka yang
+    # saling melengkapi - dulu digabung satu baris jadi kelihatan seperti totalnya harus
+    # pas (222+258 vs 613 saham), padahal wajar beda krn sisanya close-nya persis sama
+    # dgn kemarin (saham kurang likuid, umum di IDX).
+    tidak_berubah = breadth['total'] - breadth['advancers'] - breadth['decliners']
+    st.markdown(f"""<div style="background:#1e293b;border-radius:8px;padding:10px;margin-bottom:12px;border:1px solid #334155;">
+<div style="font-size:11px;color:#94a3b8;">MARKET HEALTH: {breadth['health']}</div>
+<div style="font-size:10px;color:#94a3b8;margin-top:4px;">Advance/Decline HARI INI: {breadth['advancers']}↑ {breadth['decliners']}↓ {tidak_berubah} tetap (dari {breadth['total']} saham)</div>
+<div style="font-size:10px;color:#94a3b8;margin-top:2px;">Trend (di atas MA20): {breadth['above_pct']}% dari {breadth['total']} saham</div>
+</div>""", unsafe_allow_html=True)
 
 t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_broker, t_tutorial = st.tabs([
     "🏆 Kandidat", "📋 Semua", "📉 Grafik", "📒 Backtest", "🎯 Top 10", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
