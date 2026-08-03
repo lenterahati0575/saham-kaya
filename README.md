@@ -496,6 +496,30 @@ kalau perlu, bukan cuma "semua atau tidak sama sekali". Filter ini menentukan sa
 DIPINDAI (bukan cuma disembunyikan di tampilan) - jadi juga mengurangi jumlah request ke
 Yahoo Finance kalau Bro pilih salah satu subset.
 
+## Bug Kritis: Baris Harga "Hantu" (OHLC NaN, Volume Terisi) Meracuni Hampir Semua Fitur
+
+**Ditemukan dari laporan user**: tab Kandidat & Semua tiba-tiba cuma menampilkan opsi filter
+"⏸️ WAIT" + "⚠️ MODERATE" (SWING TRADE/DAY TRADE/HIGH quality hilang semua), dan Market
+Health tiba-tiba bilang "0↑ 0↓ 21 tetap (dari 21 saham)" padahal 194 saham berhasil diambil.
+
+**Akar masalah**: Yahoo Finance kadang mengirim baris TERAKHIR dengan **OHLC semua NaN
+tapi Volume terisi** (data sesi terbaru belum settle sempurna di sisi Yahoo - paling sering
+kejadian dini hari sebelum bursa buka). `dropna(how="all")` di `_fetch_price_history_cached_v2`
+(`screener.py`) TIDAK menangkap baris ini karena "all" cuma trigger kalau SEMUA kolom NaN -
+Volume yang terisi bikin baris sampah ini lolos. Akibatnya `df['Close'].iloc[-1]` jadi NaN
+untuk **173 dari 200 saham** (87%!) secara serentak - meracuni Score/Signal/Quality di
+`compute_metrics()`, Market Breadth, RR di tab Kandidat, dan kemungkinan tempat lain yang
+pakai `.iloc[-1]` tanpa cek NaN. Reproduksi manual: `total_valid` breadth turun dari ~194
+jadi 21, dan mayoritas kandidat jatuh ke klasifikasi WAIT/MODERATE default krn harga
+"sekarang"-nya secara teknis tidak valid.
+
+**Fix**: tambah `df.dropna(subset=["Close"])` SESUDAH `dropna(how="all")` - dibuang di
+SUMBER-nya (`_fetch_price_history_cached_v2`), bukan ditambal satu-satu di tiap fungsi yang
+memakai harga terbaru. Diverifikasi: reproduksi ulang dgn 200 saham pertama, `total_valid`
+breadth balik ke 194 (cuma 6 saham dgn histori genuinely tipis/suspend yang tersisa
+dikecualikan), Market Health & Filter Trading kembali normal (DAY TRADE/SWING TRADE/HIGH
+muncul lagi), tanpa exception.
+
 ## Cara Kerja Fitur Trading
 
 ### Day Trading — BPJS & BSJP

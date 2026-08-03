@@ -509,7 +509,16 @@ def _fetch_price_history_cached_v2(tickers: list[str], period: str = "1y",
                 df = data[yft] if len(chunk) > 1 else data
                 df = df.dropna(how="all")
                 if not df.empty and "Close" in df.columns:
-                    results[kode] = df
+                    # Yahoo Finance kadang kasih baris TERAKHIR dgn OHLC semua NaN tapi Volume
+                    # terisi (data sesi terbaru belum settle sempurna di sisi Yahoo, sering
+                    # terjadi dini hari sebelum bursa buka) - dropna(how="all") di atas TIDAK
+                    # menangkap ini krn Volume-nya non-NaN. Baris begini bikin df['Close'].iloc[-1]
+                    # jadi NaN utk MAYORITAS saham serentak - meracuni Market Breadth, Score/Signal
+                    # screener, RR Kandidat, dst (semua yang pakai .iloc[-1] tanpa cek). Dibuang di
+                    # sini (sumbernya), bukan ditambal satu-satu di tiap tempat yang memakainya.
+                    df = df.dropna(subset=["Close"])
+                    if not df.empty:
+                        results[kode] = df
             except Exception:
                 continue
     return results
