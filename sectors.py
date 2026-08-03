@@ -60,6 +60,47 @@ _SECTOR_FALLBACK = {
 
 TIDAK_DIKETAHUI = "Tidak Diketahui"
 
+# Ikon per label sektor, cuma utk tampilan kartu "Kinerja Sektor" - tidak memengaruhi
+# klasifikasi. Sektor yang tidak ada di daftar ini (jarang muncul) pakai _DEFAULT_ICON.
+_SECTOR_ICON = {
+    "Perbankan": "🏦", "Asuransi": "🛡️", "Perusahaan Sekuritas & Investasi": "📈",
+    "Properti & Real Estat": "🏢", "Batu Bara": "⛏️", "Minyak & Gas": "🛢️",
+    "Pertambangan & Logam": "⚒️", "Perkebunan & Agrikultur": "🌴", "Telekomunikasi": "📡",
+    "Teknologi": "💻", "Otomotif": "🚗", "Transportasi & Logistik": "✈️",
+    "Utilitas & Energi": "⚡", "Konstruksi & Bahan Bangunan": "🏗️", "Ritel": "🛒",
+    "Makanan & Minuman": "🍔", "Rokok": "🚬", "Kesehatan & Farmasi": "💊",
+    "Pariwisata, Hotel & Restoran": "🏨", "Media & Hiburan": "🎬", "Tekstil & Garmen": "🧵",
+    "Kimia & Bahan Dasar": "🧪", "Perindustrian": "🏭", "Keuangan (Lainnya)": "💰",
+    "Material Dasar": "🧱", "Konsumer Siklikal": "🛍️", "Konsumer Non-Siklikal": "🧺",
+    "Telekomunikasi & Media": "📶",
+}
+_DEFAULT_ICON = "📊"
+
+
+def sector_icon(label: str) -> str:
+    return _SECTOR_ICON.get(label, _DEFAULT_ICON)
+
+
+def sector_performance(table: pd.DataFrame) -> pd.DataFrame:
+    """Ringkas performa SEMUA sektor yang muncul di tabel screener (bukan cuma sebagian/
+    top-N) - rata-rata "Perubahan %" antar saham per sektor + jumlah saham anggotanya.
+
+    CATATAN JUJUR: ini rata-rata sederhana antar saham (equal-weight), BUKAN cap-weighted
+    seperti indeks sektoral resmi IDX-IC - data kapitalisasi pasar per saham tidak tersedia
+    gratis dari sumber yang dipakai app ini.
+    """
+    if "Sektor" not in table.columns or table["Sektor"].isna().all():
+        return pd.DataFrame()
+    df = table.dropna(subset=["Sektor"])
+    df = df[df["Sektor"] != TIDAK_DIKETAHUI]
+    if df.empty:
+        return pd.DataFrame()
+    perf = (df.groupby("Sektor")
+              .agg(rata_rata=("Perubahan %", "mean"), jumlah_saham=("Kode", "count"))
+              .reset_index()
+              .sort_values("rata_rata", ascending=False))
+    return perf
+
 
 def _classify(sector: str, industry: str) -> str:
     industry_l = (industry or "").lower()

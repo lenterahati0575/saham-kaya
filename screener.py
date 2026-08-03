@@ -809,3 +809,29 @@ def fetch_ihsg_history(period: str = "3mo") -> pd.DataFrame:
         return df.dropna(subset=["Close"])
     except Exception:
         return pd.DataFrame()
+
+
+# IDX30 & SRI-KEHATI TIDAK dimasukkan - sudah dicoba beberapa kemungkinan simbol Yahoo
+# Finance (^IDX30, ^JKIDX30, ^JKSRI, IDX30.JK) dan semuanya 404/kosong. Cuma 3 index ini
+# yang terkonfirmasi punya data historis valid dari Yahoo Finance (gratis).
+_INDEX_TICKERS = {"IHSG": "^JKSE", "LQ45": "^JKLQ45", "JII": "^JKII"}
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_index_snapshot() -> dict[str, dict]:
+    """Ambil harga close + perubahan harian utk index utama (IHSG, LQ45, JII) dari Yahoo
+    Finance. Index lain (IDX30, SRI-KEHATI, sektor IDX-IC resmi) tidak tersedia gratis."""
+    out: dict[str, dict] = {}
+    for label, ticker in _INDEX_TICKERS.items():
+        try:
+            df = yf.download(ticker, period="5d", interval="1d", progress=False, auto_adjust=True)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            df = df.dropna(subset=["Close"])
+            if len(df) >= 2:
+                close = float(df["Close"].iloc[-1])
+                prev = float(df["Close"].iloc[-2])
+                out[label] = {"close": close, "change_pct": (close - prev) / prev}
+        except Exception:
+            continue
+    return out

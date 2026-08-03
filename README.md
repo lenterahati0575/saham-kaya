@@ -408,6 +408,30 @@ kurang dari 1 lot (jarak Entry-SL terlalu lebar utk risk budget), saham itu DILE
 snapshot Equity, tetap fallback ke lot default lama (10) seperti sebelumnya - tidak ada
 perubahan perilaku kalau fitur ini belum "diaktifkan" (lewat isi snapshot Equity).
 
+## Grafik IHSG Lebih Terbaca + Index Utama & Kinerja Sektor (Fitur Baru)
+
+- **Grafik IHSG di tab IHSG Analysis dulu sumbu Y-nya mulai dari 0** (`fill='tozeroy'` pada
+  trace harga memaksa Plotly autorange turun ke 0), padahal pergerakan riil IHSG cuma di
+  rentang 5.000-7.200 - jadinya grafik jadi pita tipis di bagian atas dan level Gann/pivot
+  sulit dibaca. Sekarang sumbu Y di-zoom eksplisit ke rentang harga + level Gann + pivot
+  (padding 5%), sama seperti standar chart trading (TradingView/Bloomberg tidak mulai dari 0
+  untuk index/harga).
+- **Kartu Index Utama** (IHSG, LQ45, JII) ditambahkan di bawah banner status IHSG - harga
+  close + perubahan harian, dari Yahoo Finance (`fetch_index_snapshot()` di `screener.py`).
+  **IDX30 dan SRI-KEHATI TIDAK dimasukkan** - sudah dicoba beberapa kemungkinan simbol Yahoo
+  Finance (`^IDX30`, `^JKIDX30`, `^JKSRI`, `IDX30.JK`) dan semuanya 404/kosong, tidak ada
+  jalan gratis yang ditemukan untuk keduanya.
+- **Kartu Kinerja Sektor** (expander di bawah Market Health) - menampilkan SEMUA sektor yang
+  muncul di saham yang dipindai (bukan cuma sebagian/top-N), rata-rata "Perubahan %" antar
+  saham per sektor + jumlah saham anggotanya, diurutkan dari yang paling naik. Butuh checkbox
+  **"🏷️ Aktifkan Filter Sektor"** di sidebar aktif dulu (fetch sektor per saham dari Yahoo
+  Finance `.info`, di-cache 7 hari - makanya opt-in, bukan otomatis, supaya tidak menambah
+  waktu tunggu load pertama kalau Bro tidak butuh tampilan ini). **CATATAN JUJUR**: ini
+  rata-rata equal-weight antar saham, BUKAN cap-weighted resmi seperti indeks sektoral
+  IDX-IC - data kapitalisasi pasar per saham tidak tersedia gratis dari sumber yang dipakai
+  app ini. Klasifikasi sektor sendiri dari taksonomi GICS Yahoo Finance yang dipetakan ke
+  istilah lazim IDX (lihat `sectors.py`), bukan data resmi IDX-IC.
+
 ## Cara Kerja Fitur Trading
 
 ### Day Trading — BPJS & BSJP

@@ -13,7 +13,7 @@ from scipy import stats
 from scipy.stats import norm
 from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_with_report, build_screener_table,
                       build_trade_candidates, classify_daytrading_tipe, fetch_ihsg_history, market_regime,
-                      _donchian_levels)
+                      _donchian_levels, fetch_index_snapshot)
 from telegram_notify import send_telegram_message, format_watchlist_message
 import gsheet_journal as gj
 import indicators as ind
@@ -580,6 +580,14 @@ else: table["Sektor"] = None
 st.caption(f"Terakhir refresh: {datetime.now().strftime('%d %b %Y, %H:%M')} · {len(table)}/{len(tickers)} saham")
 if regime["status"] == "BEARISH": st.error(f"📉 IHSG BEARISH (Close {regime['close']:,.0f} < MA50 {regime['ma']:,.0f})")
 elif regime["status"] == "BULLISH": st.success(f"📈 IHSG BULLISH (Close {regime['close']:,.0f} > MA50 {regime['ma']:,.0f})")
+
+# Index utama (IHSG/LQ45/JII) - IDX30 & SRI-KEHATI tidak dimasukkan krn tidak ada data
+# gratis dari Yahoo Finance utk keduanya (sudah dicoba beberapa simbol, lihat screener.py).
+idx_snapshot = fetch_index_snapshot()
+if idx_snapshot:
+    idx_cols = st.columns(len(idx_snapshot))
+    for i, (label, d) in enumerate(idx_snapshot.items()):
+        idx_cols[i].metric(label, f"{d['close']:,.0f}", f"{d['change_pct'] * 100:+.2f}%")
 # market_ok cuma dipakai utk kandidat Swing & tab "Kandidat" - Day Trading TIDAK digate
 # regime (belum divalidasi lewat backtest, beda dgn Swing yg sudah divalidasi lewat
 # backtest realistis + out-of-sample, lihat README > Backtest Historis).
@@ -622,6 +630,36 @@ if breadth:
 <div style="font-size:11px;color:#94a3b8;">MARKET HEALTH: {breadth['health']}</div>
 <div style="font-size:10px;color:#94a3b8;margin-top:4px;">Advance/Decline HARI INI: {breadth['advancers']}↑ {breadth['decliners']}↓ {tidak_berubah} tetap (dari {breadth['total']} saham)</div>
 <div style="font-size:10px;color:#94a3b8;margin-top:2px;">Trend (di atas MA20): {breadth['above_pct']}% dari {breadth['total']} saham</div>
+</div>""", unsafe_allow_html=True)
+
+# Kinerja Sektor - butuh table["Sektor"] terisi (checkbox "Aktifkan Filter Sektor" di sidebar,
+# fetch dari Yahoo Finance yg di-cache 7 hari). Kalau aktif, tampilkan SEMUA sektor yang
+# muncul (bukan cuma sebagian) - rata-rata Perubahan % antar saham per sektor.
+sect_perf = sec.sector_performance(table)
+with st.expander(f"🏷️ Kinerja Sektor{' (' + str(len(sect_perf)) + ' sektor)' if not sect_perf.empty else ''}",
+                  expanded=False):
+    if sect_perf.empty:
+        st.caption("Aktifkan '🏷️ Aktifkan Filter Sektor' di sidebar utk melihat kinerja per "
+                    "sektor dari saham yang dipindai (butuh fetch tambahan per saham dari "
+                    "Yahoo Finance, di-cache 7 hari).")
+    else:
+        st.caption("Rata-rata Perubahan % antar saham per sektor (equal-weight) - BUKAN "
+                    "cap-weighted resmi seperti indeks sektoral IDX-IC, karena data kapitalisasi "
+                    "pasar per saham tidak tersedia gratis. Sektor diklasifikasi dari taksonomi "
+                    "Yahoo Finance, dipetakan ke istilah lazim IDX (lihat sectors.py).")
+        n_cols_sect = 4
+        for start in range(0, len(sect_perf), n_cols_sect):
+            chunk = sect_perf.iloc[start:start + n_cols_sect]
+            cols_sect = st.columns(n_cols_sect)
+            for i, (_, r) in enumerate(chunk.iterrows()):
+                pct = r["rata_rata"] * 100
+                color = "#4ade80" if pct >= 0 else "#f87171"
+                with cols_sect[i]:
+                    st.markdown(f"""<div style="background:#1e293b;border-radius:10px;padding:12px;margin-bottom:10px;border:1px solid #334155;text-align:center;">
+<div style="font-size:22px;">{sec.sector_icon(r['Sektor'])}</div>
+<div style="font-size:11px;color:#cbd5e1;font-weight:600;margin-top:4px;min-height:28px;">{r['Sektor']}</div>
+<div style="font-size:15px;font-weight:700;color:{color};margin-top:2px;">{pct:+.2f}%</div>
+<div style="font-size:9px;color:#64748b;">{int(r['jumlah_saham'])} saham</div>
 </div>""", unsafe_allow_html=True)
 
 t_kandidat, t_semua, t_grafik, t_backtest, t_top10, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_broker, t_tutorial = st.tabs([
