@@ -23,7 +23,11 @@ DEFAULT_PARAMS = {
     "crash_veto": -0.05,                 # -5% - ambang veto crash
     "donchian_lookback": 20,             # 4 minggu bursa (~20 hari)
     "score_strong_buy": 7,
-    "score_buy": 4,
+    # score_buy=5 (bukan 4) - divalidasi lewat backtest realistis 615 saham/5 tahun +
+    # walk-forward out-of-sample (split IS/OOS temporal): skor 4 menyertakan sinyal BUY
+    # marginal yang net RUGI setelah fee di kedua periode uji, skor 5 net PROFIT di
+    # keduanya. Lihat catatan di README bagian "Backtest Historis".
+    "score_buy": 5,
     "score_sell": -2,
     "score_strong_sell": -4,
 }
@@ -468,9 +472,12 @@ def fetch_price_history(tickers: list[str], period: str = "1y") -> dict[str, pd.
     for i in range(0, len(yf_tickers), chunk_size):
         chunk = yf_tickers[i : i + chunk_size]
         try:
+            # auto_adjust=True: harga disesuaikan terhadap stock split/rights issue/dividen.
+            # Dulu False -> lonjakan/anjlok harga akibat aksi korporasi (umum di IDX) terbaca
+            # sebagai crash/breakout palsu dan merusak level Donchian/MA/RSI di sekitar tanggal itu.
             data = yf.download(
                 chunk, period=period, interval="1d",
-                group_by="ticker", threads=True, progress=False, auto_adjust=False,
+                group_by="ticker", threads=True, progress=False, auto_adjust=True,
             )
         except Exception:
             continue
@@ -674,12 +681,21 @@ def _donchian_levels(df: pd.DataFrame, lookback: int):
 
 
 def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int, min_rr: float = 2.0,
-                            top_n: int = 10, signal_filter=("STRONG BUY", "BUY")) -> pd.DataFrame:
+                            top_n: int = 10, signal_filter=("STRONG BUY", "BUY"),
+                            require_bullish_regime: bool = False, regime_status: str | None = None) -> pd.DataFrame:
     """
     Entry = harga sekarang. Stop Loss = Donchian Low (lookback) - stop struktural, bukan persen tetap.
     Target = Donchian High + (Donchian High - Donchian Low) - proyeksi measured-move dari lebar channel.
     RR = (Target-Entry)/(Entry-SL), difilter RR >= min_rr supaya rasio untung:rugi benar-benar >2:1.
+
+    require_bullish_regime=True: kembalikan kosong kalau regime_status bukan "BULLISH" (dari
+    market_regime()). Divalidasi lewat backtest realistis + walk-forward out-of-sample untuk
+    Swing (lookback=20): breakout system ini net RUGI di pasar sideways/bearish IHSG, net
+    PROFIT konsisten di kedua periode uji kalau cuma aktif saat IHSG > MA50. TIDAK divalidasi
+    untuk Day Trading (lookback pendek) - jangan diaktifkan di sana tanpa bukti serupa.
     """
+    if require_bullish_regime and regime_status != "BULLISH":
+        return pd.DataFrame()
     rows = []
     picks = table[table["Signal"].isin(signal_filter)]
     for _, r in picks.iterrows():
@@ -728,7 +744,7 @@ def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
 def fetch_ihsg_history(period: str = "3mo") -> pd.DataFrame:
     """Ambil histori IHSG (^JKSE) dari Yahoo Finance."""
     try:
-        df = yf.download("^JKSE", period=period, interval="1d", progress=False, auto_adjust=False)
+        df = yf.download("^JKSE", period=period, interval="1d", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         return df.dropna(subset=["Close"])

@@ -4,6 +4,9 @@ import streamlit.components.v1 as components
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+WIB = ZoneInfo("Asia/Jakarta")
 import math
 import numpy as np
 from scipy import stats
@@ -203,7 +206,11 @@ def generate_option_chain(S, current_price, vol, r=0.065, days_to_expiry=30):
     return chain
 
 def get_market_session():
-    now = datetime.now(); hour = now.hour; minute = now.minute; time_val = hour + minute / 60; weekday = now.weekday()
+    # WAJIB pakai timezone Asia/Jakarta (WIB) secara eksplisit - server (Streamlit Cloud)
+    # biasanya jalan di UTC, jadi datetime.now() polos akan geser 7 jam dan salah baca
+    # status buka/tutup pasar (bug ditemukan: dashboard bilang CLOSED padahal WIB sedang
+    # jam bursa aktif).
+    now = datetime.now(WIB); hour = now.hour; minute = now.minute; time_val = hour + minute / 60; weekday = now.weekday()
     if weekday >= 5:
         next_open = now + timedelta(days=(7 - weekday) % 7); next_open = next_open.replace(hour=8, minute=0, second=0)
         return {"session": "🔴 WEEKEND CLOSED", "color": "#7f1d1d", "desc": "Pasar tutup. Buka Senin 08:00 WIB.", "next_open": next_open, "countdown": (next_open - now).total_seconds(), "is_open": False}
@@ -273,7 +280,11 @@ def fetch_sentiment_news():
                     else: sent = "neutral"
                     news_items.append({"headline": a.get("title", ""), "sentiment": sent, "source": a.get("source", {}).get("name", "News"), "time": "recent"})
     except: pass
-    if not news_items:
+    # is_fallback=True: NEWSAPI_KEY belum diisi ATAU panggilan API gagal - berita di bawah ini
+    # CONTOH STATIS (bukan live), harus ditandai jelas ke user supaya tidak dikira berita real
+    # hari ini (timestamp "2h ago" dkk itu teks tetap, tidak pernah berubah sungguhan).
+    is_fallback = not news_items
+    if is_fallback:
         news_items = [{"headline": "IHSG Rebound 18% dari Low, Analis: Belum Konfirmasi Bull Run", "sentiment": "neutral", "source": "IDX Channel", "time": "2h ago"},
                       {"headline": "Asing Net Buy Rp500M Hari Ini, Fokus ke BBCA dan BMRI", "sentiment": "positive", "source": "Kontan", "time": "5h ago"},
                       {"headline": "Rupiah Melemah ke Rp18.200, BI Rate Diproyeksi Turun", "sentiment": "negative", "source": "Bisnis Indonesia", "time": "4h ago"}]
@@ -284,7 +295,7 @@ def fetch_sentiment_news():
     elif sentiment_score > -5: overall = "⚪ NEUTRAL"; color = "#6b7280"
     elif sentiment_score > -20: overall = "🟠 SLIGHTLY BEARISH"; color = "#f97316"
     else: overall = "🔴 BEARISH"; color = "#dc2626"
-    return {"items": news_items, "positive": pos, "negative": neg, "neutral": neu, "score": round(sentiment_score, 1), "overall": overall, "color": color}
+    return {"items": news_items, "positive": pos, "negative": neg, "neutral": neu, "score": round(sentiment_score, 1), "overall": overall, "color": color, "is_fallback": is_fallback}
 
 def ml_signal_predict(df, lookback=20):
     if df is None or len(df) < lookback + 10: return None
@@ -447,10 +458,16 @@ with st.sidebar:
     crash_veto = st.slider("Ambang Crash Veto (%)", min_value=-15, max_value=-1, value=-5) / 100
     donchian_lb = st.number_input("Donchian Lookback - Swing (hari bursa)", min_value=5, max_value=60, value=20)
     donchian_lb_day = st.number_input("Donchian Lookback - Day Trading (hari bursa)", min_value=3, max_value=30, value=10)
-    min_rr = st.number_input("Minimum Risk:Reward (RR)", min_value=1.0, value=2.0, step=0.1)
+    min_rr_swing = st.number_input("Minimum Risk:Reward (RR) - Swing", min_value=1.0, value=1.5, step=0.1,
+                                    help="Default 1.5, divalidasi lewat backtest realistis + out-of-sample "
+                                         "(lihat README > Backtest Historis).")
+    min_rr_day = st.number_input("Minimum Risk:Reward (RR) - Day Trading", min_value=1.0, value=2.0, step=0.1,
+                                  help="Belum divalidasi ulang seperti Swing - default lama dipertahankan.")
     st.divider()
     st.subheader("Ambang Skor Sinyal")
-    sb = st.number_input("Skor min. STRONG BUY", value=7); b = st.number_input("Skor min. BUY", value=4)
+    sb = st.number_input("Skor min. STRONG BUY", value=7)
+    b = st.number_input("Skor min. BUY", value=5,
+                         help="Default 5 (bukan 4) - skor 4 net rugi setelah fee di backtest out-of-sample.")
     s = st.number_input("Skor maks. SELL", value=-2); ss = st.number_input("Skor maks. STRONG SELL", value=-4)
     st.divider()
     n_scan = st.select_slider("Jumlah saham dipindai", options=[50, 100, 200, 400, 615], value=200)
@@ -459,7 +476,11 @@ with st.sidebar:
     aktifkan_sektor = st.checkbox("🏷️ Aktifkan Filter Sektor", value=False)
     st.divider()
     st.subheader("🌐 Kondisi Pasar (IHSG)")
-    filter_market = st.checkbox("Sembunyikan kandidat BUY saat IHSG Bearish", value=False)
+    filter_market = st.checkbox("Sembunyikan kandidat Swing saat IHSG Bearish", value=True,
+                                 help="Default AKTIF - divalidasi lewat backtest: sistem breakout Swing ini "
+                                      "net rugi di pasar sideways/bearish, net profit konsisten kalau cuma "
+                                      "aktif saat IHSG di atas MA50. Cuma memengaruhi kandidat Swing, bukan "
+                                      "Day Trading (belum divalidasi serupa).")
     st.divider()
     st.subheader("🔮 IHSG Gann + Time Cycle")
     ihsg_gann_data = analyze_ihsg_gann(ihsg_hist)
@@ -505,11 +526,14 @@ else: table["Sektor"] = None
 st.caption(f"Terakhir refresh: {datetime.now().strftime('%d %b %Y, %H:%M')} · {len(table)}/{len(tickers)} saham")
 if regime["status"] == "BEARISH": st.error(f"📉 IHSG BEARISH (Close {regime['close']:,.0f} < MA50 {regime['ma']:,.0f})")
 elif regime["status"] == "BULLISH": st.success(f"📈 IHSG BULLISH (Close {regime['close']:,.0f} > MA50 {regime['ma']:,.0f})")
+# market_ok cuma dipakai utk kandidat Swing & tab "Kandidat" - Day Trading TIDAK digate
+# regime (belum divalidasi lewat backtest, beda dgn Swing yg sudah divalidasi lewat
+# backtest realistis + out-of-sample, lihat README > Backtest Historis).
 market_ok = not (filter_market and regime["status"] == "BEARISH")
 
-cands_day_all = build_trade_candidates(table, price_data, int(donchian_lb_day), min_rr, top_n=10)
-cands_swing_all = build_trade_candidates(table, price_data, int(donchian_lb), min_rr, top_n=10)
-if not market_ok: cands_day_all = cands_day_all.iloc[0:0]; cands_swing_all = cands_swing_all.iloc[0:0]
+cands_day_all = build_trade_candidates(table, price_data, int(donchian_lb_day), min_rr_day, top_n=10)
+cands_swing_all = build_trade_candidates(table, price_data, int(donchian_lb), min_rr_swing, top_n=10,
+                                          require_bullish_regime=filter_market, regime_status=regime["status"])
 
 # Tampilkan Market Breadth di main area (karena price_data baru di-load di sini)
 breadth = market_breadth(price_data, tickers[:int(n_scan)], lookback=20)
@@ -944,19 +968,20 @@ with t_backtest:
         s4.metric("LOSS", stats["loss"])
         s5.metric("Win Rate", f"{stats['winrate']:.1f}%")
         st.dataframe(positions, use_container_width=True, hide_index=True, height=420)
-        st.caption("Aturan force-sell otomatis: SWING maksimal 10 hari, BPJS maksimal 1 hari, BSJP maksimal 2 hari kalau belum kena TP/SL. Auto-close sekarang juga berjalan otomatis saat tab ini dibuka.")
+        st.caption("Aturan force-sell otomatis: SWING maksimal 15 hari, BPJS maksimal 1 hari, BSJP maksimal 2 hari kalau belum kena TP/SL. Auto-close sekarang juga berjalan otomatis saat tab ini dibuka.")
 
 # ============================================================================
 # TAB 5: TOP 10 DAY/SWING
 # ============================================================================
 with t_top10:
     st.caption(f"Entry = harga sekarang · Stop Loss = Donchian Low (struktural) · "
-    f"Target = proyeksi measured-move dari lebar channel Donchian · hanya RR ≥ {min_rr:.1f}:1")
+    f"Target = proyeksi measured-move dari lebar channel Donchian · "
+    f"RR ≥ {min_rr_day:.1f}:1 (Day) / RR ≥ {min_rr_swing:.1f}:1 (Swing)")
     day_tipe = classify_daytrading_tipe()
     st.subheader(f"⚡ Top 10 Day Trading (Donchian {int(donchian_lb_day)} hari) — tipe {day_tipe}")
     cands_day = cands_day_all
     if cands_day.empty:
-        st.info("Tidak ada kandidat Day Trading yang lolos RR minimum saat ini. Coba turunkan Min. RR di sidebar.")
+        st.info("Tidak ada kandidat Day Trading yang lolos RR minimum saat ini. Coba turunkan Min. RR - Day Trading di sidebar.")
     else:
         show_day = cands_day.copy()
         show_day["Nilai Transaksi"] = show_day["Nilai Transaksi"].map(lambda x: f"Rp{x/1e9:,.1f} M")
@@ -1247,209 +1272,209 @@ with t_real:
                         ok, msg = rj.close_trade(pilih_no, tgl_exit_in.strftime("%Y-%m-%d"), exit_price_in)
                         if ok: st.success(msg); st.rerun()
                         else: st.error(msg)
-    # --- Sub 3: Performance Real ---
-    with sub3:
-        trades_all = rj.load_trades()
-        stats_rj = rj.compute_stats(trades_all)
-        if stats_rj["total"] == 0:
-            st.info("Belum ada trade tercatat. Mulai dari tab 'Catat Trade'.")
-        else:
-            r1, r2, r3 = st.columns(3)
-            r1.metric("Win Rate", f"{stats_rj['winrate']:.1f}%")
-            pf_display = "∞" if stats_rj["profit_factor"] == float("inf") else f"{stats_rj['profit_factor']:.2f}"
-            r2.metric("Profit Factor", pf_display)
-            r3.metric("Total Trade", f"{stats_rj['total']} ({stats_rj['win']}W · {stats_rj['loss']}L · {stats_rj['open']} OPEN)")
-            r4, r5 = st.columns(2)
-            r4.metric("Total Transaction Value", f"Rp{stats_rj['total_transaction_value']:,.0f}")
-            r5.metric("Net P/L", f"Rp{stats_rj['net_pl']:,.0f}")
-            
-            st.divider()
-            pb1, pb2 = st.columns(2)
-            with pb1:
-                st.markdown("**Performance per Sekuritas**")
-                st.dataframe(rj.performance_by_broker(trades_all), use_container_width=True, hide_index=True)
-            with pb2:
-                st.markdown("**Performance per Setup**")
-                st.dataframe(rj.performance_by_setup(trades_all), use_container_width=True, hide_index=True)
-            
-            st.divider()
-            
-            # =========================================================================
-            # GRAFIK 1: Portofolio vs IHSG (Trade-Based)
-            # =========================================================================
-            try:
-                closed = trades_all[~trades_all["Status"].isin(["OPEN"])].copy()
+        # --- Sub 3: Performance Real ---
+        with sub3:
+            trades_all = rj.load_trades()
+            stats_rj = rj.compute_stats(trades_all)
+            if stats_rj["total"] == 0:
+                st.info("Belum ada trade tercatat. Mulai dari tab 'Catat Trade'.")
+            else:
+                r1, r2, r3 = st.columns(3)
+                r1.metric("Win Rate", f"{stats_rj['winrate']:.1f}%")
+                pf_display = "∞" if stats_rj["profit_factor"] == float("inf") else f"{stats_rj['profit_factor']:.2f}"
+                r2.metric("Profit Factor", pf_display)
+                r3.metric("Total Trade", f"{stats_rj['total']} ({stats_rj['win']}W · {stats_rj['loss']}L · {stats_rj['open']} OPEN)")
+                r4, r5 = st.columns(2)
+                r4.metric("Total Transaction Value", f"Rp{stats_rj['total_transaction_value']:,.0f}")
+                r5.metric("Net P/L", f"Rp{stats_rj['net_pl']:,.0f}")
                 
-                def find_col(candidates, df_cols):
-                    for c in candidates:
-                        matches = [col for col in df_cols if c.lower() in col.lower()]
-                        if matches:
-                            return matches[0]
-                    return None
+                st.divider()
+                pb1, pb2 = st.columns(2)
+                with pb1:
+                    st.markdown("**Performance per Sekuritas**")
+                    st.dataframe(rj.performance_by_broker(trades_all), use_container_width=True, hide_index=True)
+                with pb2:
+                    st.markdown("**Performance per Setup**")
+                    st.dataframe(rj.performance_by_setup(trades_all), use_container_width=True, hide_index=True)
                 
-                pl_col = find_col(["net p/l", "p/l", "profit", "pnl"], closed.columns)
-                entry_col = find_col(["entry (rp)", "entry(rp)", "harga beli", "harga_beli"], closed.columns)
-                lot_col = find_col(["lot"], closed.columns)
-                tgl_exit_col = find_col(["tanggal exit", "tgl exit"], closed.columns)
+                st.divider()
                 
-                if not all([pl_col, entry_col, lot_col, tgl_exit_col]):
-                    missing = [n for n, v in zip(["P/L","Entry","Lot","Tgl Exit"], [pl_col, entry_col, lot_col, tgl_exit_col]) if not v]
-                    st.caption(f"⚠️ Kolom tidak ditemukan: {missing} — grafik dilewati.")
-                elif closed.empty:
-                    st.caption("ℹ️ Belum ada trade tertutup — grafik muncul setelah ada transaksi dengan status PROFIT/LOSS.")
-                else:
-                    st.markdown("### 📊 Grafik Portofolio vs IHSG (Trade-Based)")
-                    closed[tgl_exit_col] = pd.to_datetime(closed[tgl_exit_col])
-                    closed = closed.sort_values(tgl_exit_col)
-                    closed["Cum_PnL"] = closed[pl_col].cumsum()
-                    first_entry = float(closed.iloc[0][entry_col])
-                    first_lot = float(closed.iloc[0][lot_col])
-                    modal = first_entry * first_lot * 100
-                    if modal <= 0:
-                        modal = 1_000_000
-                    closed["Port_Return_%"] = ((modal + closed["Cum_PnL"]) / modal - 1) * 100
+                # =========================================================================
+                # GRAFIK 1: Portofolio vs IHSG (Trade-Based)
+                # =========================================================================
+                try:
+                    closed = trades_all[~trades_all["Status"].isin(["OPEN"])].copy()
                     
-                    fd = closed[tgl_exit_col].min()
-                    ld = closed[tgl_exit_col].max()
-                    ihsg_cmp = ihsg_hist.copy()
-                    if ihsg_cmp.index.tz is not None:
-                        ihsg_cmp.index = ihsg_cmp.index.tz_localize(None)
-                    ihsg_range = ihsg_cmp[(ihsg_cmp.index >= fd) & (ihsg_cmp.index <= ld)]
+                    def find_col(candidates, df_cols):
+                        for c in candidates:
+                            matches = [col for col in df_cols if c.lower() in col.lower()]
+                            if matches:
+                                return matches[0]
+                        return None
                     
-                    if ihsg_range.empty or len(ihsg_range) < 2:
-                        st.info(f"ℹ️ Data IHSG tidak tersedia untuk periode {fd.date()} s/d {ld.date()} — grafik dilewati.")
+                    pl_col = find_col(["net p/l", "p/l", "profit", "pnl"], closed.columns)
+                    entry_col = find_col(["entry (rp)", "entry(rp)", "harga beli", "harga_beli"], closed.columns)
+                    lot_col = find_col(["lot"], closed.columns)
+                    tgl_exit_col = find_col(["tanggal exit", "tgl exit"], closed.columns)
+                    
+                    if not all([pl_col, entry_col, lot_col, tgl_exit_col]):
+                        missing = [n for n, v in zip(["P/L","Entry","Lot","Tgl Exit"], [pl_col, entry_col, lot_col, tgl_exit_col]) if not v]
+                        st.caption(f"⚠️ Kolom tidak ditemukan: {missing} — grafik dilewati.")
+                    elif closed.empty:
+                        st.caption("ℹ️ Belum ada trade tertutup — grafik muncul setelah ada transaksi dengan status PROFIT/LOSS.")
                     else:
-                        ihsg_base = float(ihsg_range["Close"].iloc[0])
-                        ihsg_range["IHSG_Return_%"] = ((ihsg_range["Close"] / ihsg_base) - 1) * 100
-                        fig_cmp = go.Figure()
-                        fig_cmp.add_trace(go.Scatter(
-                            x=closed[tgl_exit_col],
-                            y=closed["Port_Return_%"],
+                        st.markdown("### 📊 Grafik Portofolio vs IHSG (Trade-Based)")
+                        closed[tgl_exit_col] = pd.to_datetime(closed[tgl_exit_col])
+                        closed = closed.sort_values(tgl_exit_col)
+                        closed["Cum_PnL"] = closed[pl_col].cumsum()
+                        first_entry = float(closed.iloc[0][entry_col])
+                        first_lot = float(closed.iloc[0][lot_col])
+                        modal = first_entry * first_lot * 100
+                        if modal <= 0:
+                            modal = 1_000_000
+                        closed["Port_Return_%"] = ((modal + closed["Cum_PnL"]) / modal - 1) * 100
+                        
+                        fd = closed[tgl_exit_col].min()
+                        ld = closed[tgl_exit_col].max()
+                        ihsg_cmp = ihsg_hist.copy()
+                        if ihsg_cmp.index.tz is not None:
+                            ihsg_cmp.index = ihsg_cmp.index.tz_localize(None)
+                        ihsg_range = ihsg_cmp[(ihsg_cmp.index >= fd) & (ihsg_cmp.index <= ld)]
+                        
+                        if ihsg_range.empty or len(ihsg_range) < 2:
+                            st.info(f"ℹ️ Data IHSG tidak tersedia untuk periode {fd.date()} s/d {ld.date()} — grafik dilewati.")
+                        else:
+                            ihsg_base = float(ihsg_range["Close"].iloc[0])
+                            ihsg_range["IHSG_Return_%"] = ((ihsg_range["Close"] / ihsg_base) - 1) * 100
+                            fig_cmp = go.Figure()
+                            fig_cmp.add_trace(go.Scatter(
+                                x=closed[tgl_exit_col],
+                                y=closed["Port_Return_%"],
+                                mode="lines+markers",
+                                name="🟦 Portofolio Jurnal Real",
+                                line=dict(color="#38bdf8", width=2.5),
+                                fill="tozeroy",
+                                fillcolor="rgba(56,189,248,0.10)",
+                            ))
+                            fig_cmp.add_trace(go.Scatter(
+                                x=ihsg_range.index,
+                                y=ihsg_range["IHSG_Return_%"],
+                                mode="lines",
+                                name="🟨 IHSG (Benchmark)",
+                                line=dict(color="#fbbf24", width=2.5, dash="dash"),
+                            ))
+                            fig_cmp.update_layout(
+                                height=380,
+                                template="plotly_dark",
+                                title="📊 Strategy Return (Trade-Based) vs IHSG",
+                                yaxis_title="Return Kumulatif (%)",
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                                margin=dict(l=10, r=10, t=60, b=10),
+                                hovermode="x unified",
+                            )
+                            st.plotly_chart(fig_cmp, use_container_width=True)
+                            
+                            lp = closed["Port_Return_%"].iloc[-1]
+                            li = ihsg_range["IHSG_Return_%"].iloc[-1]
+                            delta = lp - li
+                            if delta > 0:
+                                st.success(f"🚀 Portofolio mengungguli IHSG sebesar **{delta:+.2f}%** (Portofolio: {lp:+.2f}% vs IHSG: {li:+.2f}%)")
+                            else:
+                                st.warning(f"📉 Portofolio di bawah IHSG sebesar **{delta:+.2f}%** (Portofolio: {lp:+.2f}% vs IHSG: {li:+.2f}%)")
+                except Exception as e:
+                    st.error(f"❌ Error grafik perbandingan: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+                
+                st.divider()
+                
+                # =========================================================================
+                # GRAFIK 2: Equity Curve Riil vs IHSG
+                # =========================================================================
+                try:
+                    st.markdown("### 💼 Portfolio Equity Curve (Real Equity vs IHSG)")
+                    st.caption("Grafik ini menggunakan data **Total Equity riil** dari tab 💰 Equity, bukan dihitung dari jurnal transaksi.")
+                    equity_df = eq.load_equity()
+                    if equity_df.empty:
+                        st.info("📭 Belum ada data equity. Silakan catat snapshot equity pertama di tab **💰 Equity > Catat Snapshot**.")
+                    else:
+                        total_series = eq.total_equity_over_time(equity_df)
+                        total_series["Tanggal"] = pd.to_datetime(total_series["Tanggal"])
+                        total_series = total_series.sort_values("Tanggal")
+                        start_eq = float(total_series["Total Equity (Rp)"].iloc[0])
+                        total_series["Equity_Return_%"] = ((total_series["Total Equity (Rp)"] / start_eq) - 1) * 100
+                        
+                        eq_fd = total_series["Tanggal"].min()
+                        eq_ld = total_series["Tanggal"].max()
+                        ihsg_eq = ihsg_hist.copy()
+                        if ihsg_eq.index.tz is not None:
+                            ihsg_eq.index = ihsg_eq.index.tz_localize(None)
+                        ihsg_eq_range = ihsg_eq[(ihsg_eq.index >= eq_fd) & (ihsg_eq.index <= eq_ld)]
+                        
+                        fig_eq_cmp = go.Figure()
+                        fig_eq_cmp.add_trace(go.Scatter(
+                            x=total_series["Tanggal"],
+                            y=total_series["Equity_Return_%"],
                             mode="lines+markers",
-                            name="🟦 Portofolio Jurnal Real",
-                            line=dict(color="#38bdf8", width=2.5),
+                            name="🟦 Portfolio Equity (Real)",
+                            line=dict(color="#4ade80", width=2.5),
                             fill="tozeroy",
-                            fillcolor="rgba(56,189,248,0.10)",
+                            fillcolor="rgba(74,222,128,0.10)",
                         ))
-                        fig_cmp.add_trace(go.Scatter(
-                            x=ihsg_range.index,
-                            y=ihsg_range["IHSG_Return_%"],
-                            mode="lines",
-                            name="🟨 IHSG (Benchmark)",
-                            line=dict(color="#fbbf24", width=2.5, dash="dash"),
-                        ))
-                        fig_cmp.update_layout(
-                            height=380,
+                        if not ihsg_eq_range.empty and len(ihsg_eq_range) >= 2:
+                            ihsg_eq_base = float(ihsg_eq_range["Close"].iloc[0])
+                            ihsg_eq_range["IHSG_Return_%"] = ((ihsg_eq_range["Close"] / ihsg_eq_base) - 1) * 100
+                            fig_eq_cmp.add_trace(go.Scatter(
+                                x=ihsg_eq_range.index,
+                                y=ihsg_eq_range["IHSG_Return_%"],
+                                mode="lines",
+                                name="🟨 IHSG (Benchmark)",
+                                line=dict(color="#fbbf24", width=2.5, dash="dash"),
+                            ))
+                            last_eq_ret = total_series["Equity_Return_%"].iloc[-1]
+                            last_ihsg_ret = ihsg_eq_range["IHSG_Return_%"].iloc[-1]
+                            delta_eq = last_eq_ret - last_ihsg_ret
+                            m1, m2, m3, m4 = st.columns(4)
+                            m1.metric("Starting Equity", f"Rp{start_eq:,.0f}")
+                            latest_eq = float(total_series["Total Equity (Rp)"].iloc[-1])
+                            m2.metric("Latest Equity", f"Rp{latest_eq:,.0f}")
+                            m3.metric("Total Return", f"{last_eq_ret:+.2f}%")
+                            pf_display_eq = "∞" if stats_rj["profit_factor"] == float("inf") else f"{stats_rj['profit_factor']:.2f}"
+                            m4.metric("Profit Factor", pf_display_eq)
+                            total_series["Peak"] = total_series["Total Equity (Rp)"].cummax()
+                            total_series["Drawdown"] = (total_series["Total Equity (Rp)"] - total_series["Peak"]) / total_series["Peak"] * 100
+                            max_dd = total_series["Drawdown"].min()
+                            dd1, dd2 = st.columns(2)
+                            dd1.metric("Max Drawdown", f"{max_dd:.2f}%")
+                            if delta_eq > 0:
+                                dd2.success(f"🚀 Portfolio outperform IHSG by **{delta_eq:+.2f}%** (Equity: {last_eq_ret:+.2f}% vs IHSG: {last_ihsg_ret:+.2f}%)")
+                            else:
+                                dd2.warning(f"📉 Portfolio underperform IHSG by **{delta_eq:+.2f}%** (Equity: {last_eq_ret:+.2f}% vs IHSG: {last_ihsg_ret:+.2f}%)")
+                        else:
+                            st.caption("⚠️ Data IHSG tidak tersedia untuk periode equity.")
+                        fig_eq_cmp.update_layout(
+                            height=400,
                             template="plotly_dark",
-                            title="📊 Strategy Return (Trade-Based) vs IHSG",
+                            title="📊 Portfolio Equity Curve vs IHSG (Real Equity)",
                             yaxis_title="Return Kumulatif (%)",
                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                             margin=dict(l=10, r=10, t=60, b=10),
                             hovermode="x unified",
                         )
-                        st.plotly_chart(fig_cmp, use_container_width=True)
-                        
-                        lp = closed["Port_Return_%"].iloc[-1]
-                        li = ihsg_range["IHSG_Return_%"].iloc[-1]
-                        delta = lp - li
-                        if delta > 0:
-                            st.success(f"🚀 Portofolio mengungguli IHSG sebesar **{delta:+.2f}%** (Portofolio: {lp:+.2f}% vs IHSG: {li:+.2f}%)")
-                        else:
-                            st.warning(f"📉 Portofolio di bawah IHSG sebesar **{delta:+.2f}%** (Portofolio: {lp:+.2f}% vs IHSG: {li:+.2f}%)")
-            except Exception as e:
-                st.error(f"❌ Error grafik perbandingan: {e}")
-                import traceback
-                st.code(traceback.format_exc())
-            
-            st.divider()
-            
-            # =========================================================================
-            # GRAFIK 2: Equity Curve Riil vs IHSG
-            # =========================================================================
-            try:
-                st.markdown("### 💼 Portfolio Equity Curve (Real Equity vs IHSG)")
-                st.caption("Grafik ini menggunakan data **Total Equity riil** dari tab 💰 Equity, bukan dihitung dari jurnal transaksi.")
-                equity_df = eq.load_equity()
-                if equity_df.empty:
-                    st.info("📭 Belum ada data equity. Silakan catat snapshot equity pertama di tab **💰 Equity > Catat Snapshot**.")
-                else:
-                    total_series = eq.total_equity_over_time(equity_df)
-                    total_series["Tanggal"] = pd.to_datetime(total_series["Tanggal"])
-                    total_series = total_series.sort_values("Tanggal")
-                    start_eq = float(total_series["Total Equity (Rp)"].iloc[0])
-                    total_series["Equity_Return_%"] = ((total_series["Total Equity (Rp)"] / start_eq) - 1) * 100
-                    
-                    eq_fd = total_series["Tanggal"].min()
-                    eq_ld = total_series["Tanggal"].max()
-                    ihsg_eq = ihsg_hist.copy()
-                    if ihsg_eq.index.tz is not None:
-                        ihsg_eq.index = ihsg_eq.index.tz_localize(None)
-                    ihsg_eq_range = ihsg_eq[(ihsg_eq.index >= eq_fd) & (ihsg_eq.index <= eq_ld)]
-                    
-                    fig_eq_cmp = go.Figure()
-                    fig_eq_cmp.add_trace(go.Scatter(
-                        x=total_series["Tanggal"],
-                        y=total_series["Equity_Return_%"],
-                        mode="lines+markers",
-                        name="🟦 Portfolio Equity (Real)",
-                        line=dict(color="#4ade80", width=2.5),
-                        fill="tozeroy",
-                        fillcolor="rgba(74,222,128,0.10)",
-                    ))
-                    if not ihsg_eq_range.empty and len(ihsg_eq_range) >= 2:
-                        ihsg_eq_base = float(ihsg_eq_range["Close"].iloc[0])
-                        ihsg_eq_range["IHSG_Return_%"] = ((ihsg_eq_range["Close"] / ihsg_eq_base) - 1) * 100
-                        fig_eq_cmp.add_trace(go.Scatter(
-                            x=ihsg_eq_range.index,
-                            y=ihsg_eq_range["IHSG_Return_%"],
-                            mode="lines",
-                            name="🟨 IHSG (Benchmark)",
-                            line=dict(color="#fbbf24", width=2.5, dash="dash"),
-                        ))
-                        last_eq_ret = total_series["Equity_Return_%"].iloc[-1]
-                        last_ihsg_ret = ihsg_eq_range["IHSG_Return_%"].iloc[-1]
-                        delta_eq = last_eq_ret - last_ihsg_ret
-                        m1, m2, m3, m4 = st.columns(4)
-                        m1.metric("Starting Equity", f"Rp{start_eq:,.0f}")
-                        latest_eq = float(total_series["Total Equity (Rp)"].iloc[-1])
-                        m2.metric("Latest Equity", f"Rp{latest_eq:,.0f}")
-                        m3.metric("Total Return", f"{last_eq_ret:+.2f}%")
-                        pf_display_eq = "∞" if stats_rj["profit_factor"] == float("inf") else f"{stats_rj['profit_factor']:.2f}"
-                        m4.metric("Profit Factor", pf_display_eq)
-                        total_series["Peak"] = total_series["Total Equity (Rp)"].cummax()
-                        total_series["Drawdown"] = (total_series["Total Equity (Rp)"] - total_series["Peak"]) / total_series["Peak"] * 100
-                        max_dd = total_series["Drawdown"].min()
-                        dd1, dd2 = st.columns(2)
-                        dd1.metric("Max Drawdown", f"{max_dd:.2f}%")
-                        if delta_eq > 0:
-                            dd2.success(f"🚀 Portfolio outperform IHSG by **{delta_eq:+.2f}%** (Equity: {last_eq_ret:+.2f}% vs IHSG: {last_ihsg_ret:+.2f}%)")
-                        else:
-                            dd2.warning(f"📉 Portfolio underperform IHSG by **{delta_eq:+.2f}%** (Equity: {last_eq_ret:+.2f}% vs IHSG: {last_ihsg_ret:+.2f}%)")
-                    else:
-                        st.caption("⚠️ Data IHSG tidak tersedia untuk periode equity.")
-                    fig_eq_cmp.update_layout(
-                        height=400,
-                        template="plotly_dark",
-                        title="📊 Portfolio Equity Curve vs IHSG (Real Equity)",
-                        yaxis_title="Return Kumulatif (%)",
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                        margin=dict(l=10, r=10, t=60, b=10),
-                        hovermode="x unified",
-                    )
-                    st.plotly_chart(fig_eq_cmp, use_container_width=True)
-            except Exception as e:
-                st.error(f"❌ Error grafik equity: {e}")
-                import traceback
-                st.code(traceback.format_exc())
-            
-            st.divider()
-            st.markdown("**Riwayat Semua Trade**")
-            st.dataframe(trades_all, use_container_width=True, hide_index=True, height=350)
-            st.download_button(
-                "⬇️ Download CSV", trades_all.to_csv(index=False).encode("utf-8"),
-                file_name=f"jurnal_real_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv",
-                key="dl_jurnal_real",
-            )
+                        st.plotly_chart(fig_eq_cmp, use_container_width=True)
+                except Exception as e:
+                    st.error(f"❌ Error grafik equity: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+                
+                st.divider()
+                st.markdown("**Riwayat Semua Trade**")
+                st.dataframe(trades_all, use_container_width=True, hide_index=True, height=350)
+                st.download_button(
+                    "⬇️ Download CSV", trades_all.to_csv(index=False).encode("utf-8"),
+                    file_name=f"jurnal_real_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv",
+                    key="dl_jurnal_real",
+                )
         # --- Sub 4: Sekuritas ---
         with sub4:
             st.markdown("**Daftar Sekuritas & Biaya Transaksi**")
@@ -2150,6 +2175,10 @@ with t_sentiment:
     st.markdown("## 📰 Market Sentiment Analysis")
     st.caption("Agregasi sentimen dari berita pasar modal Indonesia. Update otomatis setiap 30 menit.")
     sentiment = fetch_sentiment_news()
+    if sentiment.get("is_fallback"):
+        st.warning("⚠️ **Berita di bawah ini CONTOH statis, BUKAN berita live** - `NEWSAPI_KEY` belum "
+                   "diisi di Settings > Secrets atau panggilan API gagal. Jangan jadikan headline & "
+                   "timestamp di bawah sebagai berita hari ini.")
     s1, s2, s3, s4 = st.columns(4)
     s1.metric("Positive", sentiment["positive"]); s2.metric("Negative", sentiment["negative"]); s3.metric("Neutral", sentiment["neutral"]); s4.metric("Sentiment Score", f"{sentiment['score']:+.1f}")
     st.markdown(f"""<div style="background:#1e293b;border-radius:10px;padding:14px;border:1px solid {sentiment['color']};margin:12px 0;"><div style="font-size:14px;color:{sentiment['color']};font-weight:700;">Overall Sentiment: {sentiment['overall']}</div></div>""", unsafe_allow_html=True)

@@ -134,6 +134,30 @@ class TestBuildTradeCandidates:
         if not out.empty:
             assert (out["RR"] >= 2.0).all()
 
+    def test_regime_bearish_kosongkan_kandidat(self):
+        # Entry=910 (dekat Donchian Low=900, jauh dari Donchian High=1000) -> RR tinggi
+        # (risk kecil, reward besar). Entry == Donchian High selalu menghasilkan RR == 1.0
+        # persis (Target = 2*High - Low, jadi Reward = High - Low = Risk kalau Entry = High) -
+        # itu sebabnya entry TIDAK dibuat sama dengan harga flat 1000 seperti fixture lain.
+        table = pd.DataFrame([
+            {"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 910.0, "Value Traded (Rp)": 5e9},
+        ])
+        price_data = {
+            "AAA": _flat_ohlcv(25, price=1000).assign(
+                **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)}
+            ),
+        }
+        out_bearish = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10,
+                                              require_bullish_regime=True, regime_status="BEARISH")
+        assert out_bearish.empty
+
+        out_bullish = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10,
+                                              require_bullish_regime=True, regime_status="BULLISH")
+        assert not out_bullish.empty
+
+        out_default = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
+        assert not out_default.empty  # require_bullish_regime default False - perilaku lama tidak berubah
+
 
 if __name__ == "__main__":
     import sys

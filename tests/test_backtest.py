@@ -7,7 +7,10 @@ import pandas as pd
 import pytest
 
 from screener import DEFAULT_PARAMS
-from backtest import run_historical_backtest, _walk_forward_single
+from backtest import (
+    run_historical_backtest, _walk_forward_single,
+    run_realistic_backtest, _simulate_realistic_trades_single, DEFAULT_FEE_PCT,
+)
 
 
 def _uptrend_df(n=200, start=1000, step=3):
@@ -76,6 +79,87 @@ class TestRunHistoricalBacktest:
 
     def test_price_data_kosong(self):
         hasil = run_historical_backtest({}, DEFAULT_PARAMS, forward_days=10)
+        assert hasil["summary"].empty
+        assert hasil["detail"].empty
+
+
+def _breakout_then_df(after_rows: list[dict], n_before=80, price=1000.0, volume=10_000_000.0) -> pd.DataFrame:
+    """80 hari flat (dengan satu Low direndahkan jadi 900 supaya channel Donchian punya
+    lebar, bukan nol) lalu 1 hari breakout (STRONG BUY, sama seperti pola di
+    test_screener.py::test_strong_buy_saat_breakout_dan_volume_tinggi), diikuti baris
+    tambahan custom (`after_rows`) untuk mengontrol apakah TP/SL/force-sell yang terjadi."""
+    idx = pd.date_range("2022-01-01", periods=n_before + 1 + len(after_rows), freq="B")
+    rows = [{"Open": price, "High": price, "Low": price, "Close": price, "Volume": volume}
+            for _ in range(n_before)]
+    rows[65]["Low"] = 900.0  # bikin donchian_low = 900 (channel width 100, bukan nol)
+    rows.append({"Open": 1080.0, "High": 1080.0, "Low": 1080.0, "Close": 1080.0, "Volume": 40_000_000.0})
+    rows.extend(after_rows)
+    return pd.DataFrame(rows, index=idx)
+
+
+class TestRealisticBacktest:
+    """entry=1080, Donchian High=1000, Donchian Low=900 (lebar channel 100) ->
+    Target = 1000 + (1000-900) = 1100, Stop Loss = 900."""
+
+    def test_tp_tersentuh_dipotong_fee(self):
+        after = [{"Open": 1085, "High": 1100, "Low": 1080, "Close": 1095, "Volume": 10_000_000}]
+        after += [{"Open": 1095, "High": 1095, "Low": 1095, "Close": 1095, "Volume": 10_000_000}] * 9
+        df = _breakout_then_df(after)
+        rows = _simulate_realistic_trades_single("AAA", df, DEFAULT_PARAMS, max_hold_days=10,
+                                                   step=5, min_rr=0, fee_pct=DEFAULT_FEE_PCT)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["Exit Reason"] == "TP"
+        assert r["Hold Days"] == 1
+        assert r["Entry"] == 1080.0 and r["Target"] == 1100.0 and r["Stop Loss"] == 900.0
+        expected_gross = (1100 - 1080) / 1080 * 100
+        assert r["Gross Return (%)"] == round(expected_gross, 2)
+        assert r["Net Return (%)"] == round(expected_gross - DEFAULT_FEE_PCT, 2)
+
+    def test_sl_tersentuh_lebih_rugi_dari_gross(self):
+        after = [{"Open": 1000, "High": 1000, "Low": 850, "Close": 900, "Volume": 10_000_000}]
+        after += [{"Open": 900, "High": 900, "Low": 900, "Close": 900, "Volume": 10_000_000}] * 9
+        df = _breakout_then_df(after)
+        rows = _simulate_realistic_trades_single("AAA", df, DEFAULT_PARAMS, max_hold_days=10,
+                                                   step=5, min_rr=0, fee_pct=DEFAULT_FEE_PCT)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["Exit Reason"] == "SL"
+        assert r["Hold Days"] == 1
+        assert r["Net Return (%)"] < r["Gross Return (%)"]  # fee menambah rugi
+        assert r["Net Return (%)"] < 0
+
+    def test_force_sell_setelah_max_hold_days_tanpa_tp_sl(self):
+        # Harga menetap di antara SL (900) dan Target (1100) selama 10 hari - tidak pernah kena TP/SL.
+        after = [{"Open": 1050, "High": 1080, "Low": 1020, "Close": 1050, "Volume": 10_000_000}] * 10
+        df = _breakout_then_df(after)
+        rows = _simulate_realistic_trades_single("AAA", df, DEFAULT_PARAMS, max_hold_days=10,
+                                                   step=5, min_rr=0, fee_pct=DEFAULT_FEE_PCT)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["Exit Reason"] == "FORCE SELL"
+        assert r["Hold Days"] == 10
+        assert r["Exit"] == 1050.0
+
+    def test_min_rr_filter_menolak_trade_rr_rendah(self):
+        # RR sebenarnya = (1100-1080)/(1080-900) = 20/180 = 0.11 -> di bawah ambang manapun >0.11
+        after = [{"Open": 1050, "High": 1080, "Low": 1020, "Close": 1050, "Volume": 10_000_000}] * 10
+        df = _breakout_then_df(after)
+        rows = _simulate_realistic_trades_single("AAA", df, DEFAULT_PARAMS, max_hold_days=10,
+                                                   step=5, min_rr=2.0, fee_pct=DEFAULT_FEE_PCT)
+        assert rows == []
+
+    def test_run_realistic_backtest_summary_dan_kolom_bersih(self):
+        after = [{"Open": 1085, "High": 1100, "Low": 1080, "Close": 1095, "Volume": 10_000_000}]
+        after += [{"Open": 1095, "High": 1095, "Low": 1095, "Close": 1095, "Volume": 10_000_000}] * 9
+        price_data = {"AAA": _breakout_then_df(after)}
+        hasil = run_realistic_backtest(price_data, DEFAULT_PARAMS, max_hold_days=10, step=5, min_rr=0)
+        assert not hasil["summary"].empty
+        assert "Win Rate Bersih (%)" in hasil["summary"].columns
+        assert "Rata-rata Return Bersih (%)" in hasil["summary"].columns
+
+    def test_price_data_kosong(self):
+        hasil = run_realistic_backtest({}, DEFAULT_PARAMS)
         assert hasil["summary"].empty
         assert hasil["detail"].empty
 

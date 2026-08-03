@@ -224,27 +224,85 @@ log lengkap tersimpan meski Bro tutup halamannya.
 
 Beda dengan Jurnal Backtest di atas (yang forward-testing - mulai mencatat sinyal dari
 sekarang ke depan), `backtest.py` menguji rule skor `screener.py` terhadap data HISTORIS
-(mundur ke belakang) untuk menjawab: seberapa akurat sebenarnya sinyal STRONG BUY/BUY ini
-kalau diuji ke banyak saham & banyak titik waktu di masa lalu?
+(mundur ke belakang). Ada DUA pertanyaan berbeda yang dijawab, jangan dicampur:
+
+1. **Apakah skornya prediktif?** (`run_historical_backtest`) - return fixed-horizon N hari
+   sesudah sinyal, dibandingkan LINTAS SEMUA jenis Signal (STRONG BUY, BUY, HOLD, SELL, dst.)
+   dengan metrik yang sama. TANPA fee, TANPA TP/SL - exit-nya murni tanggal.
+2. **Kalau beneran dieksekusi, untung bersih berapa?** (`run_realistic_backtest`) - simulasi
+   trade nyata HANYA untuk sinyal yang benar-benar dibeli sistem live (STRONG BUY/BUY yang
+   lolos RR minimum), pakai Entry/Target/Stop Loss Donchian yang sama seperti
+   `build_trade_candidates()`, exit begitu TP/SL tersentuh atau force-sell kalau tidak,
+   DIPOTONG fee round-trip (default 0.40%, sama seperti default broker di Jurnal Real).
+   **Inilah yang harus dilihat untuk menjawab "apakah sistem ini profitable" - bukan #1.**
 
 Jalankan lokal (butuh koneksi internet ke Yahoo Finance, JANGAN dijalankan otomatis di
 dashboard supaya tidak boros quota):
 
 ```bash
 pip install -r requirements.txt
-python backtest.py --tickers BBCA,TLKM,ADRO,ASII,BMRI --years 3 --forward-days 10
+python backtest.py --tickers BBCA,TLKM,ADRO,ASII,BMRI --years 3 --forward-days 10 --max-hold-days 10
 ```
 
 Atau uji ke lebih banyak saham sekaligus (`--n` = jumlah saham pertama dari `tickers_idx.csv`):
 
 ```bash
-python backtest.py --n 200 --years 3 --forward-days 10
+python backtest.py --n 200 --years 3 --forward-days 10 --max-hold-days 10 --min-rr 2.0 --fee-pct 0.4
 ```
 
-Output berupa tabel ringkasan Win Rate & rata-rata return per jenis Signal (STRONG BUY, BUY,
-HOLD, dst.), plus file CSV detail tiap titik sinyal yang diuji. Mekanisme walk-forward-nya
+Output berupa DUA tabel ringkasan (satu untuk tiap pertanyaan di atas) plus dua file CSV
+detail (`backtest_detail_*.csv` dan `backtest_realistic_*.csv`). Mekanisme walk-forward-nya
 sudah diuji lewat unit test (`tests/test_backtest.py`) untuk memastikan tidak ada lookahead
 bias - skor di titik waktu manapun HANYA dihitung dari data sampai titik itu.
+
+**Catatan jujur soal keterbatasan backtest ini** (belum diperbaiki, harus disadari sebelum
+percaya angkanya):
+- **Survivorship bias**: `tickers_idx.csv` cuma berisi 615 saham yang aktif SEKARANG. Saham
+  yang delisting/suspend dalam periode backtest tidak ikut diuji, jadi hasil historis bisa
+  bias ke atas (lebih bagus dari kenyataan).
+- **Tidak ada slippage**: fee sudah dipotong, tapi eksekusi riil di harga pasti TIDAK selalu
+  bisa tepat di level Target/Stop Loss (gap, ARA/ARB, antrian order) - realisasi riil biasanya
+  sedikit lebih buruk dari simulasi.
+- Kalau sampel sinyal terlalu sedikit (saham ilikuid, periode pendek), Win Rate bisa terlihat
+  ekstrem (0% atau 100%) padahal cuma kebetulan statistik - jangan percaya angka dari <30 trade.
+
+### Hasil Validasi Parameter Default Saat Ini (Swing)
+
+Parameter default LAMA (`score_buy=4`, `min_rr=2.0`, force-sell 10 hari, TANPA filter regime
+IHSG) diuji lewat `run_realistic_backtest` di 615 saham/5 tahun **DAN** divalidasi
+out-of-sample (split waktu 60% awal cari parameter, 40% akhir uji buta). Hasilnya: net RUGI
+di periode out-of-sample (-152.9% dari 574 trade) meski kelihatan untung di periode yang
+dipakai cari parameter (+401.1%) - overfitting klasik.
+
+Parameter default SEKARANG (`score_buy=5`, `min_rr` Swing `=1.5`, force-sell Swing 15 hari,
+DENGAN filter "hanya trading saat IHSG di atas MA50") net PROFIT di IS (+461.7%/415 trade)
+*dan* OOS (+329.6%/308 trade), termasuk dengan pembatasan realistis "10 kandidat RR
+tertinggi per hari" (+472.8% IS, +285.3% OOS).
+
+**Stress-test lanjutan (multi-fold walk-forward + simulasi sequential no-overlap-per-saham)**
+menunjukkan filter regime MA50 memperbaiki hasil di SEMUA 5 fold kronologis dibanding tanpa
+filter sama sekali (baseline tanpa filter: net -667.9% sequential; dengan filter MA50: net
++673.4%) - bukti filter regime BENERAN bekerja, bukan kebetulan. Tapi robustness cek terhadap
+MA100/MA200 menunjukkan hasil SENSITIF terhadap pilihan lookback: MA50 (selaras dengan
+holding period 15 hari & Donchian lookback 20 hari) net positif dengan Sharpe-like 0.053;
+MA200 (terlalu lambat bereaksi utk sistem short-holding ini) net NEGATIF di SEMUA fold
+(-723.1%). **Kesimpulan jujur: ini edge yang nyata dan tervalidasi, tapi SEDANG (bukan
+garansi profit)** - 2 dari 5 fold tetap rugi, keuntungan terkonsentrasi di beberapa fold,
+dan "Max Drawdown" -369% adalah SUM return per-trade yang belum di-size (bukan drawdown
+portofolio riil - kalau tiap trade cuma 5% modal, translate ke ±-18% drawdown riil).
+
+**Filter regime IHSG ini HANYA divalidasi untuk Swing** (lookback Donchian 20 hari) - BELUM
+diuji untuk Day Trading (lookback 10 hari, holding 1-2 hari), makanya Day Trading TIDAK
+digate oleh kondisi IHSG dan tetap pakai `min_rr=2.0` yang lama. Kalau Bro mengubah parameter
+manapun lewat sidebar/`DEFAULT_PARAMS`, angka-angka di atas tidak lagi berlaku - validasi
+ulang dulu pakai `backtest.py` sebelum menganggap kombinasi baru itu aman.
+
+**Catatan disiplin statistik**: JANGAN mencari-cari kombinasi parameter lain hanya dengan
+melihat mana yang "menang" di backtest yang sama (itu data dredging lagi, persis kesalahan
+yang menghasilkan parameter default LAMA di atas). Kombinasi baru manapun HARUS lolos
+validasi out-of-sample (parameter dicari di satu periode, diuji BUTA di periode lain yang
+tidak pernah dilihat) sebelum dipercaya. Kelola posisi dengan risiko kecil per trade (lihat
+Kalkulator Manajemen Risiko) - ini alat bantu screening dengan edge sedang, bukan mesin uang.
 
 ## Cara Kerja Fitur Trading
 
@@ -254,14 +312,19 @@ bias - skor di titik waktu manapun HANYA dihitung dari data sampai titik itu.
 - Force-sell otomatis: BPJS ditutup paksa kalau lewat 1 hari, BSJP kalau lewat 2 hari (belum kena TP/SL)
 
 ### Swing Trading
-- Force-sell otomatis kalau sudah 10 hari dan belum kena TP atau SL
+- Force-sell otomatis kalau sudah 15 hari dan belum kena TP atau SL
 - Bisa dibuka kapan saja (pagi/sore), tidak terikat waktu seperti Day Trading
+- **Digate kondisi pasar**: cuma buka posisi baru kalau IHSG di atas MA50 (bisa dimatikan di
+  sidebar, tapi hasilnya tidak lagi terjamin sama seperti hasil backtest - lihat bagian
+  "Hasil Validasi Parameter Default" di atas)
 
 ### Perhitungan Entry / Target / Stop Loss (bukan persen tetap)
 - **Entry**: harga saat ini
 - **Stop Loss**: level terendah Donchian (struktural - beda tiap saham, bukan persen flat)
 - **Target**: proyeksi *measured move* = Donchian High + lebar channel (High − Low)
-- **RR (Risk:Reward)**: (Target − Entry) / (Entry − Stop Loss), tabel Top 10 hanya menampilkan RR ≥ ambang minimum (default 2:1)
+- **RR (Risk:Reward)**: (Target − Entry) / (Entry − Stop Loss), tabel Top 10 hanya menampilkan
+  RR ≥ ambang minimum - default **1.5:1 untuk Swing** (divalidasi), **2.0:1 untuk Day Trading**
+  (belum divalidasi ulang, dipertahankan dari default lama)
 
 ### Panel Moving Averages & Technical Indicators (tab Grafik Saham)
 Format meniru tampilan referensi Bro (MA5-MA200 Simple/Exponential dengan verdict Buy/Sell,

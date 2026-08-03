@@ -21,9 +21,19 @@ except ImportError:
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
+    # drive.file (BUKAN drive penuh): cukup untuk akses file yang sudah di-share ke Service
+    # Account ini (sheet POSISI dkk) - kalau key ini bocor, exposure-nya cuma sheet yang
+    # memang sudah di-share, bukan seluruh Drive pemiliknya.
+    "https://www.googleapis.com/auth/drive.file",
 ]
 SHEET_NAME = "POSISI"
+
+# Fee round-trip default (0.15% beli + 0.25% jual, sama seperti default broker di
+# real_journal.py) - Jurnal Backtest ini simulasi umum (bukan per-broker seperti Jurnal
+# Real), tapi P&L tanpa fee sama sekali akan systematically overstate profit dibanding
+# transaksi riil. Dipotong dari P&L supaya angka win rate/profit di tab Performance lebih
+# dekat ke kenyataan, bukan return kotor.
+FEE_PCT_ROUNDTRIP = 0.15 + 0.25
 
 # HEADERS DENGAN KOLOM LOT (kolom G)
 HEADERS = ["Tanggal Open", "Saham", "Harga Beli", "TP", "SL", "Tipe", 
@@ -171,9 +181,11 @@ def open_positions_from_candidates(candidates: pd.DataFrame, tipe: str) -> list[
 
 def auto_close_positions(price_lookup: dict) -> list[str]:
     """Cek semua posisi OPEN: tutup kalau TP/SL tersentuh, ATAU force-sell sesuai aturan waktu.
-    
+
     Aturan force-sell:
-    - SWING  : force sell kalau sudah 10 hari dan belum kena TP/SL.
+    - SWING  : force sell kalau sudah 15 hari dan belum kena TP/SL (dinaikkan dari 10 hari -
+      divalidasi lewat backtest realistis + out-of-sample: 15 hari net lebih profitable
+      daripada 10 hari di kedua periode uji, lihat README bagian "Backtest Historis").
     - BPJS   : force sell kalau sudah lewat 1 hari (mestinya keluar hari yang sama).
     - BSJP   : force sell kalau sudah lewat 2 hari (mestinya keluar besok pagi).
     
@@ -189,7 +201,7 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
     if df.empty or "Status" not in df.columns:
         return []
 
-    FORCE_SELL_HARI = {"SWING": 10, "BPJS": 1, "BSJP": 2}
+    FORCE_SELL_HARI = {"SWING": 15, "BPJS": 1, "BSJP": 2}
     closed = []
     
     # Ambil semua data dari sheet untuk mapping nomor baris yang akurat
@@ -225,7 +237,7 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
                 status_baru = "WIN (TP)"
             elif sl is not None and harga_live <= sl:
                 status_baru = "LOSS (SL)"
-            elif hari >= FORCE_SELL_HARI.get(tipe, 10):
+            elif hari >= FORCE_SELL_HARI.get(tipe, 15):
                 status_baru = f"FORCE SELL ({hari} hari)"
             
             if status_baru:
@@ -233,10 +245,13 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
                 sheet_row = _find_row_number(ws, kode, "OPEN")
                 
                 if sheet_row:
-                    # Hitung P&L dengan memperhitungkan Lot
-                    # 1 lot = 100 lembar
-                    pnl_rp = (harga_live - harga_beli) * 100 * lot
-                    pnl_pct = ((harga_live - harga_beli) / harga_beli) * 100
+                    # Hitung P&L dengan memperhitungkan Lot (1 lot = 100 lembar) DAN fee
+                    # round-trip - tanpa ini, P&L simulasi selalu lebih bagus dari yang bisa
+                    # dicapai transaksi riil (lihat FEE_PCT_ROUNDTRIP di atas).
+                    modal_rp = harga_beli * 100 * lot
+                    fee_rp = modal_rp * (FEE_PCT_ROUNDTRIP / 100)
+                    pnl_rp = (harga_live - harga_beli) * 100 * lot - fee_rp
+                    pnl_pct = (pnl_rp / modal_rp) * 100 if modal_rp > 0 else 0.0
                     
                     # Update kolom H sampai M (Tanggal Close, Harga Jual, P&L Rp, P&L %, Status, Hari)
                     ws.update(f"H{sheet_row}:M{sheet_row}", [[
