@@ -33,10 +33,10 @@ supaya tidak membebani quota Yahoo Finance tiap kali dashboard dibuka):
 
 Atau import langsung:
 
-    from screener import load_ticker_universe, fetch_price_history, DEFAULT_PARAMS
+    from screener import load_ticker_universe, get_price_history_with_report, DEFAULT_PARAMS
     from backtest import run_historical_backtest, run_realistic_backtest
     universe = load_ticker_universe()
-    price_data, failed_tickers = fetch_price_history(universe["Kode"].tolist()[:100], period="3y")
+    price_data, failed_tickers = get_price_history_with_report(universe["Kode"].tolist()[:100], period="3y")
     prediktif = run_historical_backtest(price_data, DEFAULT_PARAMS, forward_days=10)
     print(prediktif["summary"])
     realistis = run_realistic_backtest(price_data, DEFAULT_PARAMS)
@@ -251,7 +251,7 @@ def _main():
     ap.add_argument("--step", type=int, default=5, help="Jarak antar titik pengujian (hari bursa).")
     args = ap.parse_args()
 
-    from screener import load_ticker_universe, fetch_price_history
+    from screener import load_ticker_universe, get_price_history_with_report
 
     if args.tickers:
         tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
@@ -260,7 +260,7 @@ def _main():
         tickers = universe["Kode"].tolist()[: args.n]
 
     print(f"Mengambil data {len(tickers)} saham, {args.years} tahun terakhir dari Yahoo Finance...")
-    price_data, failed_tickers = fetch_price_history(tickers, period=f"{args.years}y")
+    price_data, failed_tickers = get_price_history_with_report(tickers, period=f"{args.years}y")
     print(f"Berhasil ambil {len(price_data)}/{len(tickers)} saham. Menjalankan backtest...")
     if failed_tickers:
         print(f"⚠️ {len(failed_tickers)} saham gagal diambil setelah retry (tidak ikut backtest): "

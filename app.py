@@ -11,7 +11,7 @@ import math
 import numpy as np
 from scipy import stats
 from scipy.stats import norm
-from screener import (DEFAULT_PARAMS, load_ticker_universe, fetch_price_history, build_screener_table,
+from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_with_report, build_screener_table,
                       build_trade_candidates, classify_daytrading_tipe, fetch_ihsg_history, market_regime,
                       _donchian_levels)
 from telegram_notify import send_telegram_message, format_watchlist_message
@@ -563,7 +563,7 @@ params = {"min_value_traded": min_vt * 1_000_000_000, "crash_veto": crash_veto, 
 tickers = universe["Kode"].tolist()[:int(n_scan)]
 if refresh: st.cache_data.clear()
 with st.spinner(f"Mengambil data live untuk {len(tickers)} saham..."):
-    price_data, failed_tickers = fetch_price_history(tickers)
+    price_data, failed_tickers = get_price_history_with_report(tickers)
     table = build_screener_table(price_data, universe, params)
     if table.empty: st.warning("Belum ada data yang berhasil diambil."); st.stop()
 if failed_tickers:

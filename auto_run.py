@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 from screener import (
-    DEFAULT_PARAMS, load_ticker_universe, fetch_price_history, build_screener_table,
+    DEFAULT_PARAMS, load_ticker_universe, get_price_history_with_report, build_screener_table,
     build_trade_candidates, classify_daytrading_tipe, fetch_ihsg_history, market_regime,
 )
 import gsheet_journal as gj
@@ -52,7 +52,7 @@ def main():
     tickers = universe["Kode"].tolist()[:N_SCAN]
 
     log(f"Mengambil data live Yahoo Finance untuk {len(tickers)} saham (bisa beberapa menit)...")
-    price_data, failed_tickers = fetch_price_history(tickers)
+    price_data, failed_tickers = get_price_history_with_report(tickers)
     log(f"Berhasil ambil data {len(price_data)}/{len(tickers)} saham.")
     if failed_tickers:
         log(f"⚠️ {len(failed_tickers)} saham gagal diambil setelah retry: {', '.join(failed_tickers[:20])}"

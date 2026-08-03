@@ -464,15 +464,21 @@ def load_ticker_universe(path: str = "tickers_idx.csv") -> pd.DataFrame:
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def fetch_price_history(tickers: list[str], period: str = "1y",
-                         max_retries: int = 3) -> tuple[dict[str, pd.DataFrame], list[str]]:
+def _fetch_price_history_cached_v2(tickers: list[str], period: str = "1y",
+                                    max_retries: int = 3) -> dict[str, pd.DataFrame]:
     """Ambil histori harga batch dari Yahoo Finance, dengan retry+backoff per chunk kalau
     gagal (rate-limit/timeout Yahoo Finance sering & transient - dulu satu chunk gagal
     langsung `continue` diam-diam, saham di chunk itu hilang dari scan TANPA ada yang tahu).
 
-    Return (results, failed_tickers) - failed_tickers berisi kode saham yang TETAP gagal
-    setelah semua retry, supaya caller bisa kasih tahu user "N saham gagal diambil" alih-alih
-    diam-diam menganggap hasil scan lengkap padahal sebagian hilang."""
+    Nama fungsi ini SENGAJA diberi suffix "_v2" dan dijadikan private (underscore) - supaya
+    dapat cache key BARU yang PASTI tidak bisa collide dengan cache lama di bawah nama
+    `fetch_price_history` (yang sebelumnya sempat berubah bentuk return-nya dari dict jadi
+    tuple lalu balik ke dict lagi - kalau nama fungsi TETAP SAMA, ada risiko nyata cache lama
+    dari Streamlit Cloud belum bersih saat redeploy dan bentuknya tidak cocok dengan kode baru
+    -> crash produksi. Ini persis yang terjadi & sudah diperbaiki dengan ganti nama ini, BUKAN
+    cuma mengandalkan asumsi "harusnya Streamlit auto-invalidate cache kalau kode berubah".
+    `fetch_price_history()` di bawah adalah wrapper PUBLIK TIDAK di-cache yang stabil - import
+    itu, bukan fungsi ini, dari luar modul."""
     import time
 
     results: dict[str, pd.DataFrame] = {}
@@ -506,6 +512,23 @@ def fetch_price_history(tickers: list[str], period: str = "1y",
                     results[kode] = df
             except Exception:
                 continue
+    return results
+
+
+def fetch_price_history(tickers: list[str], period: str = "1y") -> dict[str, pd.DataFrame]:
+    """Wrapper PUBLIK stabil - INI yang diimport dari luar modul, bukan
+    `_fetch_price_history_cached_v2` langsung. Selalu return dict SAJA (tidak pernah tuple),
+    supaya kalaupun implementasi di baliknya berubah lagi nanti, caller yang cuma butuh dict
+    harga tidak perlu ikut berubah."""
+    return _fetch_price_history_cached_v2(tickers, period)
+
+
+def get_price_history_with_report(tickers: list[str], period: str = "1y") -> tuple[dict[str, pd.DataFrame], list[str]]:
+    """Sama seperti fetch_price_history(), tapi juga kasih tahu saham mana yang gagal
+    diambil (setelah retry) - dict + list terpisah, TIDAK menyentuh cache key
+    `_fetch_price_history_cached_v2` sama sekali (fungsi ini sendiri tidak di-cache, murah,
+    cuma hitung selisih dua list). Pakai ini di app.py/auto_run.py/backtest.py."""
+    results = fetch_price_history(tickers, period)
     failed_tickers = [t for t in tickers if t not in results]
     return results, failed_tickers
 
