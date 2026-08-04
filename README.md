@@ -520,6 +520,15 @@ breadth balik ke 194 (cuma 6 saham dgn histori genuinely tipis/suspend yang ters
 dikecualikan), Market Health & Filter Trading kembali normal (DAY TRADE/SWING TRADE/HIGH
 muncul lagi), tanpa exception.
 
+**Kolom "Tanggal Harga" (Fitur Baru)** - laporan user lanjutan: harga MLPT di tab Kandidat
+nunjukin Rp1.925 padahal closing riil sudah Rp1.740. Dicek langsung ke data mentah Yahoo
+Finance: MLPT/MDIA memang belum di-update Yahoo utk closing hari terakhir saat itu (lag data
+di sisi Yahoo, bukan bug yang bisa diperbaiki dari kode kita - saham mid/small-cap sering
+lebih lambat update dibanding saham besar). Supaya user tidak mengira "Harga"/"Entry" selalu
+live hari ini, ditambah kolom **"Tanggal Harga"** di tab Kandidat & Semua (dari
+`compute_metrics()` - tanggal baris valid TERAKHIR yang benar-benar dipakai) - kalau
+tanggalnya bukan hari ini, itu tanda datanya lag, bukan error di app.
+
 ## Cara Kerja Fitur Trading
 
 ### Day Trading — BPJS & BSJP

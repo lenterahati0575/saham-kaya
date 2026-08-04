@@ -609,6 +609,11 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
 
     return {
         "Harga": close,
+        # Tanggal baris valid TERAKHIR yang benar-benar dipakai sbg "Harga" - Yahoo Finance
+        # kadang lag sampai ~1 hari bursa utk saham mid/small-cap (data hari terbaru belum
+        # settle), jadi "Harga" bisa merujuk ke penutupan KEMARIN/lusa, bukan selalu hari ini.
+        # Ditampilkan di UI supaya user tidak mengira ini selalu harga live hari ini.
+        "Tanggal Harga": last.name.strftime("%d %b") if hasattr(last.name, "strftime") else "-",
         "Perubahan %": change_pct,
         "Volume": volume,
         "Avg Volume 20D": avg_volume20,
@@ -694,7 +699,7 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
     out["Chart"] = out["Kode"].map(tradingview_url)
     
     cols = [
-        "Kode", "Nama", "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)",
+        "Kode", "Nama", "Harga", "Tanggal Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)",
         "Status Breakout", "Chart", "Layak Likuiditas", "Score", "Signal", 
         "Rekomendasi", "Confidence", "Alasan",
         "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",

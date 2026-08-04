@@ -797,7 +797,7 @@ with t_kandidat:
                     show[col] = show[col].map(lambda x: f"Rp{x:,.0f}" if pd.notnull(x) and x > 0 else "-")
         kolom_tampil = [
             "Kode", "Nama", "Signal", "Score",
-            "Rekomendasi", "RR", "Risiko %", "Entry", "Target", "Stop Loss", "SL Type",
+            "Rekomendasi", "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss", "SL Type",
             "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
             "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
         ]
@@ -900,7 +900,7 @@ with t_semua:
     view_display["Perubahan %"] = (view_display["Perubahan %"] * 100).map(lambda x: f"{x:+.2f}%")
     view_display["Value Traded (Rp)"] = view_display["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
     view_display["Volume Ratio"] = view_display["Volume Ratio"].map(lambda x: f"{x:.1f}x")
-    kolom_tampil2 = ["Kode", "Nama", "Signal", "Score", "Quality", "Quality Score", "Trend", "Smart Money", "Momentum", "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout", "Layak Likuiditas"]
+    kolom_tampil2 = ["Kode", "Nama", "Signal", "Score", "Quality", "Quality Score", "Trend", "Smart Money", "Momentum", "Harga", "Tanggal Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout", "Layak Likuiditas"]
     kolom_tampil2.insert(2, "Sektor")
     kolom_tampil2 = [col for col in kolom_tampil2 if col in view_display.columns]
     dataframe_with_chart(view_display[kolom_tampil2], kode_col="Kode", height=520, key="df_semua")
