@@ -529,6 +529,14 @@ live hari ini, ditambah kolom **"Tanggal Harga"** di tab Kandidat & Semua (dari
 `compute_metrics()` - tanggal baris valid TERAKHIR yang benar-benar dipakai) - kalau
 tanggalnya bukan hari ini, itu tanda datanya lag, bukan error di app.
 
+**Default "Jumlah saham dipindai" naik 200 → 400** - laporan user: Kandidat makin sedikit,
+Top 10 kosong. Dicek: BUKAN dari kolom Tanggal Harga (itu cuma tampilan) - di 200 saham
+alfabetis pertama, **133/194 (68,5%) kena SKIP (ILIKUID)**, tersisa cuma 1 STRONG BUY/0 BUY,
+Kandidat Day & Swing jadi kosong total. Sejak universe diperluas ke 962 saham resmi BEI,
+proporsi saham tidak likuid ikut naik - sample 200 alfabetis jadi terlalu kecil. Dicoba naikkan
+ke 400: STRONG BUY jadi 2, BUY jadi 2, Kandidat Day & Swing masing-masing muncul 1. Default
+dinaikkan ke 400 (bisa tetap diturunkan manual via slider kalau mau load lebih cepat).
+
 ## Cara Kerja Fitur Trading
 
 ### Day Trading — BPJS & BSJP

@@ -526,10 +526,13 @@ with st.sidebar:
                          help="Default 5 (bukan 4) - skor 4 net rugi setelah fee di backtest out-of-sample.")
     s = st.number_input("Skor maks. SELL", value=-2); ss = st.number_input("Skor maks. STRONG SELL", value=-4)
     st.divider()
-    n_scan = st.select_slider("Jumlah saham dipindai", options=[50, 100, 200, 400, 615, 962], value=200,
-                               help="962 = seluruh saham tercatat di IDX (per tickers_idx.csv resmi BEI). "
-                                    "Makin banyak saham dipindai, makin banyak request ke Yahoo Finance - "
-                                    "bisa lebih lambat/rawan rate-limit.")
+    n_scan = st.select_slider("Jumlah saham dipindai", options=[50, 100, 200, 400, 615, 962], value=400,
+                               help="Default 400 (bukan 200) - sejak universe diperluas ke 962 saham resmi "
+                                    "BEI, proporsi saham tidak likuid (SKIP ILIKUID) ikut naik, jadi sample "
+                                    "200 saham alfabetis pertama kadang terlalu kecil utk konsisten dapat "
+                                    "kandidat Day/Swing Trade. 962 = seluruh saham tercatat di IDX. Makin "
+                                    "banyak saham dipindai, makin banyak request ke Yahoo Finance - bisa "
+                                    "lebih lambat/rawan rate-limit.")
     universe_filter = st.selectbox("Universe Saham", ["Semua", "Syariah (ISSI)", "Konvensional"], index=0,
                                     help="Filter saham yang DIPINDAI berdasarkan keanggotaan ISSI resmi BEI "
                                          "(Indeks Saham Syariah Indonesia). 'Semua' = 962 saham penuh, "
