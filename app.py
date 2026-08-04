@@ -267,6 +267,32 @@ def astro_cycle_analysis(current_date=None):
         if 0 <= days_diff <= 7: recent_events.append({"event": f"Fib {fd} dari New Moon", "date": target.strftime("%Y-%m-%d"), "days_left": days_diff, "type": "🌑 Lunar-Fib"})
     return {"moon": moon, "planets": planet_positions, "conjunctions": conjunctions, "events": recent_events}
 
+# Periode SINODIK planet asli (hari kalender, angka astronomi standar - BUKAN dikira-kira),
+# dikonversi ke hari bursa (x5/7) spy konsisten dgn pivot yg dihitung dari index harian bursa.
+# Gaya "Sun-Jupiter Cycle"/"Venus Synodic" yg dipakai Astronacci/Eye of Future dkk - SUDAH diuji
+# ke 10 tahun data IHSG asli (154 pivot terdeteksi, metodologi sama dgn Time Cycle Gann/Fib):
+# hit rate 40.7%, SETARA kontrol hari acak (42.8%) & baseline semua hari (42.6%) - TIDAK
+# terbukti lebih prediktif utk IHSG. Lihat README > "Validasi Siklus Planet".
+PLANET_SYNODIC_DAYS_BURSA = {
+    "Mercury": 83, "Venus": 417, "Mars": 557,
+    "Jupiter": 285, "Saturn": 270, "Uranus": 264, "Neptune": 262,
+}
+
+def planetary_cycle_analysis(pivot_low_date, pivot_high_date, current_date=None):
+    if current_date is None: current_date = datetime.now()
+    all_cycles = []
+    for source_name, start_date in [("Pivot Low", pivot_low_date), ("Pivot High", pivot_high_date)]:
+        if start_date is None:
+            continue
+        for planet, days in PLANET_SYNODIC_DAYS_BURSA.items():
+            target_date = start_date + timedelta(days=days)
+            days_from_now = (target_date - current_date).days
+            all_cycles.append({"source": source_name, "planet": planet, "days": days,
+                                "date": target_date.strftime("%Y-%m-%d"),
+                                "days_from_now": days_from_now, "passed": days_from_now < 0})
+    all_cycles.sort(key=lambda x: x["days_from_now"])
+    return all_cycles
+
 # Domain resmi berita finansial Indonesia - membatasi hasil NewsAPI supaya tidak kena
 # artikel PR global tak relevan yang kebetulan cocok kata kunci longgar (mis. boilerplate
 # "the Company's common stock" di press release GlobeNewswire yang tidak ada hubungan
@@ -2384,6 +2410,29 @@ with t_astro:
             st.markdown(f"""<div style="background:#713f12;border-radius:8px;padding:12px;border:1px solid #eab308;"><div style="font-size:13px;color:#fde047;font-weight:700;">⚡ MODERATE ALERT</div><div style="font-size:12px;color:#fbbf24;margin-top:4px;">{moon['name']} terdeteksi — sentimen pasar bisa berubah drastis.<br>Gunakan position size lebih kecil dari biasanya.</div></div>""", unsafe_allow_html=True)
         else:
             st.markdown(f"""<div style="background:#0f172a;border-radius:8px;padding:12px;border:1px solid #334155;"><div style="font-size:13px;color:#4ade80;font-weight:700;">✅ NORMAL</div><div style="font-size:12px;color:#94a3b8;margin-top:4px;">Tidak ada astro-anomaly. Trading sesuai plan biasa.</div></div>""", unsafe_allow_html=True)
+    st.divider()
+    st.markdown("### 🪐 Siklus Planet (Synodic)")
+    st.warning("⚠️ **Sudah diuji secara historis** (IHSG 10 tahun, 154 pivot terdeteksi, metodologi "
+               "sama dgn Time Cycle Gann/Fibonacci di tab IHSG Analysis): siklus sinodik planet "
+               "(gaya Sun-Jupiter Cycle/Venus Synodic yang dipakai Astronacci/Eye of Future dkk) "
+               "sesudah sebuah pivot TIDAK lebih sering bertepatan dengan reversal dibanding hari "
+               "acak manapun (hit rate 40.7%, kontrol acak 42.8%, baseline semua hari 42.6% - "
+               "semuanya setara). Anggap ini referensi eksploratif ala astrologi finansial, BUKAN "
+               "sinyal dengan bukti statistik untuk IHSG.")
+    pl_raw, _pl_price_raw = ihsg_gann_data.get('pivot_low', (None, None))
+    ph_raw, _ph_price_raw = ihsg_gann_data.get('pivot_high', (None, None))
+    pl_date_planet = pl_raw.to_pydatetime() if isinstance(pl_raw, pd.Timestamp) else None
+    ph_date_planet = ph_raw.to_pydatetime() if isinstance(ph_raw, pd.Timestamp) else None
+    planet_cycles = planetary_cycle_analysis(pl_date_planet, ph_date_planet)
+    upcoming_planet = [c for c in planet_cycles if not c['passed'] and c['days_from_now'] <= 180]
+    if upcoming_planet:
+        planet_df = pd.DataFrame(upcoming_planet[:15])
+        planet_df['Status'] = planet_df['days_from_now'].apply(lambda x: "🔴 HARI INI" if x == 0 else ("🟠 DEKAT (<7h)" if x <= 7 else ("🟡 MINGGU INI" if x <= 14 else "🟢 AKAN DATANG")))
+        styler_planet = planet_df[['source', 'planet', 'days', 'date', 'days_from_now', 'Status']].style
+        styler_planet = styler_planet.map(lambda val: "background-color:#7f1d1d;color:#fca5a5;font-weight:bold;" if "HARI INI" in val else ("background-color:#7c2d12;color:#fdba74;font-weight:bold;" if "DEKAT" in val else "background-color:#713f12;color:#fde047;" if "MINGGU" in val else "background-color:#0f172a;color:#94a3b8;"), subset=['Status'])
+        st.dataframe(styler_planet, use_container_width=True, hide_index=True, height=300)
+    else:
+        st.info("Tidak ada siklus planet dalam 180 hari ke depan.")
     st.divider()
     st.caption("🔮 **Disclaimer:** Astro-cycle adalah probabilitas psikologis/seasonal, bukan sains eksak. "
                "Time Cycle Gann yang jadi salah satu komponennya SUDAH diuji historis untuk IHSG dan hit "

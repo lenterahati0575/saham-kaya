@@ -537,6 +537,37 @@ proporsi saham tidak likuid ikut naik - sample 200 alfabetis jadi terlalu kecil.
 ke 400: STRONG BUY jadi 2, BUY jadi 2, Kandidat Day & Swing masing-masing muncul 1. Default
 dinaikkan ke 400 (bisa tetap diturunkan manual via slider kalau mau load lebih cepat).
 
+## Validasi Siklus Planet (Sun-Jupiter Cycle, Venus Synodic, dst - gaya Astronacci/Eye of Future)
+
+User menonton video kreator finansial yang percaya diri memprediksi titik balik IHSG/gold/
+bitcoin lewat siklus planet (heliocentric synodic cycle), dengan klaim "terbukti sejalan
+bertahun-tahun". Diuji dengan metodologi PERSIS SAMA seperti Time Cycle Gann/Fibonacci di atas
+(IHSG 10 tahun, 154 pivot fractal window) - cuma cycle days-nya diganti periode SINODIK planet
+asli (angka astronomi standar, bukan reka-reka): Mercury 115.88 hari, Venus 583.92, Mars
+779.94, Jupiter 398.88, Saturn 378.09, Uranus 369.66, Neptune 367.49 (dikonversi ke hari
+bursa).
+
+**Hasil: hit rate 40.7%** - SETARA kontrol hari acak (42.8%) dan baseline semua hari (42.6%),
+persis pola yang sama dengan Gann (40.3%) dan Fibonacci (40.4%). Siklus planet TIDAK terbukti
+lebih prediktif untuk IHSG - strike ke-4 untuk kategori "time cycle" setelah Gann, Fibonacci,
+dan cross-sectional momentum/rotasi sektor yang juga sudah diuji dan gagal (lihat bagian
+eksplorasi pola dagang).
+
+**Kesimpulan yang disampaikan ke user**: testimoni "terbukti membantu hindari bearish market"
+kemungkinan besar bukan karena keakuratan siklus planetnya secara spesifik, tapi karena nasihat
+umum "hindari beli saat market turun panjang" itu benar dan berguna - dan itu bisa dicapai
+dengan cara yang jauh lebih sederhana & sudah tervalidasi statistik di app ini (filter regime
+IHSG > MA50), bukan perlu siklus planet. Presenter yang menggambar kotak prediksi di sekitar
+titik yang SUDAH terjadi (bukan diverifikasi independen sebelum kejadian) adalah pola
+confirmation bias klasik, bukan bukti prediktif.
+
+**Tetap dibangun** (fitur baru "🪐 Siklus Planet (Synodic)" di tab Astronacci) atas permintaan
+eksplisit user - sesuai prinsip "jangan hapus fitur eksploratif, buat jujur" yang sudah
+diterapkan ke Gann/Fibonacci/ML Signal: ditampilkan APA ADANYA dengan disclaimer jujur di atas
+tabel (bukan disembunyikan atau dihapus), supaya user (yang mengaku masih baru belajar di
+market) bisa tetap mengamati siklusnya sebagai referensi eksploratif, dengan ekspektasi yang
+benar soal keakuratannya.
+
 ## Cara Kerja Fitur Trading
 
 ### Day Trading — BPJS & BSJP
