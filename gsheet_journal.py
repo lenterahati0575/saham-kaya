@@ -197,17 +197,38 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
     """
     ws = _get_worksheet()
     df = load_positions()
-    
+
     if df.empty or "Status" not in df.columns:
         return []
 
+    open_df = df[df["Status"] == "OPEN"]
+
+    # Lengkapi price_lookup dgn saham yg posisinya OPEN tapi TIDAK masuk batch yang baru
+    # dipindai dashboard (mis. di luar window alfabetis "Jumlah saham dipindai" default) -
+    # tanpa ini, posisi itu di-skip via `continue` di bawah dan TIDAK PERNAH bisa dicek
+    # TP/SL/force-sell SELAMANYA, walau sudah jauh lewat batas waktunya. Bug nyata yang
+    # ditemukan dari laporan user - 9 dari 14 posisi OPEN saat itu di luar window scan
+    # default (400), makanya "Cek TP/SL & Force-Sell" tidak bisa menutup apa-apa baik
+    # manual maupun otomatis (dua-duanya pakai price_lookup yang sama, terbatas ke scan).
+    price_lookup = dict(price_lookup)
+    missing_kode = [k for k in open_df["Saham"].unique() if k not in price_lookup]
+    if missing_kode:
+        from screener import fetch_price_history
+        try:
+            missing_price_data = fetch_price_history(missing_kode, period="5d")
+            for kode, df_price in missing_price_data.items():
+                if not df_price.empty and "Close" in df_price.columns:
+                    price_lookup[kode] = float(df_price["Close"].iloc[-1])
+        except Exception:
+            pass  # kalau fetch tambahan gagal (mis. rate-limit), lanjut dgn price_lookup yg ada
+
     FORCE_SELL_HARI = {"SWING": 15, "BPJS": 1, "BSJP": 2}
     closed = []
-    
+
     # Ambil semua data dari sheet untuk mapping nomor baris yang akurat
     all_values = ws.get_all_values()
 
-    for idx, row in df[df["Status"] == "OPEN"].iterrows():
+    for idx, row in open_df.iterrows():
         try:
             kode = row["Saham"]
             harga_live = price_lookup.get(kode)

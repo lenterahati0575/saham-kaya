@@ -568,6 +568,34 @@ tabel (bukan disembunyikan atau dihapus), supaya user (yang mengaku masih baru b
 market) bisa tetap mengamati siklusnya sebagai referensi eksploratif, dengan ekspektasi yang
 benar soal keakuratannya.
 
+## Bug Kritis: Posisi OPEN di Luar Window Scan TIDAK PERNAH Bisa Ditutup
+
+**Laporan user**: tombol "Cek TP/SL & Force-Sell" (manual maupun otomatis - dua-duanya
+memanggil fungsi yang sama) tidak bisa menutup posisi tertentu, berapa lama pun ditunggu.
+
+**Akar masalah**: `auto_close_positions(price_lookup)` di `gsheet_journal.py` cuma bisa
+mengecek TP/SL/force-sell untuk saham yang harganya ADA di `price_lookup` - yang dibangun
+dari `table` hasil scan dashboard SAAT ITU (dibatasi "Jumlah saham dipindai", default
+alfabetis dari 962 saham). Kalau saham posisi OPEN itu di luar batch yang baru dipindai,
+`price_lookup.get(kode)` return `None` dan kode langsung `continue` (skip) - posisi itu
+TIDAK PERNAH dicek lagi, walau sudah jauh lewat TP/SL/batas hari force-sell-nya. Dicek
+langsung ke sheet POSISI user: **9 dari 14 posisi OPEN saat itu (FILM, ADMR, BELL, GPSO,
+FWCT, NICL, TOBA, MBMA, PANI) berada di luar window scan default (400 dari 962 saham)** -
+selamanya tidak bisa ditutup otomatis maupun manual, karena keduanya pakai `price_lookup`
+yang sama.
+
+**Fix**: `auto_close_positions()` sekarang cari SENDIRI saham OPEN yang tidak ada di
+`price_lookup` yang diberikan, fetch harga tambahan khusus untuk itu (`fetch_price_history()`
+dari `screener.py`, cuma utk saham yang perlu - bukan fetch ulang semuanya), baru lanjut
+proses pengecekan TP/SL/force-sell utk SEMUA posisi OPEN, bukan cuma yang kebetulan masuk
+scan. Kalau fetch tambahan itu sendiri gagal (mis. rate-limit), tidak crash - lanjut dgn
+apa yang sudah ada.
+
+Test baru (`tests/test_gsheet_journal.py`, 3 test, mock Google Sheets & fetch harga):
+memverifikasi saham di luar `price_lookup` tetap ter-fetch & tercek, saham yang sudah ada
+di `price_lookup` tidak perlu fetch ulang (efisien), dan kegagalan fetch tambahan tidak
+bikin seluruh fungsi crash.
+
 ## Cara Kerja Fitur Trading
 
 ### Day Trading — BPJS & BSJP
