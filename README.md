@@ -635,6 +635,35 @@ Test baru (`tests/test_gsheet_journal.py`, 2 test): verifikasi `WIB` = zona wakt
 `Asia/Jakarta` yang benar, dan timestamp yang ditulis `open_positions_from_candidates()`
 memang dekat dengan jam WIB saat ini (bukan UTC).
 
+## Efek Musiman IHSG (Seasonality) - Fitur Baru, Beda Kelas dari Gann/Astronacci
+
+User menonton video YouTube yang mengklaim "Juli selalu hijau/bullish untuk IHSG tiap
+tahunnya". Diuji dulu ke data harga IHSG asli **36 tahun** (1990-2026, via
+`yf.download(period="max")` - bukan 10 tahun spt uji Gann/Astronacci sebelumnya, krn data
+musiman butuh sampel sebanyak mungkin) sebelum dipercaya atau dibangun jadi fitur.
+
+**Hasil**: klaim "selalu hijau" TERBUKTI BERLEBIHAN (12 dari 37 Juli justru merah, termasuk
+-9,8% di 1996 dan -9,7% di 1999) - TAPI ada tendensi nyata: Juli memang salah satu bulan
+terkuat (67,6% tahun hijau, rata-rata +1,7%), walau **Desember justru lebih kuat lagi**
+(86,1% hijau, rata-rata +3,8%). Ini BEDA KELAS dari Gann/Fibonacci Time Cycle & siklus
+planet Astronacci yang sudah diuji dan gagal - efek musiman ini pola NYATA dari data harga
+historis asli (dikenal luas di literatur keuangan sbg "efek kalender"), bukan numerologi.
+Tapi tetap cuma tendensi PROBABILISTIK (~50-86% tergantung bulan), bukan garansi, dan
+sampel per bulan kalender cuma puluhan titik data (jangan dianggap presisi statistik kuat).
+
+**Fitur baru**: `ihsg_seasonality()` di `screener.py` - resample harga bulanan, hitung
+rata-rata return + win rate per bulan kalender dari histori sebanyak yang tersedia.
+Ditampilkan di tab **IHSG Analysis** (bagian akhir): kartu "Bulan Ini" (highlight status
+historis kuat/lemah/netral bulan berjalan) + tabel 12 bulan lengkap dgn baris bulan-ini
+disorot. **SENGAJA TIDAK dimasukkan ke logika Score/Signal/Rekomendasi sistem** - ini
+referensi tambahan untuk pertimbangan user sendiri, beda dgn filter regime IHSG > MA50
+yang sudah divalidasi ketat lewat backtest realistis + out-of-sample sbg bagian dari
+strategi trading aktif.
+
+Test baru (`tests/test_screener.py`, 5 test, data sintetis terkontrol): verifikasi
+avg_return & win_rate dihitung persis benar (bukan cuma "jalan tanpa error"), urutan bulan
+Jan-Des, dan guard data kosong/terlalu pendek.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

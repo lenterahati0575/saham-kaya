@@ -13,7 +13,7 @@ from scipy import stats
 from scipy.stats import norm
 from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_with_report, build_screener_table,
                       build_trade_candidates, classify_daytrading_tipe, fetch_ihsg_history, market_regime,
-                      _donchian_levels, fetch_index_snapshot)
+                      _donchian_levels, fetch_index_snapshot, ihsg_seasonality)
 from telegram_notify import send_telegram_message, format_watchlist_message
 import gsheet_journal as gj
 import indicators as ind
@@ -2350,6 +2350,40 @@ with t_ihsg:
             st.markdown(f"""<div style="background:#0f172a;border-radius:8px;padding:10px;border:1px solid #334155;"><div style="font-size:12px;color:#94a3b8;line-height:1.6;">1. <b>Entry:</b> Tunggu break above R1 ({g['resistance']['R1_45°']:,.0f}) dengan volume<br>2. <b>Stop Loss:</b> Di bawah S2 ({g['support']['S2_90°']:,.0f})<br>3. <b>Target:</b> R3 ({g['resistance']['R3_180°']:,.0f}) atau R4 ({g['resistance']['R4_360°']:,.0f})<br>4. <b>Risiko:</b> Jangan all-in saat time cycle aktif</div></div>""", unsafe_allow_html=True)
         st.divider()
         st.caption("🔮 **Disclaimer:** Gann & Time Cycle adalah probabilitas, bukan ramalan pasti. Selalu gunakan stop loss dan manajemen risiko.")
+
+        # ------------------------------------------------------------------------
+        # Efek Musiman (Seasonality) - beda kelas dgn Gann/Time Cycle di atas: ini pola
+        # NYATA dari data harga historis (bukan numerologi), diminta user setelah nonton
+        # klaim "Juli selalu hijau" di YouTube - dicek dulu ke 36 tahun data IHSG asli
+        # (1990-sekarang) sebelum dibangun, ternyata BENAR ada tendensi (bukan "selalu",
+        # tapi Juli 67.6% tahun hijau - salah satu yang terkuat, walau Desember lebih
+        # kuat lagi 86.1%). Lihat README > "Efek Musiman".
+        st.divider()
+        st.markdown("### 📅 Efek Musiman IHSG (Seasonality)")
+        ihsg_long = fetch_ihsg_history(period="max")
+        season = ihsg_seasonality(ihsg_long)
+        if season.empty:
+            st.info("Data historis panjang belum tersedia utk analisis musiman.")
+        else:
+            st.caption(f"Return bulanan rata-rata per bulan kalender, dari {int(season['n_tahun'].max())} "
+                       "tahun histori IHSG (1990-sekarang). Pola NYATA dari data harga asli - bukan "
+                       "numerologi seperti Gann/Astronacci - tapi tetap TENDENSI probabilistik "
+                       "(bukan garansi 100%), dan sampel per bulan cuma puluhan titik data.")
+            bulan_ini_idx = datetime.now().month - 1
+            bulan_ini = season.iloc[bulan_ini_idx]
+            label = "🟢 HISTORIS KUAT" if bulan_ini["win_rate"] >= 60 else ("🔴 HISTORIS LEMAH" if bulan_ini["win_rate"] < 50 else "🟡 HISTORIS NETRAL")
+            st.markdown(f"""<div style="background:#1e293b;border-radius:10px;padding:14px;border:1px solid #334155;margin-bottom:12px;"><div style="font-size:12px;color:#94a3b8;">BULAN INI: {bulan_ini['Bulan'].upper()}</div><div style="font-size:16px;font-weight:700;color:#38bdf8;margin-top:4px;">{label}</div><div style="font-size:12px;color:#cbd5e1;margin-top:4px;">Rata-rata return: {bulan_ini['avg_return']:+.1f}% &middot; Win rate: {bulan_ini['win_rate']:.1f}% dari {int(bulan_ini['n_tahun'])} tahun</div></div>""", unsafe_allow_html=True)
+            season_disp = season.copy()
+            season_disp["avg_return"] = season_disp["avg_return"].map(lambda x: f"{x:+.1f}%")
+            season_disp["win_rate"] = season_disp["win_rate"].map(lambda x: f"{x:.1f}%")
+            season_disp.columns = ["Bulan", "Rata-rata Return", "Win Rate", "N Tahun"]
+            def _highlight_bulan_ini(row):
+                return ["background-color:#1e3a5f;font-weight:bold;" if row.name == bulan_ini_idx else "" for _ in row]
+            st.dataframe(season_disp.style.apply(_highlight_bulan_ini, axis=1), use_container_width=True, hide_index=True, height=460)
+            st.caption("⚠️ **Bukan sinyal trading otomatis** - ini referensi musiman utk pertimbangan tambahan "
+                       "Bro sendiri, BUKAN dimasukkan ke logika Score/Signal/Rekomendasi sistem (belum diuji "
+                       "cukup ketat sbg strategi trading, beda dgn filter regime IHSG > MA50 yang sudah "
+                       "divalidasi lewat backtest realistis + out-of-sample).")
 
 # ============================================================================
 # TAB 13: CORRELATION MATRIX (Dari app_premium_complete.py)

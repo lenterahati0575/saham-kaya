@@ -825,6 +825,39 @@ def fetch_ihsg_history(period: str = "3mo") -> pd.DataFrame:
         return pd.DataFrame()
 
 
+_BULAN_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+
+
+def ihsg_seasonality(df_long: pd.DataFrame) -> pd.DataFrame:
+    """Ringkas return bulanan IHSG per bulan kalender dari histori panjang (idealnya
+    period="max" - dicoba sampai 1990, lihat README > "Efek Musiman"). Return rata-rata
+    return bulanan + win rate (% tahun hijau) per bulan Jan-Des, dari histori SEBANYAK yang
+    tersedia (BUKAN cuma 1 tahun terakhir - itu bukan bukti apa-apa, cuma kebetulan).
+
+    CATATAN JUJUR: ini pola musiman NYATA dari data harga historis (bukan numerologi kayak
+    Gann/Astronacci) - tapi tetap tendensi probabilistik (~50-86% tahun sesuai arah rata-rata,
+    tidak pernah 100%), BUKAN garansi bulan tertentu akan hijau/merah. Sampel makin kecil kalau
+    dipecah per bulan (~30-37 titik data per bulan dari data 1990-sekarang) - jangan dianggap
+    presisi statistik yang kuat, apalagi utk memprediksi TAHUN INI spesifik.
+    """
+    if df_long is None or df_long.empty or len(df_long) < 60:
+        return pd.DataFrame()
+    monthly_close = df_long["Close"].resample("ME").last()
+    monthly_ret = monthly_close.pct_change().dropna() * 100
+    if monthly_ret.empty:
+        return pd.DataFrame()
+    tbl = monthly_ret.to_frame("ret")
+    tbl["bulan"] = tbl.index.month
+    summary = tbl.groupby("bulan")["ret"].agg(
+        avg_return="mean",
+        win_rate=lambda x: (x > 0).mean() * 100,
+        n_tahun="count",
+    ).reindex(range(1, 13))
+    summary.index = _BULAN_ID
+    summary.index.name = "Bulan"
+    return summary.reset_index()
+
+
 # IDX30 & SRI-KEHATI TIDAK dimasukkan - sudah dicoba beberapa kemungkinan simbol Yahoo
 # Finance (^IDX30, ^JKIDX30, ^JKSRI, IDX30.JK) dan semuanya 404/kosong. Cuma 3 index ini
 # yang terkonfirmasi punya data historis valid dari Yahoo Finance (gratis).

@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from screener import DEFAULT_PARAMS, compute_metrics, market_regime, build_trade_candidates
+from screener import DEFAULT_PARAMS, compute_metrics, market_regime, build_trade_candidates, ihsg_seasonality
 
 
 def _flat_ohlcv(n: int, price: float = 1000.0, volume: float = 2_000_000.0) -> pd.DataFrame:
@@ -186,6 +186,67 @@ class TestBuildTradeCandidates:
         out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10,
                                       total_equity=100.0, risk_pct=1.0)
         assert out.empty
+
+
+class TestIhsgSeasonality:
+    """ihsg_seasonality() - fitur Efek Musiman, diminta user setelah nonton klaim 'Juli
+    selalu hijau' di YouTube. Diuji dgn data sintetis 3 tahun yang Januari-nya SENGAJA
+    selalu naik dan Februari-nya SENGAJA selalu turun, supaya avg_return & win_rate bisa
+    diverifikasi persis (bukan cuma "jalan tanpa error")."""
+
+    def _build_synthetic_monthly_df(self):
+        # Titik "akhir bulan" yang nilainya dikontrol persis (dipakai resample().last())
+        end_dates = [pd.Timestamp(2020, 1, 31), pd.Timestamp(2020, 2, 29)]
+        end_dates += [pd.Timestamp(2020, m, 28) for m in range(3, 13)]
+        end_dates += [pd.Timestamp(2021, 1, 31), pd.Timestamp(2021, 2, 28)]
+        end_dates += [pd.Timestamp(2021, m, 28) for m in range(3, 13)]
+        end_dates += [pd.Timestamp(2022, 1, 31), pd.Timestamp(2022, 2, 28)]
+        end_dates += [pd.Timestamp(2022, m, 28) for m in range(3, 13)]
+        end_closes = (
+            [100, 90] + list(range(91, 101))       # 2020: Jan=100, Feb=90 (-10%), Mar..Des naik ke 100
+            + [110, 99] + list(range(100, 110))    # 2021: Jan=110 (+10%), Feb=99 (-10%), Mar..Des ke 109
+            + [120, 108] + list(range(109, 119))   # 2022: Jan=120 (+10.09%), Feb=108 (-10%), Mar..Des
+        )
+        assert len(end_dates) == len(end_closes) == 36
+        # ihsg_seasonality() butuh >=60 baris MENTAH (jaga2 dari data harian yg jelas kurang) -
+        # tambah baris "isian" di awal tiap bulan (SEBELUM tanggal akhir bulan di atas, jadi
+        # tidak pernah jadi baris TERAKHIR yg diambil resample().last()) supaya total baris
+        # cukup, tanpa mengubah nilai akhir bulan yang sudah dikontrol persis di atas.
+        filler_dates = [d.replace(day=1) + pd.Timedelta(days=i) for d in end_dates for i in range(3)]
+        filler_closes = [c for c in end_closes for _ in range(3)]  # nilai isian tidak relevan
+        all_dates = filler_dates + end_dates
+        all_closes = filler_closes + end_closes
+        df = pd.DataFrame({"Close": all_closes}, index=pd.DatetimeIndex(all_dates)).sort_index()
+        assert len(df) >= 60
+        return df
+
+    def test_januari_selalu_naik_win_rate_100(self):
+        result = ihsg_seasonality(self._build_synthetic_monthly_df())
+        jan = result[result["Bulan"] == "Jan"].iloc[0]
+        assert jan["win_rate"] == 100.0
+        assert jan["n_tahun"] == 2  # Jan 2020 tidak punya "return" (tidak ada Des 2019)
+        assert jan["avg_return"] == pytest.approx(10.05, abs=0.1)
+
+    def test_februari_selalu_turun_win_rate_0(self):
+        result = ihsg_seasonality(self._build_synthetic_monthly_df())
+        feb = result[result["Bulan"] == "Feb"].iloc[0]
+        assert feb["win_rate"] == 0.0
+        assert feb["n_tahun"] == 3
+        assert feb["avg_return"] == pytest.approx(-10.0, abs=0.1)
+
+    def test_urutan_bulan_jan_sampai_des(self):
+        result = ihsg_seasonality(self._build_synthetic_monthly_df())
+        assert result["Bulan"].tolist() == ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul",
+                                             "Agu", "Sep", "Okt", "Nov", "Des"]
+
+    def test_data_kosong_return_dataframe_kosong(self):
+        assert ihsg_seasonality(pd.DataFrame()).empty
+        assert ihsg_seasonality(None).empty
+
+    def test_data_terlalu_pendek_return_kosong(self):
+        short_df = pd.DataFrame({"Close": [100, 101]},
+                                 index=pd.date_range("2024-01-01", periods=2))
+        assert ihsg_seasonality(short_df).empty
 
 
 if __name__ == "__main__":
