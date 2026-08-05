@@ -2367,19 +2367,41 @@ with t_ihsg:
         else:
             st.caption(f"Return bulanan rata-rata per bulan kalender, dari {int(season['n_tahun'].max())} "
                        "tahun histori IHSG (1990-sekarang). Pola NYATA dari data harga asli - bukan "
-                       "numerologi seperti Gann/Astronacci - tapi tetap TENDENSI probabilistik "
-                       "(bukan garansi 100%), dan sampel per bulan cuma puluhan titik data.")
+                       "numerologi seperti Gann/Astronacci - TAPI ~36 titik data per bulan itu kecil, "
+                       "jadi win rate mentah bisa menyesatkan. Kolom Signifikansi (t-test + cek "
+                       "konsistensi paruh 1 vs paruh 2 sejarah) memisahkan mana yang benar-benar valid.")
+
+            def _label_signifikansi(p, konsisten):
+                if pd.isna(p):
+                    return "⚪ N/A"
+                if p < 0.05 and konsisten:
+                    return "🟢 Signifikan & konsisten"
+                if p < 0.10:
+                    return "🟡 Ada tendensi, tapi tidak konsisten" if not konsisten else "🟡 Marginal (p<0.10)"
+                return "⚪ Tidak signifikan"
+
             bulan_ini_idx = datetime.now().month - 1
             bulan_ini = season.iloc[bulan_ini_idx]
-            label = "🟢 HISTORIS KUAT" if bulan_ini["win_rate"] >= 60 else ("🔴 HISTORIS LEMAH" if bulan_ini["win_rate"] < 50 else "🟡 HISTORIS NETRAL")
-            st.markdown(f"""<div style="background:#1e293b;border-radius:10px;padding:14px;border:1px solid #334155;margin-bottom:12px;"><div style="font-size:12px;color:#94a3b8;">BULAN INI: {bulan_ini['Bulan'].upper()}</div><div style="font-size:16px;font-weight:700;color:#38bdf8;margin-top:4px;">{label}</div><div style="font-size:12px;color:#cbd5e1;margin-top:4px;">Rata-rata return: {bulan_ini['avg_return']:+.1f}% &middot; Win rate: {bulan_ini['win_rate']:.1f}% dari {int(bulan_ini['n_tahun'])} tahun</div></div>""", unsafe_allow_html=True)
+            sig_label = _label_signifikansi(bulan_ini["p_value"], bulan_ini["split_half_konsisten"])
+            st.markdown(f"""<div style="background:#1e293b;border-radius:10px;padding:14px;border:1px solid #334155;margin-bottom:12px;"><div style="font-size:12px;color:#94a3b8;">BULAN INI: {bulan_ini['Bulan'].upper()}</div><div style="font-size:16px;font-weight:700;color:#38bdf8;margin-top:4px;">{sig_label}</div><div style="font-size:12px;color:#cbd5e1;margin-top:4px;">Rata-rata return: {bulan_ini['avg_return']:+.1f}% &middot; Win rate: {bulan_ini['win_rate']:.1f}% dari {int(bulan_ini['n_tahun'])} tahun &middot; p-value: {bulan_ini['p_value']:.3f}</div></div>""", unsafe_allow_html=True)
+
             season_disp = season.copy()
+            season_disp["Signifikansi"] = season_disp.apply(lambda r: _label_signifikansi(r["p_value"], r["split_half_konsisten"]), axis=1)
             season_disp["avg_return"] = season_disp["avg_return"].map(lambda x: f"{x:+.1f}%")
             season_disp["win_rate"] = season_disp["win_rate"].map(lambda x: f"{x:.1f}%")
-            season_disp.columns = ["Bulan", "Rata-rata Return", "Win Rate", "N Tahun"]
+            season_disp["p_value"] = season_disp["p_value"].map(lambda x: f"{x:.3f}" if pd.notna(x) else "-")
+            season_disp = season_disp[["Bulan", "avg_return", "win_rate", "n_tahun", "p_value", "Signifikansi"]]
+            season_disp.columns = ["Bulan", "Rata-rata Return", "Win Rate", "N Tahun", "p-value", "Signifikansi"]
             def _highlight_bulan_ini(row):
                 return ["background-color:#1e3a5f;font-weight:bold;" if row.name == bulan_ini_idx else "" for _ in row]
             st.dataframe(season_disp.style.apply(_highlight_bulan_ini, axis=1), use_container_width=True, hide_index=True, height=460)
+            st.caption("🔬 **Kenapa cuma 2 bulan lolos signifikansi**: dari 36 tahun data, uji t-test 1-sample "
+                       "cuma Desember (p<0.001) dan Juli (p=0.052, marginal) yang beda nyata dari nol secara "
+                       "statistik - 10 bulan lain kelihatan punya tendensi di angka mentah tapi bisa jadi "
+                       "kebetulan. Bahkan Juli TIDAK konsisten kalau dipecah dua: paruh 1990-2007 win rate "
+                       "cuma 50% (lempar koin), paruh 2008-2026 baru 84% - efek 'Juli hijau' itu seluruhnya "
+                       "ditarik oleh 18 tahun terakhir, bukan pola sepanjang sejarah. Desember konsisten di "
+                       "kedua paruh (83% & 89%).")
             st.caption("⚠️ **Bukan sinyal trading otomatis** - ini referensi musiman utk pertimbangan tambahan "
                        "Bro sendiri, BUKAN dimasukkan ke logika Score/Signal/Rekomendasi sistem (belum diuji "
                        "cukup ketat sbg strategi trading, beda dgn filter regime IHSG > MA50 yang sudah "

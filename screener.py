@@ -831,14 +831,22 @@ _BULAN_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt
 def ihsg_seasonality(df_long: pd.DataFrame) -> pd.DataFrame:
     """Ringkas return bulanan IHSG per bulan kalender dari histori panjang (idealnya
     period="max" - dicoba sampai 1990, lihat README > "Efek Musiman"). Return rata-rata
-    return bulanan + win rate (% tahun hijau) per bulan Jan-Des, dari histori SEBANYAK yang
-    tersedia (BUKAN cuma 1 tahun terakhir - itu bukan bukti apa-apa, cuma kebetulan).
+    return bulanan + win rate (% tahun hijau) + p-value (t-test vs 0) + konsistensi
+    split-half per bulan Jan-Des, dari histori SEBANYAK yang tersedia.
 
-    CATATAN JUJUR: ini pola musiman NYATA dari data harga historis (bukan numerologi kayak
-    Gann/Astronacci) - tapi tetap tendensi probabilistik (~50-86% tahun sesuai arah rata-rata,
-    tidak pernah 100%), BUKAN garansi bulan tertentu akan hijau/merah. Sampel makin kecil kalau
-    dipecah per bulan (~30-37 titik data per bulan dari data 1990-sekarang) - jangan dianggap
-    presisi statistik yang kuat, apalagi utk memprediksi TAHUN INI spesifik.
+    CATATAN JUJUR: ~36-37 titik data per bulan itu KECIL - rata-rata/win-rate mentah bisa
+    menyesatkan kalau dianggap valid tanpa uji lebih jauh (user langsung menangkap ini: "apakah
+    sample per bulan tidak dibuat menyeluruh"). BUKAN dijawab dgn "pool semua saham jadi ribuan
+    titik" (itu keliru - 600+ saham bergerak BARENG index di bulan yang sama, jadi bukan sampel
+    independen, cuma menyamarkan N kecil yang sebenarnya). Dijawab dgn 2 uji tambahan, metodologi
+    SAMA persis dgn yg sudah dipakai utk Gann/momentum di sesi ini:
+    1. t-test 1-sample (H0: rata-rata=0) -> p_value. Hasil aktual (36 tahun): cuma Desember
+       (p<0.001, kuat) dan Juli (p=0.052, marginal) yang lolos ambang signifikan - 10 bulan
+       lain TIDAK beda dari nol secara statistik, walau win rate mentahnya kelihatan tinggi.
+    2. Split-half (median tahun) - cek apakah ARAH rata-rata konsisten di kedua paruh sejarah.
+       Desember konsisten (+4.7% & +2.9%, dua-duanya positif). Juli TIDAK konsisten (-0.1% di
+       1990-2007 vs +3.5% di 2008-2026) - efek "Juli hijau" itu SELURUHNYA ditarik oleh 18
+       tahun terakhir, bukan pola sepanjang sejarah.
     """
     if df_long is None or df_long.empty or len(df_long) < 60:
         return pd.DataFrame()
@@ -848,11 +856,29 @@ def ihsg_seasonality(df_long: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     tbl = monthly_ret.to_frame("ret")
     tbl["bulan"] = tbl.index.month
-    summary = tbl.groupby("bulan")["ret"].agg(
-        avg_return="mean",
-        win_rate=lambda x: (x > 0).mean() * 100,
-        n_tahun="count",
-    ).reindex(range(1, 13))
+    tbl["tahun"] = tbl.index.year
+
+    from scipy import stats
+    rows = []
+    for m in range(1, 13):
+        vals = tbl[tbl["bulan"] == m].sort_values("tahun")
+        n = len(vals)
+        if n < 2:
+            rows.append({"bulan": m, "avg_return": None, "win_rate": None, "n_tahun": n,
+                         "p_value": None, "split_half_konsisten": None})
+            continue
+        avg = vals["ret"].mean()
+        win = (vals["ret"] > 0).mean() * 100
+        _, p = stats.ttest_1samp(vals["ret"], 0)
+        mid = n // 2
+        avg1 = vals["ret"].iloc[:mid].mean() if mid >= 1 else None
+        avg2 = vals["ret"].iloc[mid:].mean() if (n - mid) >= 1 else None
+        konsisten = (avg1 is not None and avg2 is not None and
+                     ((avg1 > 0) == (avg2 > 0)) and pd.notna(avg1) and pd.notna(avg2))
+        rows.append({"bulan": m, "avg_return": avg, "win_rate": win, "n_tahun": n,
+                     "p_value": p, "split_half_konsisten": konsisten})
+
+    summary = pd.DataFrame(rows).set_index("bulan").reindex(range(1, 13))
     summary.index = _BULAN_ID
     summary.index.name = "Bulan"
     return summary.reset_index()

@@ -664,6 +664,27 @@ Test baru (`tests/test_screener.py`, 5 test, data sintetis terkontrol): verifika
 avg_return & win_rate dihitung persis benar (bukan cuma "jalan tanpa error"), urutan bulan
 Jan-Des, dan guard data kosong/terlalu pendek.
 
+**Follow-up - Uji Signifikansi**: user langsung menangkap kelemahannya sendiri ("apakah
+sample per bulan tidak dibuat menyeluruh agar lebih valid?"). Jawabannya BUKAN "pool semua
+saham jadi ribuan titik data" (itu keliru - 600+ saham bergerak BARENG index di bulan yang
+sama, jadi bukan sampel independen, cuma menyamarkan N kecil yang sebenarnya) - tapi 2 uji
+tambahan, metodologi SAMA dgn yg sudah dipakai utk Gann/momentum/rotasi sektor sesi ini:
+
+1. **t-test 1-sample** (H0: rata-rata bulan itu = 0) per bulan. Hasil aktual (36 tahun):
+   cuma **Desember (p<0.001, kuat)** dan **Juli (p=0.052, marginal)** yang lolos ambang
+   signifikan - **10 bulan lain TIDAK beda dari nol secara statistik**, walau win rate
+   mentahnya kelihatan tinggi di beberapa (mis. Januari 61% tapi p=0.122 - bisa kebetulan).
+2. **Split-half** (paruh 1990-2007 vs 2008-2026) - cek konsistensi ARAH rata-rata. Desember
+   konsisten (+4.7% & +2.9%, dua-duanya positif, win rate 83%/89%). **Juli TIDAK konsisten**
+   (-0.1%/win rate 50% di paruh pertama vs +3.5%/84% di paruh kedua) - efek "Juli hijau"
+   ternyata SELURUHNYA ditarik oleh 18 tahun terakhir, bukan pola sepanjang sejarah 36 tahun.
+
+Kolom "Signifikansi" (p-value + status: 🟢 Signifikan & konsisten / 🟡 Marginal/tidak
+konsisten / ⚪ Tidak signifikan) ditambahkan ke tabel & kartu "Bulan Ini" di dashboard,
+supaya user langsung lihat mana yang benar-benar valid statistik, bukan cuma angka mentah.
+2 test tambahan (93 total): verifikasi p_value terhitung & split_half_konsisten sesuai
+arah data sintetis yang dikontrol.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

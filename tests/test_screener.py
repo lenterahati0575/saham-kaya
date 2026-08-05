@@ -248,6 +248,18 @@ class TestIhsgSeasonality:
                                  index=pd.date_range("2024-01-01", periods=2))
         assert ihsg_seasonality(short_df).empty
 
+    def test_split_half_konsisten_kalau_arah_sama_di_kedua_paruh(self):
+        # Januari SENGAJA selalu naik di kedua tahun (2021 & 2022) - split-half harus konsisten.
+        result = ihsg_seasonality(self._build_synthetic_monthly_df())
+        jan = result[result["Bulan"] == "Jan"].iloc[0]
+        assert jan["split_half_konsisten"] == True
+
+    def test_p_value_terhitung_bukan_none_kalau_n_cukup(self):
+        result = ihsg_seasonality(self._build_synthetic_monthly_df())
+        feb = result[result["Bulan"] == "Feb"].iloc[0]
+        assert feb["p_value"] is not None
+        assert 0 <= feb["p_value"] <= 1
+
 
 if __name__ == "__main__":
     import sys
