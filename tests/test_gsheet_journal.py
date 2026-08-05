@@ -34,6 +34,31 @@ def _mock_worksheet():
     return ws
 
 
+class TestEnrichPriceLookup:
+    """enrich_price_lookup() dipakai BARENG oleh auto_close_positions() dan tampilan debug
+    tabel "Posisi yang dicek" di app.py - dulu dua tempat itu pakai sumber data yang beda
+    (satu dilengkapi, satu tidak), bikin debug tabel kelihatan "N/A" padahal logika
+    penutupan sebenarnya sudah benar. Sekarang harus konsisten."""
+
+    def test_saham_yang_kurang_di_fetch_dan_ditambahkan(self):
+        with patch("screener.fetch_price_history", return_value={"ZZZZ": pd.DataFrame({"Close": [123.0]})}) as mock_fetch:
+            result = gj.enrich_price_lookup({"AAAA": 100.0}, ["AAAA", "ZZZZ"])
+        mock_fetch.assert_called_once_with(["ZZZZ"], period="5d")
+        assert result == {"AAAA": 100.0, "ZZZZ": 123.0}
+
+    def test_tidak_ada_yang_kurang_tidak_fetch(self):
+        with patch("screener.fetch_price_history") as mock_fetch:
+            result = gj.enrich_price_lookup({"AAAA": 100.0}, ["AAAA"])
+        mock_fetch.assert_not_called()
+        assert result == {"AAAA": 100.0}
+
+    def test_tidak_mutasi_dict_asli(self):
+        original = {"AAAA": 100.0}
+        with patch("screener.fetch_price_history", return_value={"ZZZZ": pd.DataFrame({"Close": [123.0]})}):
+            gj.enrich_price_lookup(original, ["AAAA", "ZZZZ"])
+        assert original == {"AAAA": 100.0}  # dict asli caller tidak boleh berubah
+
+
 class TestAutoClosePositionsMissingTicker:
     """Saham OPEN yang tidak ada di price_lookup (di luar batch scan) harus tetap bisa dicek,
     bukan di-skip selamanya - itu bug nyata yang ditemukan dari laporan user (9 dari 14

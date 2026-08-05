@@ -591,10 +591,28 @@ proses pengecekan TP/SL/force-sell utk SEMUA posisi OPEN, bukan cuma yang kebetu
 scan. Kalau fetch tambahan itu sendiri gagal (mis. rate-limit), tidak crash - lanjut dgn
 apa yang sudah ada.
 
-Test baru (`tests/test_gsheet_journal.py`, 3 test, mock Google Sheets & fetch harga):
+Test baru (`tests/test_gsheet_journal.py`, 6 test, mock Google Sheets & fetch harga):
 memverifikasi saham di luar `price_lookup` tetap ter-fetch & tercek, saham yang sudah ada
 di `price_lookup` tidak perlu fetch ulang (efisien), dan kegagalan fetch tambahan tidak
 bikin seluruh fungsi crash.
+
+**Follow-up fix**: setelah fix di atas dipush, user lapor tabel debug "Posisi yang dicek"
+di tombol "Cek TP/SL & Force-Sell" MASIH menampilkan "N/A" utk saham yang sama - ternyata
+tabel debug itu baca `price_lookup` MENTAH (dari caller di `app.py`), BUKAN versi yang sudah
+dilengkapi di dalam `auto_close_positions()` - dua sumber data berbeda, jadi user melihat
+"N/A" yang menyesatkan padahal logika penutupan sebenarnya (di baliknya) sudah benar.
+Diperbaiki dengan mengekstrak logika pelengkapan itu jadi fungsi terpisah
+`enrich_price_lookup()`, dipakai BARENG oleh tabel debug DAN `auto_close_positions()` -
+supaya apa yang user lihat konsisten dgn apa yang sistem pakai untuk memutuskan. Sekaligus
+tombol "Buka Posisi Day/Swing" & "Cek TP/SL" direstruktur - hasilnya (termasuk tabel debug)
+sekarang dirender di LUAR kolom 3-tombol (lebar penuh halaman), dulu kejepit di 1/3 lebar
+halaman.
+
+## Default Universe Saham: Syariah (ISSI)
+
+Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah
+(ISSI)"** (649 saham) - bukan "Semua" (962 saham) lagi. Tetap bisa diganti manual ke "Semua"
+atau "Konvensional" kapan saja.
 
 ## Cara Kerja Fitur Trading
 

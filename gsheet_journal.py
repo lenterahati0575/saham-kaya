@@ -179,6 +179,32 @@ def open_positions_from_candidates(candidates: pd.DataFrame, tipe: str) -> list[
     return opened
 
 
+def enrich_price_lookup(price_lookup: dict, tickers_needed) -> dict:
+    """Lengkapi `price_lookup` dgn harga saham yang dibutuhkan tapi TIDAK ada di dalamnya
+    (mis. posisi OPEN pada saham di luar window scan dashboard) - fetch harga tambahan
+    khusus utk saham yang kurang saja, bukan fetch ulang semuanya.
+
+    SENGAJA diekspos sbg fungsi terpisah (dipakai bareng oleh `auto_close_positions()` DAN
+    tampilan debug tabel "Posisi yang dicek" di app.py) - dulu debug tabel itu baca
+    `price_lookup` yang BELUM dilengkapi (langsung dari caller), sementara
+    `auto_close_positions()` melengkapinya sendiri secara internal - user melihat debug
+    tabel bilang "N/A" (kelihatan seperti bug) padahal logika penutupan di baliknya sudah
+    benar. Sekarang keduanya pakai fungsi yang SAMA, supaya apa yang user LIHAT konsisten
+    dengan apa yang sistem benar-benar pakai untuk memutuskan tutup/tidak."""
+    price_lookup = dict(price_lookup)
+    missing = [k for k in tickers_needed if k not in price_lookup]
+    if missing:
+        from screener import fetch_price_history
+        try:
+            missing_price_data = fetch_price_history(missing, period="5d")
+            for kode, df_price in missing_price_data.items():
+                if not df_price.empty and "Close" in df_price.columns:
+                    price_lookup[kode] = float(df_price["Close"].iloc[-1])
+        except Exception:
+            pass  # fetch tambahan gagal (mis. rate-limit) - lanjut dgn apa yang sudah ada
+    return price_lookup
+
+
 def auto_close_positions(price_lookup: dict) -> list[str]:
     """Cek semua posisi OPEN: tutup kalau TP/SL tersentuh, ATAU force-sell sesuai aturan waktu.
 
@@ -210,17 +236,7 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
     # ditemukan dari laporan user - 9 dari 14 posisi OPEN saat itu di luar window scan
     # default (400), makanya "Cek TP/SL & Force-Sell" tidak bisa menutup apa-apa baik
     # manual maupun otomatis (dua-duanya pakai price_lookup yang sama, terbatas ke scan).
-    price_lookup = dict(price_lookup)
-    missing_kode = [k for k in open_df["Saham"].unique() if k not in price_lookup]
-    if missing_kode:
-        from screener import fetch_price_history
-        try:
-            missing_price_data = fetch_price_history(missing_kode, period="5d")
-            for kode, df_price in missing_price_data.items():
-                if not df_price.empty and "Close" in df_price.columns:
-                    price_lookup[kode] = float(df_price["Close"].iloc[-1])
-        except Exception:
-            pass  # kalau fetch tambahan gagal (mis. rate-limit), lanjut dgn price_lookup yg ada
+    price_lookup = enrich_price_lookup(price_lookup, open_df["Saham"].unique())
 
     FORCE_SELL_HARI = {"SWING": 15, "BPJS": 1, "BSJP": 2}
     closed = []
