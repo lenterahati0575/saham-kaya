@@ -564,6 +564,10 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
     value_traded = close * avg_volume20
     layak_likuiditas = value_traded >= params["min_value_traded"]
     vol_ratio = (volume / avg_volume20) if avg_volume20 > 0 else 0
+    # Range harian (High-Low) sbg % Close - indikator volatilitas intraday hari itu, gaya
+    # kolom "Range (%)" di scanner eksternal (mis. berdagangangka.id) yg diminta user dibuat
+    # serupa. Beda dari ATR (rata-rata N hari) - ini murni rentang HARI INI saja.
+    range_pct = ((float(last["High"]) - float(last["Low"])) / close * 100) if close > 0 else 0
 
     hist = df.iloc[-(lookback + 1) : -1]
     donchian_high = float(hist["High"].max())
@@ -615,6 +619,7 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         # Ditampilkan di UI supaya user tidak mengira ini selalu harga live hari ini.
         "Tanggal Harga": last.name.strftime("%d %b") if hasattr(last.name, "strftime") else "-",
         "Perubahan %": change_pct,
+        "Range %": range_pct,
         "Volume": volume,
         "Avg Volume 20D": avg_volume20,
         "Value Traded (Rp)": value_traded,
@@ -699,7 +704,7 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
     out["Chart"] = out["Kode"].map(tradingview_url)
     
     cols = [
-        "Kode", "Nama", "Harga", "Tanggal Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)",
+        "Kode", "Nama", "Harga", "Tanggal Harga", "Perubahan %", "Range %", "Volume Ratio", "Value Traded (Rp)",
         "Status Breakout", "Chart", "Layak Likuiditas", "Score", "Signal", 
         "Rekomendasi", "Confidence", "Alasan",
         "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",

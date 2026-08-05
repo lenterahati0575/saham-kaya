@@ -936,6 +936,53 @@ with t_semua:
     st.caption(f"Menampilkan {len(view)} dari {len(table)} saham")
     st.download_button("⬇️ Download CSV", view_display[kolom_tampil2].to_csv(index=False).encode("utf-8"), file_name=f"semua_saham_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
 
+    # ------------------------------------------------------------------------
+    # Scanner Lonjakan Volume - diminta user setelah lihat tampilan scanner eksternal
+    # (mis. berdagangangka.id, kolom "Tria" mereka) yg sortir saham dgn rasio volume/value
+    # di atas rata-ratanya. "Volume Ratio" (Volume/rata-rata 20D) sudah ada di sistem ini
+    # sejak awal (bahkan sudah masuk Score) - ini cuma TAMPILAN baru yg menonjolkannya,
+    # bukan indikator baru. CATATAN JUJUR: kita tidak tahu formula pasti "Tria" mereka
+    # (proprietary) - Volume Ratio di sini dihitung dari VOLUME lembar saham, bukan Value
+    # Rupiah, jadi kemungkinan beda basis hitung meski konsepnya serupa.
+    st.divider()
+    with st.expander("🔥 Scanner Lonjakan Volume (gaya 'Tria' - Volume Ratio > 1)", expanded=False):
+        st.caption("Volume Ratio = Volume hari ini ÷ rata-rata Volume 20 hari. >1 = volume di atas "
+                   "kebiasaan (mirip filter 'Tria > 1' yang dicari di scanner eksternal) - BUKAN "
+                   "formula identik, cuma konsep serupa. Range % = rentang High-Low hari ini / Close.")
+        scan = table[table["Volume Ratio"] > 1].copy()
+        if scan.empty:
+            st.info("Tidak ada saham dgn Volume Ratio > 1 saat ini pada saham yang dipindai.")
+        else:
+            sc1, sc2 = st.columns(2)
+            scan_cols = ["Kode", "Nama", "Harga", "Perubahan %", "Range %", "Volume Ratio", "Value Traded (Rp)"]
+            with sc1:
+                st.markdown("**📈 Naik + Volume Tinggi**")
+                naik = scan[scan["Perubahan %"] > 0].sort_values("Volume Ratio", ascending=False).head(20).copy()
+                if naik.empty:
+                    st.caption("Tidak ada.")
+                else:
+                    naik["Harga"] = naik["Harga"].map(lambda x: f"Rp{x:,.0f}")
+                    naik["Perubahan %"] = (naik["Perubahan %"] * 100).map(lambda x: f"{x:+.2f}%")
+                    naik["Range %"] = naik["Range %"].map(lambda x: f"{x:.2f}%")
+                    naik["Volume Ratio"] = naik["Volume Ratio"].map(lambda x: f"{x:.2f}x")
+                    naik["Value Traded (Rp)"] = naik["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
+                    st.dataframe(naik[scan_cols], use_container_width=True, hide_index=True, height=400)
+            with sc2:
+                st.markdown("**📉 Turun + Volume Tinggi**")
+                turun = scan[scan["Perubahan %"] < 0].sort_values("Volume Ratio", ascending=False).head(20).copy()
+                if turun.empty:
+                    st.caption("Tidak ada.")
+                else:
+                    turun["Harga"] = turun["Harga"].map(lambda x: f"Rp{x:,.0f}")
+                    turun["Perubahan %"] = (turun["Perubahan %"] * 100).map(lambda x: f"{x:+.2f}%")
+                    turun["Range %"] = turun["Range %"].map(lambda x: f"{x:.2f}%")
+                    turun["Volume Ratio"] = turun["Volume Ratio"].map(lambda x: f"{x:.2f}x")
+                    turun["Value Traded (Rp)"] = turun["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
+                    st.dataframe(turun[scan_cols], use_container_width=True, hide_index=True, height=400)
+        st.caption("⚠️ Lonjakan volume BUKAN sinyal beli/jual otomatis - ini cuma penyaring awal "
+                   "(saham yang lagi 'ramai'), belum divalidasi sbg strategi trading tersendiri. "
+                   "Cek Score/Signal/Rekomendasi di tabel utama sebelum memutuskan.")
+
 # ============================================================================
 # TAB 3: GRAFIK SAHAM
 # ============================================================================

@@ -685,6 +685,27 @@ supaya user langsung lihat mana yang benar-benar valid statistik, bukan cuma ang
 2 test tambahan (93 total): verifikasi p_value terhitung & split_half_konsisten sesuai
 arah data sintetis yang dikontrol.
 
+## Scanner Lonjakan Volume (gaya "Tria") - Fitur Baru
+
+User menunjukkan screenshot scanner eksternal (berdagangangka.id) yang punya kolom "Tria"
+(dicari yang >1) + "Range (%)" + "AvgValTrx". Dicek: konsepnya **sudah ada** di sistem ini
+sejak awal - "Volume Ratio" (Volume hari ini ÷ rata-rata Volume 20 hari) sudah dihitung &
+bahkan sudah masuk Score (`vol_ratio > 1` = +2 poin, `>1.5` = +3 poin, `>3` = +2 poin
+tambahan). **CATATAN JUJUR**: formula "Tria" mereka proprietary (tidak dipublikasikan) -
+tidak bisa dipastikan identik; kemungkinan mereka pakai basis Value Traded (Rupiah), bukan
+Volume (lembar saham) seperti di sini.
+
+Ditambahkan 2 hal:
+1. **"Range %"** - kolom baru di `compute_metrics()` (`screener.py`): rentang High-Low
+   HARI ITU sbg % Close (beda dari ATR yang rata-rata N hari) - kolom ini yang belum ada
+   sebelumnya, sekarang ada di tabel "Semua" dan scanner baru.
+2. **Expander "🔥 Scanner Lonjakan Volume"** di tab Semua - 2 panel (Naik + Volume Tinggi /
+   Turun + Volume Tinggi), filter Volume Ratio > 1 (meniru filter mereka), sortir descending
+   by Volume Ratio, tampil Kode/Nama/Harga/Perubahan %/Range %/Volume Ratio/Value Traded.
+   **SENGAJA TIDAK dimasukkan ke Score/Signal** - ini penyaring awal ("saham lagi ramai"),
+   belum divalidasi sbg strategi trading tersendiri (beda dgn Volume Ratio yang sudah lama
+   jadi bagian Score yang tervalidasi).
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah
