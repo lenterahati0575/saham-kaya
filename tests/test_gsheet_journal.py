@@ -6,6 +6,7 @@ TP/SL/force-sell selamanya. Fix-nya: fetch harga tambahan khusus utk saham yang 
 tidak ada di price_lookup, sebelum loop pengecekan.
 """
 import sys
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -32,6 +33,35 @@ def _mock_worksheet():
         ["2026-07-20 10:00", "ZZZZ", "100", "110", "90", "SWING", "10", "", "", "", "", "OPEN", ""],
     ]
     return ws
+
+
+class TestTimestampPakaiWIB:
+    """Bug nyata dari laporan user: "Tanggal Open" tercatat jam 05:26 padahal posisi dibuka
+    12:26 WIB sebenarnya - datetime.now() polos di server (UTC) tidak dikonversi ke WIB,
+    sama persis kelas bug yang sudah diperbaiki di get_market_session() (app.py) tapi belum
+    diterapkan di gsheet_journal.py."""
+
+    def test_wib_adalah_asia_jakarta(self):
+        from zoneinfo import ZoneInfo
+        assert gj.WIB == ZoneInfo("Asia/Jakarta")
+
+    def test_tanggal_open_ditulis_pakai_jam_wib_bukan_utc(self):
+        candidates = pd.DataFrame([{"Saham": "ZZZZ", "Entry": 100.0, "Target": 110.0,
+                                     "Stop Loss": 90.0, "RR": 2.0}])
+        appended_rows = []
+        ws = MagicMock()
+        ws.append_row.side_effect = lambda row, **kw: appended_rows.append(row)
+
+        with patch.object(gj, "_get_worksheet", return_value=ws), \
+             patch.object(gj, "load_positions", return_value=pd.DataFrame(columns=gj.HEADERS)):
+            gj.open_positions_from_candidates(candidates, "SWING")
+
+        assert len(appended_rows) == 1
+        tanggal_open_tertulis = datetime.strptime(appended_rows[0][0], "%Y-%m-%d %H:%M")
+        # Bandingkan dgn jam WIB SAAT INI - toleransi beberapa menit (waktu eksekusi test),
+        # tapi HARUS dekat dgn WIB, bukan UTC (yg beda 7 jam).
+        now_wib = datetime.now(gj.WIB).replace(tzinfo=None)
+        assert abs((tanggal_open_tertulis - now_wib).total_seconds()) < 120
 
 
 class TestEnrichPriceLookup:

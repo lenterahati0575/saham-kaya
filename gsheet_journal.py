@@ -9,8 +9,16 @@ L: Status | M: Hari
 """
 
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
+
+# WAJIB pakai timezone Asia/Jakarta (WIB) secara eksplisit - server (Streamlit Cloud/GitHub
+# Actions) jalan di UTC, jadi datetime.now() polos akan tercatat 7 jam lebih awal dari jam
+# WIB sebenarnya. Bug nyata yang ditemukan dari laporan user: posisi tercatat "Tanggal Open"
+# jam 05:26 padahal dibuka jam 12:26 WIB sebenarnya - sama persis kelas bug yang sudah
+# diperbaiki di get_market_session() (app.py) tapi belum pernah diterapkan di sini.
+WIB = ZoneInfo("Asia/Jakarta")
 
 try:
     import gspread
@@ -149,7 +157,7 @@ def open_positions_from_candidates(candidates: pd.DataFrame, tipe: str) -> list[
             
             # Buat row baru sesuai struktur HEADERS
             new_row = [
-                datetime.now().strftime("%Y-%m-%d %H:%M"),  # A: Tanggal Open
+                datetime.now(WIB).strftime("%Y-%m-%d %H:%M"),  # A: Tanggal Open
                 kode,                                         # B: Saham
                 entry,                                        # C: Harga Beli
                 tp,                                           # D: TP
@@ -258,7 +266,10 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
             harga_beli = float(row["Harga Beli"])
             lot = int(row["Lot"]) if pd.notna(row.get("Lot")) else 10
             tgl_open = pd.to_datetime(row["Tanggal Open"])
-            hari = (datetime.now() - tgl_open).days
+            # "Tanggal Open" ditulis pakai jam WIB (lihat open_positions_from_candidates) -
+            # naive, jadi "now" WIB-nya juga di-strip tzinfo dulu spy angka jamnya konsisten
+            # dibandingkan (bukan dibandingkan dgn UTC polos yg 7 jam lebih awal).
+            hari = (datetime.now(WIB).replace(tzinfo=None) - tgl_open).days
             tipe = str(row.get("Tipe", "")).strip().upper()
             
             # Validasi dan auto-swap TP/SL jika terbalik (untuk posisi LONG)
@@ -292,7 +303,7 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
                     
                     # Update kolom H sampai M (Tanggal Close, Harga Jual, P&L Rp, P&L %, Status, Hari)
                     ws.update(f"H{sheet_row}:M{sheet_row}", [[
-                        datetime.now().strftime("%Y-%m-%d %H:%M"),  # H: Tanggal Close
+                        datetime.now(WIB).strftime("%Y-%m-%d %H:%M"),  # H: Tanggal Close
                         float(harga_live),                          # I: Harga Jual
                         round(pnl_rp, 2),                           # J: P&L (Rp)
                         round(pnl_pct, 2),                          # K: P&L (%)

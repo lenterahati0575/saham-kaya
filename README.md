@@ -608,6 +608,33 @@ tombol "Buka Posisi Day/Swing" & "Cek TP/SL" direstruktur - hasilnya (termasuk t
 sekarang dirender di LUAR kolom 3-tombol (lebar penuh halaman), dulu kejepit di 1/3 lebar
 halaman.
 
+## Bug Kritis: Timestamp Jurnal Backtest Tercatat Jam UTC, Dikira Jam WIB
+
+**Laporan user**: posisi baru di sheet POSISI tercatat "Tanggal Open" jam 05:26, terasa
+tidak wajar ("barangkali jamnya salah").
+
+**Akar masalah**: `open_positions_from_candidates()` dan `auto_close_positions()` di
+`gsheet_journal.py` menulis timestamp pakai `datetime.now()` POLOS (tanpa timezone) -
+server (Streamlit Cloud/GitHub Actions) jalan di UTC, jadi jam yang tercatat 7 jam lebih
+awal dari WIB sebenarnya ("05:26" yang tercatat itu sebenarnya 12:26 WIB). Ini KELAS BUG
+YANG SAMA dengan yang sudah diperbaiki di `get_market_session()` (`app.py`) sebelumnya,
+tapi belum pernah diterapkan ke `gsheet_journal.py` - modul yang justru paling sering
+menulis timestamp ke data permanen (sheet POSISI).
+
+**Fix**: tambah `WIB = ZoneInfo("Asia/Jakarta")` di `gsheet_journal.py`, dipakai di
+`datetime.now(WIB)` utk kolom "Tanggal Open" & "Tanggal Close", dan dikonversi konsisten
+(`.replace(tzinfo=None)`) utk hitungan "Hari" di `auto_close_positions()` (perbandingan
+dgn `Tanggal Open` yang juga naive). Dicek juga `real_journal.py` & `equity.py` - keduanya
+TIDAK punya bug serupa (tidak pakai `datetime.now()` polos utk timestamp permanen).
+
+**Catatan**: baris yang SUDAH ada di sheet SEBELUM fix ini tetap mencerminkan jam UTC lama
+(selisih ~7 jam lebih awal dari WIB sebenarnya) - fix ini cuma berlaku ke depan, data lama
+tidak diubah otomatis (berisiko kalau ditimpa tanpa verifikasi manual per baris).
+
+Test baru (`tests/test_gsheet_journal.py`, 2 test): verifikasi `WIB` = zona waktu
+`Asia/Jakarta` yang benar, dan timestamp yang ditulis `open_positions_from_candidates()`
+memang dekat dengan jam WIB saat ini (bukan UTC).
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah
