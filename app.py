@@ -757,33 +757,24 @@ with t_kandidat:
             picks = picks.iloc[0:0]
             st.info("Tidak ada kandidat yang lolos kriteria RR/regime yang sudah divalidasi.")
     if not picks.empty and "Tipe" in picks.columns:
-        st.markdown("### Filter Trading")
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            available_tipe = sorted(picks["Tipe"].dropna().unique().tolist())
-            tipe_filter = st.multiselect("1️⃣ Tipe", options=available_tipe,
-                                          default=available_tipe, help="SWING TRADE sudah lolos uji "
-                                          "konsistensi split-half (2 paruh histori 5 tahun sama arah) - "
-                                          "RR/Entry/SL/Target di bawah sudah divalidasi.")
-            if tipe_filter:
-                picks = picks[picks["Tipe"].isin(tipe_filter)]
-        with col_f2:
-            if "Quality" in picks.columns:
-                available_q = sorted(picks["Quality"].dropna().unique().tolist())
-                q_filter = st.multiselect("2️⃣ Quality Rating (belum divalidasi)", options=available_q,
-                                           default=available_q, help="Quality/Smart Money/Momentum - "
-                                           "sinyal EKSPLORATIF terpisah, belum dibacktest sbg strategi. "
-                                           "Info tambahan, bukan filter utama.")
-                if q_filter:
-                    picks = picks[picks["Quality"].isin(q_filter)]
         st.markdown("""
-        <div style="background: #1f2937; padding: 12px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #16a34a;">
-            <b>💡 PANDUAN CUAN KONSISTEN</b><br>
-            1. <b>RR / Entry / Stop Loss / Target</b> = SUDAH DIVALIDASI - <b>JANGAN DILANGGAR</b>.<br>
-            2. <b>Rekomendasi / Quality / Trend / Smart Money / Momentum</b> = EKSPLORATIF, info tambahan saja.<br>
-            3. RR makin tinggi makin baik - tapi tetap pakai Stop Loss.
+        <div style="background: #1f2937; padding: 10px 14px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #2563eb;">
+            🌊 <b>SEMUA KANDIDAT = SWING TRADE, TERVALIDASI</b> (backtest realistis + out-of-sample, konsisten 2 paruh histori 5 tahun) - RR/Entry/Stop Loss/Target <b>JANGAN DILANGGAR</b>.
         </div>
         """, unsafe_allow_html=True)
+        if "Quality" in picks.columns:
+            available_q = sorted(picks["Quality"].dropna().unique().tolist())
+            q_filter = st.multiselect("Quality Rating (belum divalidasi - info tambahan saja)", options=available_q,
+                                       default=available_q)
+            if q_filter:
+                picks = picks[picks["Quality"].isin(q_filter)]
+        st.caption("💡 Rekomendasi/Quality/Trend/Smart Money/Momentum = EKSPLORATIF, belum dibacktest - "
+                   "info tambahan, bukan dasar keputusan utama. Kolom **Rekomendasi**: **⚡ MOMENTUM** = "
+                   "trend & akumulasi solid DAN harga sedang naik beruntun+volume (momentum AKTIF); "
+                   "**📈 TREN KUAT** = trend & akumulasi solid TAPI momentum BELUM aktif (mis. sedang "
+                   "pullback/konsolidasi, blm ada lonjakan naik beruntun) - bedanya BUKAN soal trend-nya "
+                   "lebih kuat/lemah (syarat trend di kedua label ini SAMA), tapi soal momentum harga "
+                   "jangka pendeknya sudah aktif atau belum.")
     if not picks.empty and "RR" in picks.columns:
         picks = picks.sort_values(["RR", "Quality Score"], ascending=[False, False])
     if picks.empty:
@@ -804,9 +795,17 @@ with t_kandidat:
                     show[col] = show[col].map(lambda x: f"{x:.2f}x" if pd.notnull(x) and x > 0 else "-")
                 else:
                     show[col] = show[col].map(lambda x: f"Rp{x:,.0f}" if pd.notnull(x) and x > 0 else "-")
+        # "Tipe" TIDAK ditampilkan sbg kolom - sudah dinyatakan sekali via banner di atas
+        # (SEMUA baris = SWING TRADE, tidak ada variasi lagi), dulu jadi kolom yg isinya
+        # SAMA di semua baris (tidak informatif) DAN kosakatanya ("SWING TRADE") sempat
+        # tumpang tindih dgn kolom Rekomendasi yg TERPISAH TOTAL (sistem tervalidasi vs
+        # eksploratif) - user notice ini bikin tabel kelihatan berantakan/rawan disalah-
+        # artikan sbg 2 sinyal yg saling menguatkan. Rekomendasi() sendiri sudah diganti
+        # value-nya (screener.py) drpd "SWING TRADE" jadi "TREN KUAT" biar kosakatanya
+        # jelas beda.
         kolom_tampil = [
             "Kode", "Nama", "Signal", "Score",
-            "Tipe", "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss",
+            "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss",
             "Rekomendasi", "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
             "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
         ]
@@ -815,7 +814,7 @@ with t_kandidat:
         def color_rec(val):
             val = str(val)
             if "MOMENTUM" in val: return "background-color: #15803d; color: white; font-weight: bold;"
-            if "SWING TRADE" in val: return "background-color: #2563eb; color: white; font-weight: bold;"
+            if "TREN KUAT" in val: return "background-color: #0891b2; color: white; font-weight: bold;"
             if "AVOID" in val: return "background-color: #dc2626; color: white; font-weight: bold;"
             if "WAIT" in val: return "background-color: #eab308; color: black; font-weight: bold;"
             return ""
@@ -834,8 +833,6 @@ with t_kandidat:
             except:
                 return ""
         styler = show[kolom_tampil].style
-        if "Tipe" in kolom_tampil:
-            styler = styler.map(color_rec, subset=["Tipe"])
         if "Rekomendasi" in kolom_tampil:
             styler = styler.map(color_rec, subset=["Rekomendasi"])
         if "Quality" in kolom_tampil:

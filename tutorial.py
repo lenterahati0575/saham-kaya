@@ -93,7 +93,7 @@ def show_daily_trading():
             "icon": "☀️",
             "steps": [
                 "Buka tab **🏆 Kandidat**",
-                "Filter: SWING TRADE + Quality HIGH + RR ≥ 2.0",
+                "Cek RR ≥ 2.0 + Quality HIGH (semua kandidat = Swing tervalidasi)",
                 "Pilih 2-3 saham terbaik",
                 "Kirim ke Jurnal Real",
                 "Cek chart di TradingView"
@@ -130,13 +130,13 @@ def show_daily_trading():
     
     filter_options = {
         "Konservatif": {
-            "rekomendasi": ["SWING TRADE"],
+            "rekomendasi": ["TREN KUAT"],
             "quality": ["✅ HIGH"],
             "rr": "≥ 3.0",
             "deskripsi": "Untuk trader yang ingin risiko minimal"
         },
         "Moderat": {
-            "rekomendasi": ["SWING TRADE", "MOMENTUM"],
+            "rekomendasi": ["TREN KUAT", "MOMENTUM"],
             "quality": ["✅ HIGH", "⚠️ MODERATE"],
             "rr": "≥ 2.0",
             "deskripsi": "Balance antara risiko dan opportunity"

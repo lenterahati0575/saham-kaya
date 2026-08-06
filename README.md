@@ -1150,6 +1150,37 @@ lebih pendek dari "DAY TRADE" yang sudah terbukti pas). Pelajaran: perubahan tek
 di kolom tabel sempit butuh verifikasi VISUAL render live, bukan cuma cek source code -
 "terlihat benar di kode" TIDAK sama dengan "terlihat benar di layar".
 
+### Audit ketiga: kolom Tipe & Rekomendasi tumpang tindih kosakata - redesain tabel Kandidat
+
+User lihat screenshot lagi: kolom **Tipe** (selalu "SWING TRADE", sama di SETIAP baris)
+berdampingan dengan kolom **Rekomendasi** yang JUGA bisa bilang "SWING TRADE" (sebelum
+fix sebelumnya) - dua sistem TERPISAH TOTAL (satu tervalidasi backtest, satu eksploratif)
+kelihatan seperti saling menguatkan padahal tidak ada hubungan. User: "ini yang saya
+khawatirkan kalau analisis tidak tuntas berisiko sistem yang dibuat adalah sistem yang
+bisa rugi" - kekhawatiran yang valid: UI membingungkan bisa bikin user salah baca sinyal
+eksploratif sbg setara sinyal tervalidasi.
+
+**Redesain**: kolom **Tipe dihapus dari tabel** (isinya 100% konstan "SWING TRADE" di
+setiap baris sejak Day Trading dihapus - tidak informatif sbg kolom) - diganti 1 banner
+di atas tabel: "🌊 SEMUA KANDIDAT = SWING TRADE, TERVALIDASI". Filter "1️⃣ Tipe" yang
+sekarang percuma (cuma 1 opsi) juga dihapus - tersisa cuma filter Quality.
+
+**Audit lanjutan (user tegur lagi - "jangan cuma ganti kata2", minta formula dipelajari
+dulu)**: dicek ulang `get_trade_recommendation()` - kelas "MOMENTUM" dan "TREN KUAT"
+(dulu "SWING TRADE") SAMA-SAMA mensyaratkan `trend_stars>=2` - trend_stars BUKAN
+pembedanya. Pembeda SEBENARNYA adalah field `momentum` (dari fungsi hitung naik
+beruntun+volume, dicek via urutan if/elif): MOMENTUM = trend+akumulasi+momentum harga
+SEDANG AKTIF; TREN KUAT = trend+akumulasi/netral TAPI momentum BELUM aktif. Label lama
+("SWING TRADE") kebetulan MASIH akurat scr makna (setup trend-following tanpa momentum
+kuat = cocok gaya swing) - masalahnya PURE soal tumpang-tindih kosakata dgn kolom Tipe,
+bukan salah formula. Kolom "Alasan" (teks penjelasan per baris) sudah dihitung tapi TIDAK
+pernah ditampilkan - drpd tambah kolom baru (risiko kepotong lagi), penjelasan pembeda
+MOMENTUM vs TREN KUAT dipindah ke caption/help text yang sudah ada (dibaca sekali, bukan
+per-baris) - jelas menyebut BUKAN soal trend lebih kuat/lemah, tapi momentum aktif/belum.
+
+Diverifikasi: py_compile OK, 115/115 pytest lolos, dicoba live - banner 1x muncul benar,
+caption penjelasan MOMENTUM vs TREN KUAT lengkap & jelas.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah
