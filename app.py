@@ -750,7 +750,10 @@ with t_kandidat:
             picks = picks.iloc[0:0]
             st.info("Tidak ada kandidat yang lolos kriteria RR/regime yang sudah divalidasi.")
     if not picks.empty and "Tipe" in picks.columns:
-        st.caption("🌊 **SWING TRADE TERVALIDASI** - RR/Entry/Target/Stop Loss harga mati. Disiplin kunci sukses trading.")
+        st.markdown("""<div style="background:#1e3a8a;border-radius:8px;padding:10px 14px;margin-bottom:10px;border:1px solid #2563eb;">
+<div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:0.3px;">🌊 SWING TRADE TERVALIDASI</div>
+<div style="font-size:12px;color:#dbeafe;margin-top:3px;">RR / Entry / Target / Stop Loss = harga mati. <b>Disiplin kunci sukses trading.</b></div>
+</div>""", unsafe_allow_html=True)
         fcol1, fcol2 = st.columns(2)
         with fcol1:
             if "Rekomendasi" in picks.columns:
