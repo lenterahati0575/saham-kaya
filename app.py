@@ -1006,17 +1006,8 @@ with t_kandidat:
                     st.error(f"❌ Error cek TP/SL: {str(e)}")
                     import traceback
                     st.code(traceback.format_exc())
-            st.divider()
-            positions = gj.load_positions()
-            stats = gj.summarize(positions)
-            s1, s2, s3, s4, s5 = st.columns(5)
-            s1.metric("Total Posisi", stats["total"])
-            s2.metric("Sedang OPEN", stats["open"])
-            s3.metric("WIN", stats["win"])
-            s4.metric("LOSS", stats["loss"])
-            s5.metric("Win Rate", f"{stats['winrate']:.1f}%")
-            st.dataframe(positions, use_container_width=True, hide_index=True, height=420)
-            st.caption("Aturan force-sell otomatis: SWING maksimal 15 hari, BPJS maksimal 1 hari, BSJP maksimal 2 hari kalau belum kena TP/SL. Auto-close sekarang juga berjalan otomatis saat tab ini dibuka.")
+            st.caption("Aturan force-sell otomatis: SWING maksimal 15 hari, BPJS maksimal 1 hari, BSJP maksimal 2 hari kalau belum kena TP/SL. Auto-close sekarang juga berjalan otomatis saat tab ini dibuka. "
+                       "Ringkasan & riwayat posisi lengkap → tab **🚀 Performance**.")
 
     st.divider()
     st.markdown("### 📈 Chart TradingView")
@@ -1388,7 +1379,15 @@ with t_perf:
             st.divider()
             st.markdown("### 📈 Kurva Ekuitas Backtest")
             tgl_col = next((c for c in ["Tanggal Close", "TanggalClose", "Tgl Close"] if c in closed_df.columns), None)
-            eq_points = [{"Tanggal": datetime.now() - pd.Timedelta(days=30), "Equity": modal_awal_bt, "Label": "START"}]
+            # Titik START harus di tanggal transaksi PERTAMA sungguhan ("Tanggal Open"
+            # paling awal di seluruh posisi), BUKAN "30 hari lalu dari sekarang" yg
+            # di-hardcode - kalau ada trade yg closed-nya > 30 hari lalu, START palsu itu
+            # akan terurut SESUDAH trade lama itu (bukan sebelumnya), equity curve & Max
+            # Drawdown jadi salah baca. Fallback ke 30 hari cuma kalau kolom "Tanggal Open"
+            # tidak ada/semua NaT (data korup).
+            tgl_open_all = pd.to_datetime(positions_perf.get("Tanggal Open"), errors="coerce") if "Tanggal Open" in positions_perf.columns else None
+            tgl_start = tgl_open_all.min() if tgl_open_all is not None and tgl_open_all.notna().any() else (datetime.now() - pd.Timedelta(days=30))
+            eq_points = [{"Tanggal": tgl_start, "Equity": modal_awal_bt, "Label": "START"}]
             if not closed_df.empty and tgl_col:
                 closed_df[tgl_col] = pd.to_datetime(closed_df[tgl_col], errors="coerce")
                 closed_sorted = closed_df.sort_values(tgl_col).copy()
