@@ -155,7 +155,13 @@ def _simulate_realistic_trades_single(kode: str, df: pd.DataFrame, params: dict,
         if dh is None or dl is None or dl <= 0:
             continue
         entry = m["Harga"]
-        sl = dl
+        # Stop Loss = PALING KETAT dari (Donchian Low, MA20, 10% di bawah entry) - SAMA
+        # dgn build_trade_candidates() di screener.py (lihat komentar di sana utk hasil
+        # perbandingan head-to-head vs Donchian Low murni: capped menang di semua metrik).
+        ma20 = float(window["Close"].rolling(20).mean().iloc[-1]) if len(window) >= 20 else dl
+        sl_cap = entry * 0.90
+        sl_candidates = [x for x in [dl, ma20, sl_cap] if x < entry]
+        sl = max(sl_candidates) if sl_candidates else sl_cap
         if entry <= sl:
             continue
         target = dh + (dh - dl)

@@ -772,7 +772,19 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
         if dh is None or dl is None or dl <= 0:
             continue
         entry = float(r["Harga"])
-        sl = dl
+        # Stop Loss = PALING KETAT dari (Donchian Low, MA20, 10% di bawah entry) yang masih
+        # < entry - BUKAN Donchian Low murni. Diuji head-to-head (walk-forward, 615 saham
+        # x 5 tahun, regime IHSG>MA50, RR>=1.5, fee dipotong, metodologi sama dgn README >
+        # "Backtest Historis"): capped MENANG di SEMUA metrik vs Donchian murni - Total
+        # Return Bersih +3025% vs +791% (~4x), Risiko % rata-rata 7.7% vs 15.9%, Risiko %
+        # maksimum 10% (dibatasi) vs 65.6% (bisa ekstrem tak masuk akal, mis. jarak SL 43%
+        # dari entry). Donchian Low murni dulu dipakai krn itu yg pertama divalidasi, TAPI
+        # tidak pernah dibandingkan langsung dgn varian capped ini sampai user tanya "apakah
+        # keduanya sudah dibacktest" - ternyata capped jauh lebih baik. Lihat README.
+        ma20 = float(df["Close"].rolling(20).mean().iloc[-1]) if df is not None and len(df) >= 20 else dl
+        sl_cap = entry * 0.90
+        sl_candidates = [x for x in [dl, ma20, sl_cap] if x < entry]
+        sl = max(sl_candidates) if sl_candidates else sl_cap
         if entry <= sl:
             continue
         target = dh + (dh - dl)

@@ -105,7 +105,7 @@ Pastikan sheet ini punya tab bernama persis **`POSISI`** dengan header di baris 
    auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
    client_x509_cert_url = "isi-dari-json"
    ```
-8. Simpan, app otomatis restart. Tab **Jurnal Backtest** akan aktif dan bisa baca/tulis ke sheet POSISI.
+8. Simpan, app otomatis restart. Bagian **"🤖 Buka Posisi Otomatis"** di tab **Kandidat** akan aktif dan bisa baca/tulis ke sheet POSISI.
 
 ### Tombol TradingView (kolom "TV")
 Setiap tabel saham punya kolom "TV" berisi tombol yang membuka chart TradingView saham itu
@@ -114,7 +114,7 @@ langsung di TAB YANG SAMA (bukan tab baru), memakai format `IDX:KODE`.
 ### Tab Performance
 Menghitung performa transaksi RIIL dari sheet POSISI (bukan sheet terpisah yang harus
 disinkronkan manual) - begitu ada posisi yang ditutup (WIN/LOSS/FORCE SELL) lewat tombol
-Auto-SELL di tab Jurnal Backtest, tab Performance otomatis menampilkan: akumulasi profit,
+"Cek TP/SL & Force-Sell" di tab Kandidat, tab Performance otomatis menampilkan: akumulasi profit,
 profit per bulan (kartu hijau/merah), kurva ekuitas kumulatif, win rate, dan 10 transaksi
 terbaik. Profit per bulan dihitung sebagai penjumlahan sederhana P&L(%) semua transaksi yang
 closed di bulan itu (bukan compounding riil) - ditampilkan apa adanya, bukan diklaim sebagai
@@ -740,6 +740,77 @@ persis sama dgn yang dihasilkan `build_trade_candidates()`. Dicek live (n_scan b
 caption "22 saham tidak lolos..." tampil benar, filter Tipe & Quality berfungsi, tanpa
 exception.
 
+## Regresi: Fix di Atas Ternyata Pakai Formula Stop Loss yang LEBIH BURUK
+
+Setelah fix di atas jalan live, user langsung sadar ada yang aneh: jumlah kandidat jauh lebih
+sedikit dari sebelumnya, dan salah satu (KDTN) punya **Risiko% = 42.9%** - tidak masuk akal
+untuk dibeli. User bertanya langsung: **"apakah tidak sebaiknya keduanya di backtest, boleh
+jadi yang sebelumnya lebih baik"** - dan curiga versi LAMA (formula capped: paling ketat dari
+Donchian Low/MA20/10% cap) justru lebih baik dari versi "tervalidasi" (Donchian Low murni)
+yang baru dipasang.
+
+**User benar, saya salah.** Klaim "yang divalidasi backtest = Donchian Low murni" di bagian
+atas cuma didasarkan pada dokumentasi lama tanpa pernah menguji langsung formula ALTERNATIF
+(capped) head-to-head. Dibuat 2 skrip perbandingan langsung (data 615 saham x 5 tahun +
+histori IHSG penuh, walk-forward tanpa lookahead), satu tanpa filter regime, satu DENGAN
+filter regime IHSG>MA50 (apple-to-apple dgn cara Swing sebenarnya digate):
+
+**Tanpa filter regime:**
+| SL Mode | Trade | Win Rate | Avg Return | Total Return | Risiko% avg/max | Risiko%>20% |
+|---|---|---|---|---|---|---|
+| Donchian murni | 1303 | 35.8% | -0.85% | **-1110.2%** | 16.4% / 75.5% | 27.4% |
+| **Capped** | 3044 | 31.3% | +0.64% | **+1958.0%** | 7.6% / 10.0% | 0.0% |
+
+**Dengan filter regime IHSG>MA50:**
+| SL Mode | Trade | Win Rate | Avg Return | Total Return | Risiko% avg/max | Risiko%>20% |
+|---|---|---|---|---|---|---|
+| Donchian murni | 723 | 39.0% | +1.09% | +791.3% | 15.9% / 65.6% | 25.4% |
+| **Capped** | 1941 | 33.5% | +1.56% | **+3024.6%** | 7.7% / 10.0% | 0.0% |
+
+Capped menang di **SEMUA** metrik, di kedua skenario - bukan cuma menang tipis. Donchian
+murni bahkan **rugi total** (-1110.2%) tanpa filter regime karena beberapa saham punya
+Donchian Low yang jauh di bawah entry (channel lebar/gappy), menghasilkan Risiko% sampai
+75.5% per trade - satu-dua kali kena SL saja sudah menghapus banyak trade untung kecil.
+Formula capped **membuang** entry semacam itu (dibatasi 10% di bawah entry) sehingga jumlah
+trade justru lebih banyak (lebih sering RR-nya masih ≥ ambang minimum karena Target tetap
+sama tapi Risk lebih kecil) dan hasilnya jauh lebih konsisten (Risiko% tidak pernah lebih dari
+10%, vs Donchian murni yang bisa sampai 75.5%).
+
+**Fix**: `build_trade_candidates()` (screener.py) dan `_simulate_realistic_trades_single()`
+(backtest.py) **dikembalikan ke formula capped** - SL = MAX (paling ketat/paling dekat entry)
+dari (Donchian Low, MA20, 10% di bawah entry), asal masih < entry. Kedua fungsi disamakan
+lagi (dulu backtest.py cuma pernah pakai Donchian murni, sekarang keduanya capped) supaya
+backtest ke depan menguji formula yang SAMA dengan yang dipakai live. 3 assertion di
+`tests/test_backtest.py` yang hardcode SL=900 (asumsi Donchian murni) diupdate ke SL=1004
+(nilai capped utk fixture yang sama) - dicek manual: MA20 fixture = (19×1000+1080)/20 = 1004,
+lebih ketat dari Donchian Low=900 dan 10%-cap=972, jadi itu yang dipakai. 93 test pytest lolos
+semua setelah perbaikan.
+
+**Pelajaran**: dokumentasi "sudah divalidasi" di README sebelumnya cuma berdasar 1 formula
+yang PERNAH dibacktest, bukan berarti itu formula TERBAIK - kalau ada alternatif yang belum
+diuji head-to-head, jangan asumsikan yang lama otomatis benar. User yang notice kejanggalan
+(42.9% risiko) sebelum saya, dan pertanyaan langsungnya ("backtest keduanya") yang memicu
+perbaikan ini.
+
+## Konsolidasi Tab: Backtest & Top 10 Digabung ke Kandidat
+
+User notice tab **Backtest** dan **Top 10** sumber datanya SAMA persis dengan tab **Kandidat**
+(`cands_day_all`/`cands_swing_all`) - 3 tab utk 1 sumber data = duplikasi, bukan "2 sistem
+dalam 1". Tab **Top 10** dihapus total (cuma re-tampilkan tabel Day/Swing tanpa filter
+tambahan). Isi tab **Backtest** (statusnya sebenarnya bukan backtest statistik - itu adalah
+jurnal paper-trading otomatis: tombol Buka Posisi Day/Swing, Cek TP/SL & Force-Sell, plus
+tabel & ringkasan sheet POSISI) dipindah masuk ke tab **Kandidat**, ditaruh setelah tabel
+kandidat + tombol Download CSV, sebelum bagian "Kirim ke Jurnal Real". Tab **Kandidat**
+sekarang jadi satu tempat: lihat kandidat yang sudah divalidasi → buka posisi otomatis (sistem)
+ATAU kirim manual ke Jurnal Real → lihat chart. Backtest statistik historis yang SEBENARNYA
+(`run_historical_backtest`/`run_realistic_backtest` di backtest.py) tetap TIDAK ada di UI -
+cuma dipakai internal utk validasi (lihat "Backtest Historis" di atas).
+
+Diverifikasi live (`streamlit run app.py` lokal): tab bar sekarang cuma 17 tab (dulu 19), tidak
+ada tab Backtest/Top 10, section "Buka Posisi Otomatis" muncul benar di tab Kandidat dengan
+caption & warning yang sesuai (Google Sheets belum terhubung → warning yang benar tampil),
+tanpa exception maupun error di console.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah
@@ -762,9 +833,12 @@ atau "Konvensional" kapan saja.
 
 ### Perhitungan Entry / Target / Stop Loss (bukan persen tetap)
 - **Entry**: harga saat ini
-- **Stop Loss**: level terendah Donchian (struktural - beda tiap saham, bukan persen flat)
+- **Stop Loss**: yang PALING KETAT (paling dekat entry) dari 3 kandidat - Donchian Low
+  (struktural), MA20, atau 10% di bawah entry (cap) - lihat "Regresi: Fix di Atas Ternyata
+  Pakai Formula Stop Loss yang LEBIH BURUK" utk bukti backtest kenapa capped dipilih drpd
+  Donchian Low murni (menang di semua metrik, Risiko% tidak pernah lebih dari 10%)
 - **Target**: proyeksi *measured move* = Donchian High + lebar channel (High − Low)
-- **RR (Risk:Reward)**: (Target − Entry) / (Entry − Stop Loss), tabel Top 10 hanya menampilkan
+- **RR (Risk:Reward)**: (Target − Entry) / (Entry − Stop Loss), tabel Kandidat hanya menampilkan
   RR ≥ ambang minimum - default **1.5:1 untuk Swing** (divalidasi), **2.0:1 untuk Day Trading**
   (belum divalidasi ulang, dipertahankan dari default lama)
 

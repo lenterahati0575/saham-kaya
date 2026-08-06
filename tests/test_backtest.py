@@ -99,7 +99,10 @@ def _breakout_then_df(after_rows: list[dict], n_before=80, price=1000.0, volume=
 
 class TestRealisticBacktest:
     """entry=1080, Donchian High=1000, Donchian Low=900 (lebar channel 100) ->
-    Target = 1000 + (1000-900) = 1100, Stop Loss = 900."""
+    Target = 1000 + (1000-900) = 1100. Stop Loss = PALING KETAT dari (Donchian Low=900,
+    MA20, 10% di bawah entry=972) - SAMA dgn formula capped di build_trade_candidates()
+    (screener.py). MA20 di window ini = (19*1000 + 1080)/20 = 1004.0 (19 baris flat @1000
+    + 1 baris breakout @1080), jadi Stop Loss = max(900, 1004.0, 972) = 1004.0."""
 
     def test_tp_tersentuh_dipotong_fee(self):
         after = [{"Open": 1085, "High": 1100, "Low": 1080, "Close": 1095, "Volume": 10_000_000}]
@@ -111,7 +114,7 @@ class TestRealisticBacktest:
         r = rows[0]
         assert r["Exit Reason"] == "TP"
         assert r["Hold Days"] == 1
-        assert r["Entry"] == 1080.0 and r["Target"] == 1100.0 and r["Stop Loss"] == 900.0
+        assert r["Entry"] == 1080.0 and r["Target"] == 1100.0 and r["Stop Loss"] == 1004.0
         expected_gross = (1100 - 1080) / 1080 * 100
         assert r["Gross Return (%)"] == round(expected_gross, 2)
         assert r["Net Return (%)"] == round(expected_gross - DEFAULT_FEE_PCT, 2)
@@ -130,7 +133,7 @@ class TestRealisticBacktest:
         assert r["Net Return (%)"] < 0
 
     def test_force_sell_setelah_max_hold_days_tanpa_tp_sl(self):
-        # Harga menetap di antara SL (900) dan Target (1100) selama 10 hari - tidak pernah kena TP/SL.
+        # Harga menetap di antara SL (1004) dan Target (1100) selama 10 hari - tidak pernah kena TP/SL.
         after = [{"Open": 1050, "High": 1080, "Low": 1020, "Close": 1050, "Volume": 10_000_000}] * 10
         df = _breakout_then_df(after)
         rows = _simulate_realistic_trades_single("AAA", df, DEFAULT_PARAMS, max_hold_days=10,
@@ -142,7 +145,7 @@ class TestRealisticBacktest:
         assert r["Exit"] == 1050.0
 
     def test_min_rr_filter_menolak_trade_rr_rendah(self):
-        # RR sebenarnya = (1100-1080)/(1080-900) = 20/180 = 0.11 -> di bawah ambang manapun >0.11
+        # RR sebenarnya = (1100-1080)/(1080-1004) = 20/76 = 0.26 -> di bawah ambang manapun >0.26
         after = [{"Open": 1050, "High": 1080, "Low": 1020, "Close": 1050, "Volume": 10_000_000}] * 10
         df = _breakout_then_df(after)
         rows = _simulate_realistic_trades_single("AAA", df, DEFAULT_PARAMS, max_hold_days=10,
