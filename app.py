@@ -843,8 +843,46 @@ with t_kandidat:
         st.download_button("⬇️ Download CSV", show[kolom_tampil].to_csv(index=False).encode("utf-8"), file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
 
     st.divider()
+    st.markdown("### Kirim ke Jurnal Real")
+    st.caption("Pilih saham dari tabel di atas, lalu data akan otomatis terisi di tab Jurnal Real")
+    cat1, cat2, cat3 = st.columns([2, 1, 1])
+    with cat1:
+        pilih_catat = st.selectbox("Pilih Saham:", options=["-- Pilih Saham --"] + (show["Kode"].drop_duplicates().tolist() if not picks.empty else []), key="pilih_catat_kandidat")
+    with cat2:
+        lot_catat = st.number_input("Lot", min_value=1, value=10, step=1, key="lot_catat_kandidat")
+    with cat3:
+        setup_catat = st.selectbox("Setup", options=rj.SETUP_OPTIONS, index=0, key="setup_catat_kandidat")
+    if st.button("Kirim ke Jurnal Real", type="primary", use_container_width=True, key="btn_catat_kandidat"):
+        if pilih_catat == "-- Pilih Saham --":
+            st.error("⚠️ Pilih saham terlebih dahulu!")
+        else:
+            row_data = show[show["Kode"] == pilih_catat].iloc[0]
+            def clean_number(value):
+                if isinstance(value, (int, float)):
+                    return float(value)
+                if isinstance(value, str):
+                    cleaned = value.replace("Rp", "").replace(",", "").replace(" ", "").strip()
+                    try:
+                        return float(cleaned)
+                    except:
+                        return 0.0
+                return 0.0
+            st.session_state['auto_fill_trade'] = {
+                'kode': pilih_catat,
+                'entry': clean_number(row_data.get('Entry', row_data.get('Harga', 0))),
+                'stop_loss': clean_number(row_data.get('Stop Loss', 0)),
+                'target': clean_number(row_data.get('Target', 0)),
+                'setup': setup_catat,
+                'lot': lot_catat,
+                'rekomendasi': row_data.get('Signal', ''),
+                'rr': clean_number(row_data.get('RR', 0))
+            }
+            st.success(f"✅ Data {pilih_catat} siap! Buka tab **Jurnal Real**.")
+            st.info(f"📊 Entry: Rp{st.session_state['auto_fill_trade']['entry']:,.0f} | SL: Rp{st.session_state['auto_fill_trade']['stop_loss']:,.0f} | Target: Rp{st.session_state['auto_fill_trade']['target']:,.0f}")
+
+    st.divider()
     st.markdown("### 🤖 Buka Posisi Otomatis (Jurnal Backtest Sistem)")
-    st.caption("BEDA dari 'Kirim ke Jurnal Real' di bawah: tombol ini membuka posisi OTOMATIS "
+    st.caption("BEDA dari 'Kirim ke Jurnal Real' di atas: tombol ini membuka posisi OTOMATIS "
                "utk SEMUA kandidat Swing di tabel atas (bukan pilih manual 1 saham), tercatat "
                "di sheet POSISI (Google Sheets) terpisah dari Jurnal Real - dipakai utk mengukur "
                "performa sistem screener sendiri secara objektif (lihat tab Performance & Equity).")
@@ -980,43 +1018,6 @@ with t_kandidat:
             st.dataframe(positions, use_container_width=True, hide_index=True, height=420)
             st.caption("Aturan force-sell otomatis: SWING maksimal 15 hari, BPJS maksimal 1 hari, BSJP maksimal 2 hari kalau belum kena TP/SL. Auto-close sekarang juga berjalan otomatis saat tab ini dibuka.")
 
-    st.divider()
-    st.markdown("### Kirim ke Jurnal Real")
-    st.caption("Pilih saham dari tabel di atas, lalu data akan otomatis terisi di tab Jurnal Real")
-    cat1, cat2, cat3 = st.columns([2, 1, 1])
-    with cat1:
-        pilih_catat = st.selectbox("Pilih Saham:", options=["-- Pilih Saham --"] + (show["Kode"].drop_duplicates().tolist() if not picks.empty else []), key="pilih_catat_kandidat")
-    with cat2:
-        lot_catat = st.number_input("Lot", min_value=1, value=10, step=1, key="lot_catat_kandidat")
-    with cat3:
-        setup_catat = st.selectbox("Setup", options=rj.SETUP_OPTIONS, index=0, key="setup_catat_kandidat")
-    if st.button("Kirim ke Jurnal Real", type="primary", use_container_width=True, key="btn_catat_kandidat"):
-        if pilih_catat == "-- Pilih Saham --":
-            st.error("⚠️ Pilih saham terlebih dahulu!")
-        else:
-            row_data = show[show["Kode"] == pilih_catat].iloc[0]
-            def clean_number(value):
-                if isinstance(value, (int, float)):
-                    return float(value)
-                if isinstance(value, str):
-                    cleaned = value.replace("Rp", "").replace(",", "").replace(" ", "").strip()
-                    try:
-                        return float(cleaned)
-                    except:
-                        return 0.0
-                return 0.0
-            st.session_state['auto_fill_trade'] = {
-                'kode': pilih_catat,
-                'entry': clean_number(row_data.get('Entry', row_data.get('Harga', 0))),
-                'stop_loss': clean_number(row_data.get('Stop Loss', 0)),
-                'target': clean_number(row_data.get('Target', 0)),
-                'setup': setup_catat,
-                'lot': lot_catat,
-                'rekomendasi': row_data.get('Signal', ''),
-                'rr': clean_number(row_data.get('RR', 0))
-            }
-            st.success(f"✅ Data {pilih_catat} siap! Buka tab **Jurnal Real**.")
-            st.info(f"📊 Entry: Rp{st.session_state['auto_fill_trade']['entry']:,.0f} | SL: Rp{st.session_state['auto_fill_trade']['stop_loss']:,.0f} | Target: Rp{st.session_state['auto_fill_trade']['target']:,.0f}")
     st.divider()
     st.markdown("### 📈 Chart TradingView")
     chart_kode = st.selectbox("Pilih saham untuk melihat chart:", options=["-- Pilih Saham --"] + (show["Kode"].drop_duplicates().tolist() if not picks.empty else []), key="chart_selector")
