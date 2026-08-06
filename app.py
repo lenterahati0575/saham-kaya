@@ -672,46 +672,48 @@ if breadth:
 <div style="font-size:10px;color:#94a3b8;margin-top:2px;">Trend (di atas MA20): {breadth['above_pct']}% dari {breadth['total']} saham</div>
 </div>""", unsafe_allow_html=True)
 
-# Kinerja Sektor - dari klasifikasi IDX-IC resmi di tickers_idx.csv (statis, instan, tidak
-# perlu fetch tambahan lagi). Tampilkan SEMUA sektor yang muncul (bukan cuma sebagian).
+# Kinerja Sektor & Syariah vs Konvensional - dijajarkan 1 baris (st.columns(2)) supaya
+# hemat tempat vertikal, bukan 2 expander bertumpuk.
 sect_perf = sec.sector_performance(table)
-with st.expander(f"🏷️ Kinerja Sektor{' (' + str(len(sect_perf)) + ' sektor)' if not sect_perf.empty else ''}",
-                  expanded=False):
-    if sect_perf.empty:
-        st.caption("Data sektor tidak tersedia utk saham yang dipindai.")
-    else:
-        st.caption("Rata-rata Perubahan % antar saham per sektor (equal-weight) - BUKAN "
-                    "cap-weighted resmi seperti indeks sektoral IDX-IC, karena free float "
-                    "weight per saham tidak diikutkan dalam agregasi ini. Sektor dari "
-                    "klasifikasi IDX-IC resmi (tickers_idx.csv, evaluasi BEI per 6 bulan).")
-        n_cols_sect = 4
-        for start in range(0, len(sect_perf), n_cols_sect):
-            chunk = sect_perf.iloc[start:start + n_cols_sect]
-            cols_sect = st.columns(n_cols_sect)
-            for i, (_, r) in enumerate(chunk.iterrows()):
-                pct = r["rata_rata"] * 100
-                color = "#4ade80" if pct >= 0 else "#f87171"
-                with cols_sect[i]:
-                    st.markdown(f"""<div style="background:#1e293b;border-radius:10px;padding:12px;margin-bottom:10px;border:1px solid #334155;text-align:center;">
+syar_breadth = sec.syariah_breadth(table)
+exp_col1, exp_col2 = st.columns(2)
+with exp_col1:
+    with st.expander(f"🏷️ Kinerja Sektor{' (' + str(len(sect_perf)) + ' sektor)' if not sect_perf.empty else ''}",
+                      expanded=False):
+        if sect_perf.empty:
+            st.caption("Data sektor tidak tersedia utk saham yang dipindai.")
+        else:
+            st.caption("Rata-rata Perubahan % antar saham per sektor (equal-weight) - BUKAN "
+                        "cap-weighted resmi seperti indeks sektoral IDX-IC, karena free float "
+                        "weight per saham tidak diikutkan dalam agregasi ini. Sektor dari "
+                        "klasifikasi IDX-IC resmi (tickers_idx.csv, evaluasi BEI per 6 bulan).")
+            n_cols_sect = 4
+            for start in range(0, len(sect_perf), n_cols_sect):
+                chunk = sect_perf.iloc[start:start + n_cols_sect]
+                cols_sect = st.columns(n_cols_sect)
+                for i, (_, r) in enumerate(chunk.iterrows()):
+                    pct = r["rata_rata"] * 100
+                    color = "#4ade80" if pct >= 0 else "#f87171"
+                    with cols_sect[i]:
+                        st.markdown(f"""<div style="background:#1e293b;border-radius:10px;padding:12px;margin-bottom:10px;border:1px solid #334155;text-align:center;">
 <div style="font-size:22px;">{sec.sector_icon(r['Sektor'])}</div>
 <div style="font-size:11px;color:#cbd5e1;font-weight:600;margin-top:4px;min-height:28px;">{r['Sektor']}</div>
 <div style="font-size:15px;font-weight:700;color:{color};margin-top:2px;">{pct:+.2f}%</div>
 <div style="font-size:9px;color:#64748b;">{int(r['jumlah_saham'])} saham</div>
 </div>""", unsafe_allow_html=True)
-
-# Syariah vs Konvensional - dari keanggotaan ISSI resmi (tickers_idx.csv) - supaya kelihatan
-# apakah pergerakan pasar hari ini lebih ditopang saham syariah atau konvensional, bukan
-# cuma angka Market Health gabungan yang menyembunyikan perbedaan itu.
-syar_breadth = sec.syariah_breadth(table)
-if syar_breadth is not None and not syar_breadth.empty:
-    with st.expander("☯️ Syariah vs Konvensional", expanded=False):
-        st.caption("Keanggotaan ISSI (Indeks Saham Syariah Indonesia) resmi BEI, evaluasi per 6 bulan.")
-        cols_syar = st.columns(len(syar_breadth))
-        for i, (_, r) in enumerate(syar_breadth.iterrows()):
-            pct = r["rata_rata"] * 100
-            color = "#4ade80" if pct >= 0 else "#f87171"
-            with cols_syar[i]:
-                st.markdown(f"""<div style="background:#1e293b;border-radius:10px;padding:12px;border:1px solid #334155;text-align:center;">
+with exp_col2:
+    # Syariah vs Konvensional - dari keanggotaan ISSI resmi (tickers_idx.csv) - supaya
+    # kelihatan apakah pergerakan pasar hari ini lebih ditopang saham syariah atau
+    # konvensional, bukan cuma angka Market Health gabungan yang menyembunyikan perbedaan itu.
+    if syar_breadth is not None and not syar_breadth.empty:
+        with st.expander("☯️ Syariah vs Konvensional", expanded=False):
+            st.caption("Keanggotaan ISSI (Indeks Saham Syariah Indonesia) resmi BEI, evaluasi per 6 bulan.")
+            cols_syar = st.columns(len(syar_breadth))
+            for i, (_, r) in enumerate(syar_breadth.iterrows()):
+                pct = r["rata_rata"] * 100
+                color = "#4ade80" if pct >= 0 else "#f87171"
+                with cols_syar[i]:
+                    st.markdown(f"""<div style="background:#1e293b;border-radius:10px;padding:12px;border:1px solid #334155;text-align:center;">
 <div style="font-size:13px;color:#cbd5e1;font-weight:600;">{r['Kelompok']}</div>
 <div style="font-size:17px;font-weight:700;color:{color};margin-top:4px;">{pct:+.2f}%</div>
 <div style="font-size:10px;color:#94a3b8;margin-top:2px;">{int(r['naik'])}↑ {int(r['turun'])}↓ dari {int(r['jumlah_saham'])} saham</div>
