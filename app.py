@@ -666,8 +666,13 @@ day_tipe = classify_daytrading_tipe()  # dipakai bareng oleh tab Kandidat & Back
 # terakhir, persis pola "Juli hijau" yang gugur di README > Efek Musiman). Standar yang
 # dipakai sepanjang sesi ini (Swing WAJIB konsisten di kedua paruh) TIDAK terpenuhi Day
 # Trading di kedua mode - jadi filter regime ditambahkan (mengurangi rugi terburuk) TAPI
-# TIDAK dianggap "tervalidasi" seperti Swing. Auto-open Day Trading dimatikan (lihat
-# "Buka Posisi Otomatis" di bawah) - lihat README > "Day Trading Terbukti TIDAK Konsisten".
+# TIDAK dianggap "tervalidasi" seperti Swing. Grid search lanjutan (27+ kombinasi
+# lookback 5-20D x hold 1-10 hari) membuktikan ini BUKAN soal parameter yang salah -
+# breakout Donchian struktural butuh waktu berhari-hari utk capai target, jadi TIDAK ADA
+# hold pendek yang konsisten split-half; baru konsisten begitu hold ~10+ hari (= sudah
+# jadi Swing versi cepat, bukan Day Trading lagi). Auto-open Day Trading dimatikan (lihat
+# "Buka Posisi Otomatis" di bawah) - lihat README > "Day Trading: Bukan Soal Parameter,
+# Tapi Desain Sinyal".
 cands_day_all = build_trade_candidates(table, price_data, int(donchian_lb_day), min_rr_day, top_n=10,
                                         require_bullish_regime=filter_market, regime_status=regime["status"],
                                         total_equity=total_equity_now, risk_pct=risk_pct_per_trade)
@@ -776,11 +781,17 @@ with t_kandidat:
         if not cands_swing_all.empty:
             c = cands_swing_all.copy(); c["Tipe"] = "🌊 SWING TRADE"; cands_tipe.append(c)
         if not cands_day_all.empty:
-            # "⚠️" (bukan "⚡" polos) - Day Trading TERBUKTI TIDAK konsisten split-half
-            # (lihat README > "Day Trading Terbukti TIDAK Konsisten"), beda status validasi
-            # dari Swing. Tetap ditampilkan sbg info (RR/regime sudah difilter), TAPI jangan
-            # dikira setara Swing - makanya labelnya beda & tidak bisa di-auto-open.
-            c = cands_day_all.copy(); c["Tipe"] = f"⚠️ DAY TRADE ({day_tipe}) - belum konsisten"; cands_tipe.append(c)
+            # "⚠️" (bukan "⚡" polos) - grid search 27+ kombinasi (lookback 5-20D x hold
+            # 1-10 hari, termasuk sinyal dihitung ulang per lookback - lihat README > "Day
+            # Trading: Bukan Soal Parameter, Tapi Desain Sinyal") membuktikan TIDAK ADA
+            # kombinasi hold PENDEK (1-3 hari) yang konsisten split-half - polanya monoton
+            # membaik seiring hold diperpanjang, cuma jadi konsisten begitu hold ~10+ hari
+            # (= sudah jadi Swing versi cepat, bukan Day Trading lagi). Ini bukan "belum
+            # ketemu parameter yang pas" - breakout Donchian butuh waktu berhari-hari utk
+            # capai target, jadi struktural tidak cocok utk horizon pendek. Tetap ditampilkan
+            # sbg info, TAPI jangan dikira setara Swing - makanya labelnya beda & tidak bisa
+            # di-auto-open.
+            c = cands_day_all.copy(); c["Tipe"] = f"⚠️ DAY TRADE ({day_tipe}) - perlu desain sinyal baru"; cands_tipe.append(c)
         if cands_tipe:
             cands_valid = pd.concat(cands_tipe, ignore_index=True)
             # DULU (versi awal tab ini) di-dedup per saham - kalau 1 saham lolos Swing DAN
@@ -815,12 +826,15 @@ with t_kandidat:
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             available_tipe = sorted(picks["Tipe"].dropna().unique().tolist())
-            tipe_filter = st.multiselect("1️⃣ Tipe (Swing tervalidasi konsisten, Day BELUM)", options=available_tipe,
+            tipe_filter = st.multiselect("1️⃣ Tipe (Swing tervalidasi konsisten, Day perlu desain baru)", options=available_tipe,
                                           default=available_tipe, help="SWING sudah lolos uji konsistensi "
                                           "split-half (2 paruh histori 5 tahun sama arah). DAY TRADE (BPJS/"
-                                          "BSJP) GAGAL lolos uji yang sama (untung/rugi tidak konsisten "
-                                          "antar periode) - RR/regime tetap difilter, tapi jangan anggap "
-                                          "setara Swing. Detail: README > 'Day Trading Terbukti TIDAK Konsisten'.")
+                                          "BSJP) - diuji 27+ kombinasi parameter (lookback & hold berbeda-"
+                                          "beda), TIDAK ADA hold pendek yang konsisten; breakout Donchian "
+                                          "struktural butuh waktu lebih lama drpd horizon Day Trading. RR/"
+                                          "regime tetap difilter, tapi ini bukan soal parameter yang belum "
+                                          "pas - butuh desain sinyal berbeda. Detail: README > 'Day Trading: "
+                                          "Bukan Soal Parameter, Tapi Desain Sinyal'.")
             if tipe_filter:
                 picks = picks[picks["Tipe"].isin(tipe_filter)]
         with col_f2:
@@ -836,7 +850,7 @@ with t_kandidat:
         <div style="background: #1f2937; padding: 12px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #16a34a;">
             <b>💡 Panduan Cuan Konsisten:</b><br>
             1. Baris <b>🌊 SWING TRADE</b>: kolom RR/Entry/Stop Loss/Target SUDAH divalidasi lewat backtest realistis + out-of-sample, konsisten di 2 paruh histori 5 tahun - <b>JANGAN DILANGGAR</b> angka SL/Target-nya.<br>
-            2. Baris <b>⚠️ DAY TRADE</b>: RR/regime tetap difilter, TAPI hasilnya TIDAK konsisten antar periode (gagal uji split-half yang sama dgn Swing) - anggap eksperimental, JANGAN auto-trade, kalau dipakai manual sadari risikonya belum terbukti.<br>
+            2. Baris <b>⚠️ DAY TRADE</b>: sudah diuji 27+ kombinasi parameter (bukan cuma 1 setting) - TIDAK ADA yang konsisten split-half utk hold pendek, breakout Donchian butuh waktu lebih lama drpd horizon Day Trading. Bukan soal "belum ketemu parameter yang pas" - anggap eksperimental, JANGAN auto-trade.<br>
             3. Kolom <b>Rekomendasi/Quality/Trend/Smart Money/Momentum</b> itu sinyal EKSPLORATIF terpisah (belum dibacktest) - anggap info tambahan, bukan dasar keputusan utama.<br>
             4. Semakin tinggi RR, semakin baik rasio untung:rugi - tapi tetap gunakan Stop Loss, tidak ada yang 100% pasti.
         </div>
@@ -941,11 +955,16 @@ with t_kandidat:
                 st.code(traceback.format_exc())
             st.caption(f"Waktu sekarang WIB terdeteksi sebagai tipe **{day_tipe}** untuk Day Trading ({'Beli Pagi, rencana Jual Sore' if day_tipe=='BPJS' else 'Beli Sore, rencana Jual besok Pagi'}).")
             st.warning(f"⚠️ **Buka Posisi Day Trading OTOMATIS dimatikan** ({len(cands_day_all)} kandidat "
-                       "tersedia, cuma info - tidak bisa dibuka lewat tombol di sini). Diuji independen "
-                       "(615 saham x 5 tahun, metodologi sama dgn Swing): BPJS & BSJP DUA-DUANYA gagal "
-                       "lolos standar konsistensi split-half yang dipakai sepanjang sesi ini (beda dari "
-                       "Swing yang konsisten di kedua paruh). Detail lengkap di README > 'Day Trading "
-                       "Terbukti TIDAK Konsisten'. Kalau tetap mau trading manual, pakai tombol **Kirim "
+                       "tersedia, cuma info - tidak bisa dibuka lewat tombol di sini). Grid search 27+ "
+                       "kombinasi (lookback 5-20 hari x hold 1-10 hari, sinyal dihitung ulang per lookback) "
+                       "membuktikan ini BUKAN soal parameter yang salah - breakout Donchian struktural "
+                       "butuh waktu berhari-hari utk capai target, jadi TIDAK ADA hold pendek (1-3 hari) "
+                       "yang konsisten split-half, berapapun lookback-nya. Baru konsisten begitu hold "
+                       "diperpanjang ~10+ hari - di titik itu sudah jadi Swing versi cepat, bukan Day "
+                       "Trading lagi. Detail lengkap di README > 'Day Trading: Bukan Soal Parameter, "
+                       "Tapi Desain Sinyal'. Day Trading beneran (butuh sinyal berbeda total dari "
+                       "breakout multi-hari, mis. momentum intraday) di luar scope data harian gratis "
+                       "yang dipakai sistem ini. Kalau tetap mau trading manual, pakai tombol **Kirim "
                        "ke Jurnal Real** di bawah dengan kesadaran risiko ini BELUM tervalidasi.")
             st.write(f" **Kandidat Swing Trading tersedia:** {len(cands_swing_all)}")
             # Deteksi klik tombol di dalam kolom (biar 2 tombol tetap berjejer rapi), tapi

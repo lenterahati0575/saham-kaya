@@ -1014,6 +1014,70 @@ seolah sudah tervalidasi):
 Diverifikasi: py_compile OK, 111/111 pytest lolos, dicoba live - label & warning baru
 tampil benar di tab Kandidat.
 
+## Day Trading: Bukan Soal Parameter, Tapi Desain Sinyal
+
+User menolak "matikan saja" - responnya: **"mungkin pertanyaannya adalah bagaimana
+membuat sistem day trading yang konsisten profit... karena day trading bukan sesuatu
+yang jelek"**, dan menajamkan arah investigasi: coba pisahkan sinyal Day dari Swing
+(lookback-nya sendiri, bukan menumpang Signal 20-hari punya Swing) dan cari parameter
+yang bikin konsisten.
+
+**Ditemukan kesalahan metodologi di pengujian sebelumnya**: skrip validasi awal LUPA
+mengganti `donchian_lookback` - jadi "Day Trading" yang diuji kemarin sebenarnya MASIH
+pakai lookback 20 hari (punya Swing) utk Sinyal DAN Entry/Target, cuma masa tahannya yang
+dipendekkan (1-2 hari). Bukan pengujian Day Trading yang sesungguhnya.
+
+**Diuji ulang dgn benar**: grid search 27+ kombinasi - lookback ∈ {5,7,10,15,20} (Sinyal
+STRONG BUY/BUY dihitung ULANG per lookback, persis usulan user "sinyal dipisah dari
+Swing"), hold_days ∈ {1,2,3,4,5,7,10}, selalu dgn filter regime IHSG>MA50 (fase eksplorasi
+di subset 150 saham/step=2 dulu, lalu kandidat terbaik dikonfirmasi di 615 saham penuh/
+step=1 + split-half):
+
+| lookback | hold | Win Rate | Avg Return | Total Return |
+|---|---|---|---|---|
+| 5 | 1 | 33.6% | -0.431% | -306.8% |
+| 10 | 1 | 34.6% | -0.106% | -99.4% |
+| 10 | 3 | 36.2% | +0.296% | +277.9% |
+| 15 | 3 | 36.2% | +0.415% | +443.1% |
+| 20 | 3 | 36.6% | +0.517% | +583.4% |
+| 10 | 10 | 32.2% | +0.964% | +905.9% |
+| 15 | 10 | 32.0% | +1.092% | +1166.8% |
+| **20** | **10** | **32.9%** | **+1.539%** | **+1737.3%** |
+
+**Pola yang muncul di SEMUA 27 kombinasi, tanpa kecuali**: makin lama hold & makin
+panjang lookback, makin baik hasilnya - monoton, tidak ada titik optimal tersendiri di
+rentang hold pendek (1-3 hari). hold=1 SELALU rugi, berapapun lookback-nya.
+
+**Konfirmasi split-half di data penuh (615 saham, step=1)** utk 2 kandidat representatif:
+
+| Parameter | Paruh 1 (2021-2024) | Paruh 2 (2024-2026) | Konsisten? |
+|---|---|---|---|
+| lookback=10, hold=3 ("Day" tercepat yang untung) | -0.008% avg (nyaris impas) | +0.867% avg (total +3250.5%) | ❌ Untung 100% ditarik paruh 2 |
+| lookback=20, hold=10 ("jembatan" ke Swing) | +0.107% avg (total +494.3%) | +2.190% avg (total +10136.2%) | ✅ Dua-duanya positif |
+
+**Kesimpulan jujur**: `lookback=10, hold=3` (kandidat Day Trading tercepat yang masih
+untung) GAGAL konsisten split-half - sama seperti temuan sebelumnya, untungnya cuma
+ditarik 2 tahun terakhir. Yang BARU konsisten (`lookback=20, hold=10`) sudah bukan Day
+Trading lagi - lookback-nya SAMA dgn Swing, hold 10 hari cuma sedikit lebih pendek dari
+force-sell Swing (15 hari). Polanya membuktikan: **breakout Donchian + target measured-
+move butuh waktu berhari-hari utk berkembang** - dipotong di 1-3 hari, sinyalnya belum
+punya cukup ruang mencapai target, hasilnya jadi kebetulan (menguntungkan di satu periode,
+tidak di periode lain), bukan edge yang stabil.
+
+Ini BUKAN soal "belum ketemu kombinasi parameter yang pas" (sudah diuji 27+ kombinasi,
+termasuk memisahkan sinyal dari Swing sesuai usulan user) - ini soal **jenis strategi**:
+sistem breakout multi-hari secara struktural tidak cocok utk horizon day-trading (1-3
+hari). Day Trading yang beneran konsisten butuh sinyal BERBEDA TOTAL (mis. momentum
+intraday, gap-and-go, opening-range breakout, mean-reversion jangka sangat pendek) - yang
+semuanya butuh data INTRADAY, bukan data harian gratis dari Yahoo Finance yang dipakai
+sistem ini. Membangun itu dari nol di luar scope perbaikan/optimalisasi sistem yang
+sudah ada - butuh riset & sumber data baru.
+
+Label di app.py diupdate mengikuti kesimpulan ini: `⚠️ DAY TRADE (...) - perlu desain
+sinyal baru` (bukan lagi "belum konsisten" yang menyiratkan cuma butuh tuning lebih
+lanjut) - supaya user tidak menunggu update parameter yang tidak akan pernah datang,
+dan tahu persis kenapa.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah
