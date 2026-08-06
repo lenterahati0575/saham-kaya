@@ -623,6 +623,7 @@ table["Syariah"] = table["Kode"].map(dict(zip(universe["Kode"], universe["Syaria
 st.caption(f"Terakhir refresh: {datetime.now().strftime('%d %b %Y, %H:%M')} · {len(table)}/{len(tickers)} saham")
 if regime["status"] == "BEARISH": st.error(f"📉 IHSG BEARISH (Close {regime['close']:,.0f} < MA50 {regime['ma']:,.0f})")
 elif regime["status"] == "BULLISH": st.success(f"📈 IHSG BULLISH (Close {regime['close']:,.0f} > MA50 {regime['ma']:,.0f})")
+elif regime["status"] == "UNKNOWN" and filter_market: st.warning("⚠️ Regime IHSG tidak terhitung (data kurang) - kandidat Swing disembunyikan (safe default, sama seperti BEARISH).")
 
 # Index utama (IHSG/LQ45/JII) - IDX30 & SRI-KEHATI tidak dimasukkan krn tidak ada data
 # gratis dari Yahoo Finance utk keduanya (sudah dicoba beberapa simbol, lihat screener.py).
@@ -631,7 +632,15 @@ if idx_snapshot:
     idx_cols = st.columns(len(idx_snapshot))
     for i, (label, d) in enumerate(idx_snapshot.items()):
         idx_cols[i].metric(label, f"{d['close']:,.0f}", f"{d['change_pct'] * 100:+.2f}%")
-market_ok = not (filter_market and regime["status"] == "BEARISH")
+# BUG lama: market_ok cuma blokir kalau status persis "BEARISH", TAPI
+# build_trade_candidates() (dipanggil di bawah dgn require_bullish_regime=filter_market)
+# blokir kalau status BUKAN "BULLISH" (jadi juga blokir status "UNKNOWN" - data IHSG
+# kurang/gagal fetch). Akibatnya: saat status UNKNOWN, market_ok bilang "aman" (BUY
+# ditampilkan) TAPI cands_swing_all diam2 KOSONG (regime/RR tidak lolos) - user lihat
+# sinyal BUY tanpa Entry/SL/Target, membingungkan. Disamakan jadi 1 kondisi yg SAMA
+# PERSIS dgn build_trade_candidates(): market_ok = TRUE hanya kalau filter dimatikan
+# ATAU status benar2 BULLISH.
+market_ok = (not filter_market) or (regime["status"] == "BULLISH")
 
 # Total Equity terbaru (kalau ada snapshot) - dipakai utk hitung Lot Auto-BUY berbasis risiko
 # (risk_pct_per_trade% dari modal / jarak Entry-SL), bukan lagi angka tetap 10 lot utk semua
@@ -732,7 +741,8 @@ t_kandidat, t_semua, t_grafik, t_real, t_equity, t_perf, t_kalk, t_fundamental, 
 with t_kandidat:
     picks = table[table["Signal"].isin(["STRONG BUY", "BUY"])].copy()
     if not market_ok:
-        st.info("🚦 Kandidat BUY disembunyikan sementara karena IHSG Bearish.")
+        alasan_regime = "IHSG Bearish" if regime["status"] == "BEARISH" else "regime IHSG tidak terhitung"
+        st.info(f"🚦 Kandidat BUY disembunyikan sementara karena {alasan_regime}.")
         picks = picks.iloc[0:0]
     if not picks.empty:
         # Entry/SL/Target/RR pakai build_trade_candidates() yg divalidasi backtest -
