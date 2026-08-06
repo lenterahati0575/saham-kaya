@@ -1206,6 +1206,65 @@ tidak ditampilkan ke user (sesuai arahan: UI bersih, penjelasan di belakang).
 Diverifikasi: py_compile OK, 115/115 pytest lolos, dicoba live - caption sekarang cuma
 2 kalimat.
 
+### Audit kelima: sumber formula kolom "Quality" & bintang Trend yang kosong
+
+User menemukan kombinasi yang tampak kontradiktif: Momentum=VERY_STRONG + Trend=⭐⭐⭐
+tapi Quality=LOW. Ditelusuri ke `get_quality_rating()`: Quality = blend TERTIMBANG dari
+3 sub-skor independen - Akumulasi/Distribusi 40% (`_detect_accumulation_distribution()`,
+window 20 hari) + Trend Score 35% (`_validate_trend_strength()`, window 10 hari) +
+Momentum Score 25% (`_count_consecutive_higher_closes()`, window 10 hari). Kolom "Trend"
+(bintang) dan "Momentum" (label) yang TAMPIL di tabel bukan skor 0-100 yang dipakai di
+rumus - itu label kategori terpisah dari fungsi yang sama. Bintang 3 cuma butuh
+`MA5>MA20>MA50` (+35 poin fix dari maksimum 100 trend_score) - bisa terjadi dgn
+trend_score minimum 35/100 kalau harga saat ini sudah di bawah semua MA (pullback tajam,
+MA-nya lagging). Jadi kombinasi Quality=LOW + Trend=⭐⭐⭐ + Momentum=VERY_STRONG itu
+matematis MUNGKIN dan bukan bug - itu sinyal "harga naik beruntun tapi tanpa dukungan
+smart money/volume" (akumulasi/distribusi lemah menang bobot 40% terbesar).
+
+Bintang bisa kosong total (`trend_stars=0`, cell blank di `m["Trend"] = "⭐" * stars`,
+[screener.py:707](screener.py:707)) di 2 kasus yg TIDAK dibedakan tampilannya: (1) trend
+bearish penuh (`MA5<MA20<MA50`, sengaja 0 bintang) vs (2) histori harga < 50 hari
+(`INSUFFICIENT`, [screener.py:156-157](screener.py:156), bukan berarti bearish, cuma
+belum bisa dihitung). Belum diperbaiki (blank kedua kasus disatukan) - didokumentasikan
+dulu, belum ada keputusan mengubah tampilannya.
+
+### Backtest Confidence Tier "SWING TRADE" (85/70/55) - urutan nominal TERBUKTI SALAH
+
+User minta backtest apakah confidence tier (85/70/55) dari `get_trade_recommendation()`
+benar2 membedakan kualitas trade. Metodologi: walk-forward di 615 saham/5 tahun (cache
+`price_data_615_5y.pkl`), quality/confidence dihitung dari `df.iloc[:t+1]` PERSIS di
+titik sinyal (no lookahead), HANYA trade yang lolos filter tervalidasi (Signal STRONG
+BUY/BUY + RR>=1.5 + regime IHSG>MA50, exact sama dgn `build_trade_candidates()`) dan
+direkomendasikan SWING TRADE. Skrip: `test_swing_confidence_backtest.py` (scratchpad,
+tidak masuk repo).
+
+Hasil (1.323 trade SWING TRADE dari 1.941 trade tervalidasi total, 68%):
+
+| Confidence | Trade | Win Rate Bersih | Avg Return Bersih | Total Return |
+|---|---|---|---|---|
+| 85 | 513 | 38.4% | 1.27% | 651.87% |
+| 70 | 773 | 37.0% | **1.94%** | **1498.27%** |
+| 55 | 37 | 29.7% | 0.43% | 15.86% |
+
+Split-half (2 paruh waktu): 85 & 70 konsisten positif di kedua paruh. **55 gagal
+konsistensi** - paruh 1 avg **-1.24%** (rugi), paruh 2 avg +2.01% (untung) - arah
+berbalik, sample kecil (18-19 trade/paruh), tidak bisa dipercaya.
+
+Temuan: filter SWING TRADE (semua confidence) sedikit lebih baik dari baseline tak
+tersaring (37.3% WR / avg 1.64% vs baseline 33.5% WR / avg 1.56%) - ada nilai tambah tipis.
+TAPI **urutan nominal 85>70>55 TIDAK terbukti** - confidence 70 justru avg & total
+return-nya lebih tinggi dari 85 (kombinasi "Trend+Akumulasi solid, momentum belum aktif"
+menang atas "Trend+Akumulasi+momentum semua aktif"). Confidence 55 (smart_money=NETRAL,
+bukan Akumulasi) jelas paling lemah & tidak konsisten.
+
+**Fix**: warna badge "Confidence" di tabel Kandidat ([app.py](app.py) `color_confidence()`)
+dibuat berdasarkan BUKTI backtest, bukan angka nominal apa adanya - 85 & 70 diberi warna
+biru kuat yang SETARA (`#1d4ed8`), 55 dibuat pudar/redup (`#cbd5e1`) sebagai sinyal lemah.
+Kolom "Confidence" ditambahkan ke tabel Kandidat (sebelumnya dihitung tapi tidak
+ditampilkan) supaya user bisa lihat angkanya langsung. Belum diubah: logika
+`get_trade_recommendation()` sendiri (confidence 55 masih diklasifikasikan SWING TRADE,
+bukan didowngrade ke WAIT) - itu keputusan produk terpisah, belum diputuskan.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah
