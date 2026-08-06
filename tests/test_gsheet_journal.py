@@ -133,3 +133,49 @@ class TestAutoClosePositionsMissingTicker:
             closed = gj.auto_close_positions({})  # fetch tambahan gagal - tidak boleh crash
 
         assert closed == []  # ZZZZ tetap tidak bisa dicek (harga tidak tersedia), tapi TIDAK crash
+
+
+def _make_closed_row(status, pnl_pct):
+    return {"Saham": "ZZZZ", "Status": status, "P&L (%)": pnl_pct, "P&L (Rp)": pnl_pct * 1000}
+
+
+class TestSummarizeForceSell:
+    """Bug nyata dari laporan user (screenshot kotak ringkasan di tab Kandidat): 3 posisi
+    FORCE SELL (2 untung besar - GDST +701%, ANTM +156%, 1 rugi kecil - APLN -4%), tapi
+    kotak WIN/LOSS/Win Rate tetap 0/0/0.0% - summarize() dulu cuma cek substring "WIN"/
+    "LOSS" pd kolom Status, dan Status force-sell isinya "FORCE SELL (N hari)" (tidak
+    mengandung kata WIN/LOSS sama sekali), jadi tidak pernah terhitung ke mana pun."""
+
+    def test_force_sell_untung_dihitung_win(self):
+        df = pd.DataFrame([_make_closed_row("FORCE SELL (1 hari)", 701.0)])
+        stats = gj.summarize(df)
+        assert stats["win"] == 1
+        assert stats["loss"] == 0
+
+    def test_force_sell_rugi_dihitung_loss(self):
+        df = pd.DataFrame([_make_closed_row("FORCE SELL (1 hari)", -4.0)])
+        stats = gj.summarize(df)
+        assert stats["win"] == 0
+        assert stats["loss"] == 1
+
+    def test_campuran_tp_sl_force_sell_dihitung_benar(self):
+        # Reproduksi persis kasus screenshot user: 3 FORCE SELL (2 untung, 1 rugi) + 10 OPEN.
+        df = pd.DataFrame([
+            _make_closed_row("FORCE SELL (1 hari)", -4.0),    # APLN - rugi -> LOSS
+            _make_closed_row("FORCE SELL (1 hari)", 701.0),   # GDST - untung -> WIN
+            _make_closed_row("FORCE SELL (1 hari)", 156.0),   # ANTM - untung -> WIN
+        ] + [{"Saham": f"OPEN{i}", "Status": "OPEN", "P&L (%)": "", "P&L (Rp)": ""} for i in range(10)])
+        stats = gj.summarize(df)
+        assert stats["total"] == 13
+        assert stats["open"] == 10
+        assert stats["win"] == 2
+        assert stats["loss"] == 1
+        assert round(stats["winrate"], 1) == round(2 / 3 * 100, 1)
+
+    def test_tp_sl_tetap_dihitung_seperti_biasa(self):
+        # Status "WIN (TP)"/"LOSS (SL)" harus tetap terhitung walau P&L sign-nya tidak dicek
+        # ulang (sudah pasti benar dari cara auto_close_positions menuliskannya).
+        df = pd.DataFrame([_make_closed_row("WIN (TP)", 12.0), _make_closed_row("LOSS (SL)", -8.0)])
+        stats = gj.summarize(df)
+        assert stats["win"] == 1
+        assert stats["loss"] == 1

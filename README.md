@@ -849,6 +849,32 @@ Diverifikasi: 93/93 pytest lolos, dicoba live - filter "1️⃣ Tipe" sekarang m
 KEDUA opsi ("⚡ DAY TRADE" dan "🌊 SWING TRADE") sebagai bukti baris Day Trade sudah muncul
 lagi (sebelum fix, cuma opsi Swing yang ada di filter krn tidak ada baris Day sama sekali).
 
+## Bug: Force-Sell Untung/Rugi Tidak Terhitung ke Kotak WIN/LOSS
+
+User laporan (screenshot kotak ringkasan "Buka Posisi Otomatis"): 3 posisi baru saja
+FORCE SELL (APLN rugi -4%, GDST untung +701%, ANTM untung +156%) - tabel di bawahnya sudah
+update benar (Tanggal Close/Harga Jual/P&L terisi), tapi kotak **WIN: 0, LOSS: 0, Win Rate:
+0.0%** di atas tidak berubah sama sekali walau ada 2 win besar.
+
+**Akar masalah**: `gsheet_journal.summarize()` menghitung WIN/LOSS cuma dengan cek substring
+`"WIN"`/`"LOSS"` pada kolom Status. Status yang ditulis `auto_close_positions()` ada 3 macam:
+`"WIN (TP)"`, `"LOSS (SL)"`, atau `"FORCE SELL (N hari)"` - yang terakhir TIDAK mengandung
+kata "WIN" maupun "LOSS" sama sekali, jadi tidak pernah terhitung ke salah satu, walau
+force-sell tetap punya hasil riil (untung/rugi, cuma exit reason-nya beda dari kena TP/SL
+persis). Bug ini SUDAH ADA sebelum sesi ini (bukan regresi dari perubahan terbaru) - baru
+kelihatan sekarang krn kotak ringkasan ini pindah dari tab Backtest lama ke tab Kandidat.
+
+**Fix**: force-sell sekarang diklasifikasi WIN/LOSS dari **tanda P&L (%) aktualnya** (P&L>0
+= WIN, P&L≤0 = LOSS), bukan dari teks Status. Status "WIN (TP)"/"LOSS (SL)" tetap dihitung
+seperti biasa (sudah pasti benar dari cara penulisannya). Tab **Performance** (`t_perf`) TIDAK
+kena bug ini - itu sudah lebih dulu hitung win/loss dari tanda `P&L (Rp)` langsung, bukan
+teks Status, jadi sebelumnya tab Kandidat & tab Performance bisa menunjukkan Win Rate yang
+BEDA utk data yang sama (sekarang konsisten).
+
+4 test baru di `tests/test_gsheet_journal.py::TestSummarizeForceSell` - salah satunya
+mereplikasi PERSIS kasus screenshot user (3 FORCE SELL + 10 OPEN, cek total/open/win/loss/
+winrate semua benar). 97/97 pytest lolos.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

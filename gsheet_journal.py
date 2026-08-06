@@ -343,13 +343,24 @@ def summarize(df: pd.DataFrame) -> dict:
     
     total = len(df)
     open_n = int((df["Status"] == "OPEN").sum()) if "Status" in df.columns else 0
-    
+
     # Hitung WIN dan LOSS (handle berbagai format status)
+    # Bug nyata dari laporan user: posisi yang FORCE SELL (bukan kena TP/SL) dulu TIDAK
+    # dihitung sbg WIN maupun LOSS sama sekali - cuma dicek substring "WIN"/"LOSS" pd
+    # Status, dan Status utk force-sell isinya "FORCE SELL (N hari)" (tidak mengandung
+    # kata WIN/LOSS). Akibatnya kotak WIN/LOSS/Win Rate tetap 0 walau ada force-sell yang
+    # untung besar (mis. P&L +701%). Fix: force-sell diklasifikasi WIN/LOSS dari TANDA
+    # P&L (%) aktualnya (untung/rugi tetap tercatat, cuma exit reason-nya beda dari TP/SL).
     win = 0
     loss = 0
     if "Status" in df.columns:
-        win = int(df["Status"].astype(str).str.contains("WIN", case=False, na=False).sum())
-        loss = int(df["Status"].astype(str).str.contains("LOSS", case=False, na=False).sum())
+        status_str = df["Status"].astype(str)
+        is_force_sell = status_str.str.contains("FORCE SELL", case=False, na=False)
+        pnl_num = pd.to_numeric(df["P&L (%)"], errors="coerce") if "P&L (%)" in df.columns else pd.Series([float("nan")] * len(df), index=df.index)
+        win_mask = status_str.str.contains("WIN", case=False, na=False) | (is_force_sell & (pnl_num > 0))
+        loss_mask = status_str.str.contains("LOSS", case=False, na=False) | (is_force_sell & (pnl_num <= 0))
+        win = int(win_mask.sum())
+        loss = int(loss_mask.sum())
     
     closed_n = win + loss
     winrate = (win / closed_n * 100) if closed_n > 0 else 0.0
