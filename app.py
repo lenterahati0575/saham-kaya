@@ -2535,8 +2535,17 @@ with t_astro:
                "acak manapun (hit rate 40.7%, kontrol acak 42.8%, baseline semua hari 42.6% - "
                "semuanya setara). Anggap ini referensi eksploratif ala astrologi finansial, BUKAN "
                "sinyal dengan bukti statistik untuk IHSG.")
-    pl_raw, _pl_price_raw = ihsg_gann_data.get('pivot_low', (None, None))
-    ph_raw, _ph_price_raw = ihsg_gann_data.get('pivot_high', (None, None))
+    # Bug produksi nyata: ihsg_gann_data bisa None (analyze_ihsg_gann() return None kalau
+    # ihsg_hist kosong/gagal fetch - lihat definisinya) - dulu dipanggil `.get(...)` langsung
+    # TANPA guard di sini (beda dgn pemakaian lain di file ini yg sudah dijaga, mis. baris
+    # 2523 `if ihsg_gann_data and ...`), jadi AttributeError: 'NoneType' object has no
+    # attribute 'get' begitu Yahoo Finance gagal kasih histori IHSG - crash SELURUH tab
+    # Astronacci (bukan cuma bagian siklus planet ini).
+    if ihsg_gann_data:
+        pl_raw, _pl_price_raw = ihsg_gann_data.get('pivot_low', (None, None))
+        ph_raw, _ph_price_raw = ihsg_gann_data.get('pivot_high', (None, None))
+    else:
+        pl_raw, ph_raw = None, None
     pl_date_planet = pl_raw.to_pydatetime() if isinstance(pl_raw, pd.Timestamp) else None
     ph_date_planet = ph_raw.to_pydatetime() if isinstance(ph_raw, pd.Timestamp) else None
     planet_cycles = planetary_cycle_analysis(pl_date_planet, ph_date_planet)
