@@ -1285,6 +1285,12 @@ trading... ringkas tapi bagus." Dua caption panjang di tabel Kandidat diringkas 
    atasnya, info tambahan saja (lihat audit kelima & "Backtest Confidence Tier" di atas
    utk detail statusnya masing-masing).
 
+Follow-up: user minta caption #1 dihapus TOTAL (bukan cuma diringkas) dan klausa "Kolom
+lain = info tambahan" di caption #2 juga dihapus - sekarang tersisa 1 baris pendek
+"🌊 SWING TRADE TERVALIDASI - RR/Entry/Target/Stop Loss harga mati." saja. Filter
+"Rekomendasi" (multiselect SWING TRADE/WAIT/AVOID) ditambahkan di [app.py](app.py),
+sejajar dgn filter "Quality Rating" yang sudah ada.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

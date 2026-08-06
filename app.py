@@ -745,16 +745,17 @@ with t_kandidat:
             cands_valid = cands_valid.sort_values("RR", ascending=False)
             cands_valid = cands_valid.rename(columns={"Saham": "Kode"})
             cands_valid["Risiko %"] = ((cands_valid["Entry"] - cands_valid["Stop Loss"]) / cands_valid["Entry"] * 100).round(1)
-            n_sebelum = len(picks)
             picks = picks.merge(cands_valid[["Kode", "Tipe", "RR", "Entry", "Target", "Stop Loss", "Risiko %"]], on="Kode", how="inner")
-            n_gugur = n_sebelum - picks["Kode"].nunique()
-            if n_gugur > 0:
-                st.caption(f"ℹ️ **{n_gugur} SINYAL TERSEMBUNYI** - belum lolos RR/regime (by design, lihat README).")
         else:
             picks = picks.iloc[0:0]
             st.info("Tidak ada kandidat yang lolos kriteria RR/regime yang sudah divalidasi.")
     if not picks.empty and "Tipe" in picks.columns:
-        st.caption("🌊 **SWING TRADE TERVALIDASI** - RR/Entry/Target/Stop Loss harga mati. Kolom lain = info tambahan (detail: README).")
+        st.caption("🌊 **SWING TRADE TERVALIDASI** - RR/Entry/Target/Stop Loss harga mati.")
+        if "Rekomendasi" in picks.columns:
+            available_r = sorted(picks["Rekomendasi"].dropna().unique().tolist())
+            r_filter = st.multiselect("Rekomendasi", options=available_r, default=available_r)
+            if r_filter:
+                picks = picks[picks["Rekomendasi"].isin(r_filter)]
         if "Quality" in picks.columns:
             available_q = sorted(picks["Quality"].dropna().unique().tolist())
             q_filter = st.multiselect("Quality Rating", options=available_q, default=available_q)
