@@ -93,7 +93,7 @@ def show_daily_trading():
             "icon": "☀️",
             "steps": [
                 "Buka tab **🏆 Kandidat**",
-                "Filter: DAY TRADE + Quality HIGH + RR ≥ 2.0",
+                "Filter: SWING TRADE + Quality HIGH + RR ≥ 2.0",
                 "Pilih 2-3 saham terbaik",
                 "Kirim ke Jurnal Real",
                 "Cek chart di TradingView"
@@ -136,16 +136,17 @@ def show_daily_trading():
             "deskripsi": "Untuk trader yang ingin risiko minimal"
         },
         "Moderat": {
-            "rekomendasi": ["SWING TRADE", "DAY TRADE"],
+            "rekomendasi": ["SWING TRADE", "MOMENTUM KUAT"],
             "quality": ["✅ HIGH", "⚠️ MODERATE"],
             "rr": "≥ 2.0",
             "deskripsi": "Balance antara risiko dan opportunity"
         },
         "Agresif": {
-            "rekomendasi": ["DAY TRADE"],
+            "rekomendasi": ["MOMENTUM KUAT"],
             "quality": ["✅ HIGH", "⚠️ MODERATE"],
             "rr": "≥ 1.5",
-            "deskripsi": "Untuk trader berpengalaman dengan risk tolerance tinggi"
+            "deskripsi": "Untuk trader berpengalaman dengan risk tolerance tinggi - Kolom "
+                         "Rekomendasi/Quality EKSPLORATIF, belum divalidasi backtest"
         }
     }
     

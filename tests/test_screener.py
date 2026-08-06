@@ -94,6 +94,65 @@ class TestBreakoutDonchian:
         assert compute_metrics(df, _params()) is None
 
 
+class TestOpenLowPattern:
+    """Pola "Open=Low" (Shaven Bottom) - EKSPLORATIF, ditambahkan setelah user berbagi
+    sistem trading praktisi ttg candle tanpa ekor bawah. TIDAK divalidasi backtest (butuh
+    konfirmasi order book yg tidak ada di data historis) - cuma info tambahan di UI."""
+
+    def test_low_sama_open_terdeteksi_shaven_bottom(self):
+        df = _flat_ohlcv(25, price=1000, volume=10_000_000)
+        # Breakout + volume tinggi + Low == Open (candle tanpa ekor bawah sama sekali)
+        df.iloc[-1, df.columns.get_loc("Open")] = 1080.0
+        df.iloc[-1, df.columns.get_loc("Low")] = 1080.0
+        df.iloc[-1, df.columns.get_loc("Close")] = 1080.0
+        df.iloc[-1, df.columns.get_loc("High")] = 1080.0
+        df.iloc[-1, df.columns.get_loc("Volume")] = 40_000_000
+        m = compute_metrics(df, _params(min_value_traded=3_000_000_000))
+        assert m["Open=Low"] is True
+        assert m["Status Breakout"] == "BREAKOUT"
+        assert m["Setup A Breakout"] is True  # shaven bottom + breakout + volume tinggi
+
+    def test_ada_ekor_bawah_tidak_terdeteksi(self):
+        df = _flat_ohlcv(25, price=1000, volume=10_000_000)
+        # Low JAUH di bawah Open (ekor bawah panjang) - bukan shaven bottom
+        df.iloc[-1, df.columns.get_loc("Open")] = 1080.0
+        df.iloc[-1, df.columns.get_loc("Low")] = 1000.0
+        df.iloc[-1, df.columns.get_loc("Close")] = 1080.0
+        df.iloc[-1, df.columns.get_loc("High")] = 1080.0
+        df.iloc[-1, df.columns.get_loc("Volume")] = 40_000_000
+        m = compute_metrics(df, _params(min_value_traded=3_000_000_000))
+        assert m["Open=Low"] is False
+        assert m["Setup A Breakout"] is False
+
+    def test_shaven_bottom_tanpa_breakout_bukan_setup_a(self):
+        # Low==Open (shaven bottom) TAPI harga TIDAK breakout (masih di dalam range histori
+        # flat 1000) - "Open=Low" True tapi "Setup A Breakout" False (syarat breakout gagal).
+        df = _flat_ohlcv(25, price=1000, volume=10_000_000)
+        df.iloc[-1, df.columns.get_loc("Open")] = 1000.0
+        df.iloc[-1, df.columns.get_loc("Low")] = 1000.0
+        df.iloc[-1, df.columns.get_loc("Close")] = 1000.0
+        df.iloc[-1, df.columns.get_loc("High")] = 1000.0
+        df.iloc[-1, df.columns.get_loc("Volume")] = 40_000_000
+        m = compute_metrics(df, _params(min_value_traded=3_000_000_000))
+        assert m["Open=Low"] is True
+        assert m["Status Breakout"] != "BREAKOUT"
+        assert m["Setup A Breakout"] is False
+
+    def test_shaven_bottom_breakout_tapi_volume_rendah_bukan_setup_a(self):
+        # Low==Open + breakout, TAPI volume TIDAK di atas ambang 1.5x rata-rata - gagal
+        # syarat "volume tinggi" di Setup A.
+        df = _flat_ohlcv(25, price=1000, volume=10_000_000)
+        df.iloc[-1, df.columns.get_loc("Open")] = 1080.0
+        df.iloc[-1, df.columns.get_loc("Low")] = 1080.0
+        df.iloc[-1, df.columns.get_loc("Close")] = 1080.0
+        df.iloc[-1, df.columns.get_loc("High")] = 1080.0
+        df.iloc[-1, df.columns.get_loc("Volume")] = 10_000_000  # SAMA dgn rata-rata, bukan 1.5x
+        m = compute_metrics(df, _params(min_value_traded=3_000_000_000))
+        assert m["Open=Low"] is True
+        assert m["Status Breakout"] == "BREAKOUT"
+        assert m["Setup A Breakout"] is False
+
+
 class TestMarketRegime:
     def test_bullish_saat_close_di_atas_ma(self):
         idx = pd.date_range("2024-01-01", periods=60, freq="B")

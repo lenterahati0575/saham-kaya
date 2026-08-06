@@ -814,10 +814,7 @@ with t_kandidat:
         kolom_tampil = [col for col in kolom_tampil if col in show.columns]
         def color_rec(val):
             val = str(val)
-            # DAY TRADE dikasih warna WARNING (oranye), bukan hijau - terbukti TIDAK
-            # konsisten split-half (lihat README), beda status dari SWING TRADE yang biru
-            # (tervalidasi konsisten).
-            if "DAY TRADE" in val: return "background-color: #ea580c; color: white; font-weight: bold;"
+            if "MOMENTUM KUAT" in val: return "background-color: #15803d; color: white; font-weight: bold;"
             if "SWING TRADE" in val: return "background-color: #2563eb; color: white; font-weight: bold;"
             if "AVOID" in val: return "background-color: #dc2626; color: white; font-weight: bold;"
             if "WAIT" in val: return "background-color: #eab308; color: black; font-weight: bold;"
@@ -1106,6 +1103,47 @@ with t_semua:
         st.caption("⚠️ Lonjakan volume BUKAN sinyal beli/jual otomatis - ini cuma penyaring awal "
                    "(saham yang lagi 'ramai'), belum divalidasi sbg strategi trading tersendiri. "
                    "Cek Score/Signal/Rekomendasi di tabel utama sebelum memutuskan.")
+
+    # ------------------------------------------------------------------------
+    # Pola Open=Low (Shaven Bottom) - ditambahkan atas permintaan user setelah berbagi
+    # sistem trading praktisi. EKSPLORATIF MURNI - TIDAK backtested (butuh konfirmasi
+    # order book "Makan Kanan" yg tidak ada di data historis manapun). User pilih sendiri
+    # mau pakai atau tidak - bukan auto-trade, bukan bagian dari Kandidat yang tervalidasi.
+    st.divider()
+    with st.expander("🕯️ Pola Open=Low (Shaven Bottom) - EKSPLORATIF, VERIFIKASI ORDER BOOK SENDIRI", expanded=False):
+        st.caption("Candle Open=Low (tanpa ekor bawah) = penjual TIDAK PERNAH menekan harga di "
+                   "bawah Open - psikologi sangat bullish. TAPI di IDX bisa jebakan bandar. "
+                   "TIDAK bisa dibacktest (butuh order book real-time, tidak ada di data historis) "
+                   "- WAJIB cek sendiri: volume asli (bukan mark-up), tidak di pucuk rally, "
+                   "jarak ke ARA masih cukup (min 3-5%).")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**✅ Setup A: Breakout + Volume Tinggi**")
+            st.caption("Open=Low + breakout Donchian + volume >1.5x rata-rata - paling 'aman' menurut referensi.")
+            setup_a = table[table["Setup A Breakout"] == True].copy() if "Setup A Breakout" in table.columns else pd.DataFrame()
+            if setup_a.empty:
+                st.caption("Tidak ada saat ini.")
+            else:
+                setup_a["Harga"] = setup_a["Harga"].map(lambda x: f"Rp{x:,.0f}")
+                setup_a["Volume Ratio"] = setup_a["Volume Ratio"].map(lambda x: f"{x:.1f}x")
+                setup_a["Value Traded (Rp)"] = setup_a["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
+                st.dataframe(setup_a[["Kode", "Nama", "Harga", "Volume Ratio", "Value Traded (Rp)"]],
+                             use_container_width=True, hide_index=True, height=300)
+        with col_b:
+            st.markdown("**🕯️ Open=Low (tanpa breakout)**")
+            st.caption("Shaven bottom tapi belum breakout - konteksnya (Setup B: pantul VWAP/EMA, atau exhaustion) harus dinilai manual.")
+            open_low_only = table[(table["Open=Low"] == True) & (table["Setup A Breakout"] == False)].copy() if "Open=Low" in table.columns else pd.DataFrame()
+            if open_low_only.empty:
+                st.caption("Tidak ada saat ini.")
+            else:
+                open_low_only["Harga"] = open_low_only["Harga"].map(lambda x: f"Rp{x:,.0f}")
+                open_low_only["Volume Ratio"] = open_low_only["Volume Ratio"].map(lambda x: f"{x:.1f}x")
+                open_low_only["Value Traded (Rp)"] = open_low_only["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
+                st.dataframe(open_low_only[["Kode", "Nama", "Harga", "Volume Ratio", "Value Traded (Rp)"]],
+                             use_container_width=True, hide_index=True, height=300)
+        st.caption("⚠️ BUKAN sinyal auto-trade. Tidak bisa dikirim otomatis ke Jurnal Backtest - "
+                   "kalau mau eksekusi, catat manual lewat tab Jurnal Real setelah Anda verifikasi "
+                   "sendiri kondisi order book & konteksnya.")
 
 # ============================================================================
 # TAB 3: GRAFIK SAHAM

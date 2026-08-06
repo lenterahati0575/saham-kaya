@@ -370,12 +370,17 @@ def get_trade_recommendation(quality: dict) -> dict:
         color = "#6b7280"
         emoji = "⏸️"
         
-        # === DAY TRADE: Butuh momentum KUAT ===
-        if (momentum in ["VERY_STRONG", "STRONG", "MODERATE"] and 
-            rating in ["HIGH", "MODERATE"] and 
+        # === MOMENTUM KUAT (dulu dilabeli "DAY TRADE" - diganti krn Day Trading sbg
+        # strategi TERBUKTI tidak konsisten profit di sistem ini, lihat README > "Day
+        # Trading: Bukan Soal Parameter, Tapi Desain Sinyal". Label lama menyiratkan
+        # rekomendasi day-trading yang tidak lagi bisa dipertanggungjawabkan - kondisi
+        # underlying-nya (momentum+akumulasi+trend kuat) tetap info yang valid, cuma
+        # jangan dibaca sbg "cocok utk day trading") ===
+        if (momentum in ["VERY_STRONG", "STRONG", "MODERATE"] and
+            rating in ["HIGH", "MODERATE"] and
             smart_money == "ACCUMULATION" and
             trend_stars >= 2):
-            recommendation = "DAY TRADE"
+            recommendation = "MOMENTUM KUAT"
             confidence = 85
             reason = "Momentum + Akumulasi + Trend positif"
             color = "#16a34a"
@@ -579,6 +584,19 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
     else:
         breakout_status = "NETRAL"
 
+    # Pola "Open=Low" (Shaven Bottom/Bullish Marubozu) - candle tanpa ekor bawah, artinya
+    # penjual TIDAK PERNAH menekan harga di bawah Open sepanjang hari. EKSPLORATIF - BELUM
+    # divalidasi backtest (butuh konfirmasi order book real-time "Makan Kanan" yang tidak
+    # tersedia di data historis manapun, lihat README > "Day Trading: Bukan Soal Parameter,
+    # Tapi Desain Sinyal"). Ditampilkan sbg info tambahan SAJA, user verifikasi order book
+    # sendiri sebelum entry - BUKAN sinyal auto-trade seperti Score/Signal di atas.
+    open_ = float(last["Open"])
+    is_shaven_bottom = open_ > 0 and float(last["Low"]) >= open_ * (1 - 0.15 / 100)
+    # "Setup A: Breakout Driver" dari sistem user - shaven bottom YANG JUGA breakout
+    # resistance (Donchian High) dengan volume di atas rata-rata. Kombinasi paling
+    # "aman" menurut referensi user, TAPI TETAP eksploratif tanpa order book.
+    setup_a_breakout = is_shaven_bottom and breakout_status == "BREAKOUT" and vol_ratio > 1.5
+
     is_crash = change_pct < params["crash_veto"]
 
     if not layak_likuiditas:
@@ -630,6 +648,8 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         "Layak Likuiditas": layak_likuiditas,
         "Score": score,
         "Signal": signal,
+        "Open=Low": is_shaven_bottom,
+        "Setup A Breakout": setup_a_breakout,
     }
 
 
@@ -705,9 +725,10 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
     
     cols = [
         "Kode", "Nama", "Harga", "Tanggal Harga", "Perubahan %", "Range %", "Volume Ratio", "Value Traded (Rp)",
-        "Status Breakout", "Chart", "Layak Likuiditas", "Score", "Signal", 
+        "Status Breakout", "Chart", "Layak Likuiditas", "Score", "Signal",
         "Rekomendasi", "Confidence", "Alasan",
         "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
+        "Open=Low", "Setup A Breakout",
         "Donchian High", "Donchian Low", "Avg Volume 20D", "Volume"
     ]
     

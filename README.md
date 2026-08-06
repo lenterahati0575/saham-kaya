@@ -1097,10 +1097,48 @@ lewat backtest data historis gratis.
 
 **Keputusan akhir**: Day Trading (kolom Tipe, filter, tombol Buka Posisi, semua sisa
 kode terkait) **dihapus total** dari app.py - bukan cuma dimatikan/dilabeli. Tab Kandidat
-sekarang cuma menampilkan Swing (satu-satunya yang tervalidasi konsisten). Pola Open=Low
-tetap punya nilai sbg sinyal EKSPLORATIF manual (user tetap bisa pantau & putuskan sendiri
-dgn order book riil di broker masing-masing) - lihat bagian screener terpisah kalau
-ditambahkan di masa depan.
+sekarang cuma menampilkan Swing (satu-satunya yang tervalidasi konsisten).
+
+## Pola Open=Low (Shaven Bottom) - Fitur Eksploratif Baru
+
+User berbagi sistem trading praktisi (candle tanpa ekor bawah = "Shaven Bottom"/"Bullish
+Marubozu" - psikologi sangat bullish, penjual tidak sempat menekan harga di bawah Open)
+dan minta dibuatkan sbg kriteria screener yang bisa dipilih manual - BUKAN diminta
+dihapus seperti Day Trading (order book/tape reading tidak bisa dibacktest, tapi eksekusi
+manual dgn order book asli tetap valid, beda kasus dari breakout Donchian yang sudah
+terbukti gagal di banyak variasi parameter).
+
+**Implementasi**: `compute_metrics()` (screener.py) dapat 2 kolom baru - `Open=Low`
+(Low hari ini >= Open x 99.85%, toleransi 0.15%) dan `Setup A Breakout` (Open=Low DAN
+Status Breakout=="BREAKOUT" DAN Volume Ratio>1.5x - kombinasi "paling aman" menurut
+referensi user). Dihitung dari baris TERAKHIR data harian yang sudah difetch screener
+(saat market jam bursa, baris ini = data HARI INI sejauh berjalan) - TIDAK perlu fetch
+data intraday tambahan.
+
+UI: expander baru "🕯️ Pola Open=Low" di tab Semua Saham (setelah Scanner Lonjakan
+Volume), 2 kolom - "Setup A: Breakout + Volume Tinggi" (kondisi lengkap) dan "Open=Low
+tanpa breakout" (shaven bottom saja, konteks Setup B/C dari referensi user harus dinilai
+manual). Diberi warning tebal: TIDAK bisa dibacktest (order book "Makan Kanan" tidak ada
+di data historis), user WAJIB verifikasi sendiri (volume asli bukan mark-up, tidak di
+pucuk rally, jarak ke ARA cukup) sebelum entry - BUKAN sinyal auto-trade, tidak bisa
+dikirim ke Jurnal Backtest, cuma manual via Jurnal Real.
+
+4 test baru (`TestOpenLowPattern`) memverifikasi deteksi shaven bottom, gagal deteksi
+kalau ada ekor bawah, dan kombinasi Setup A (breakout+volume) vs bukan.
+
+### Audit susulan: label "DAY TRADE" masih nyangkut di sistem Rekomendasi terpisah
+
+User lihat screenshot production menunjukkan kolom **Rekomendasi** (sistem Quality/
+Momentum yang SUDAH ADA sebelum riset Day Trading ini, di `get_trade_recommendation()` -
+beda total dari sistem Tipe/Donchian yang baru dihapus) masih mengeluarkan label
+**"DAY TRADE"** untuk saham bermomentum sangat kuat. User minta diaudit ulang.
+
+Ini bukan bug sisa penghapusan - itu heuristik independen (momentum+akumulasi+trend),
+tapi labelnya sekarang menyesatkan (menyiratkan rekomendasi day-trading yang sudah
+terbukti tidak konsisten). **Fix**: label diganti jadi **"MOMENTUM KUAT"** (kondisi
+underlying-nya tetap valid sbg info, cuma tidak lagi menyiratkan strategi day-trading).
+`tutorial.py` (contoh filter "Agresif"/"Moderat" yg mereferensikan "DAY TRADE") diupdate
+sepadan. Dicek ulang seluruh repo (`grep -rn "DAY TRADE"`) - 0 sisa string literal.
 
 ## Default Universe Saham: Syariah (ISSI)
 
