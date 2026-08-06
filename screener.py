@@ -354,15 +354,21 @@ def get_quality_rating(df: pd.DataFrame) -> dict:
 
 def get_trade_recommendation(quality: dict) -> dict:
     """
-    Rekomendasi EKSPLORATIF (belum dibacktest) - beda total dari Score/Signal &
-    build_trade_candidates() yang tervalidasi. Output berupa AKSI (bukan deskripsi
-    kondisi - itu sudah ada di kolom Quality/Trend/Smart Money/Momentum terpisah):
-    SWING TRADE / WAIT / AVOID. Dulu ada "DAY TRADE" sbg aksi ke-4 (momentum kuat +
-    akumulasi + trend) - dihapus krn Day Trading terbukti tidak konsisten profit di
-    sistem ini (README > "Day Trading: Bukan Soal Parameter, Tapi Desain Sinyal");
-    kasus itu SEKARANG digabung ke SWING TRADE (satu-satunya aksi trading valid yang
-    tersisa) - dibedakan lewat `confidence` (85/70/55), bukan lewat label kata baru,
-    supaya tidak bertabrakan makna dgn kolom Momentum (deskripsi kondisi) yang sudah ada.
+    Rekomendasi EKSPLORATIF - beda total dari Score/Signal & build_trade_candidates()
+    yang tervalidasi lewat backtest resmi (backtest.py). Output berupa AKSI (bukan
+    deskripsi kondisi - itu sudah ada di kolom Quality/Trend/Smart Money/Momentum
+    terpisah): SWING TRADE / WAIT / AVOID. Dulu ada "DAY TRADE" sbg aksi ke-4 (momentum
+    kuat + akumulasi + trend) - dihapus krn Day Trading terbukti tidak konsisten profit
+    di sistem ini (README > "Day Trading: Bukan Soal Parameter, Tapi Desain Sinyal");
+    kasus itu digabung ke SWING TRADE, dibedakan lewat `confidence` (bukan label kata
+    baru) supaya tidak bertabrakan makna dgn kolom Momentum (deskripsi kondisi).
+
+    SWING TRADE sekarang HANYA confidence 85/70 (README > "Backtest Confidence Tier
+    SWING TRADE" - 615 saham/5 tahun, walk-forward, 1.323 trade): keduanya konsisten
+    net-profit di 2 paruh waktu, avg return bersih 1.27%/1.94%. Confidence 55 (smart_money
+    NETRAL, bukan Akumulasi) DIDOWNGRADE ke WAIT krn WR cuma 29.7%, avg return 0.43%,
+    dan arahnya BERBALIK antar split-half (rugi paruh 1, untung paruh 2) - tidak layak
+    jadi aksi beli. Cabang WAIT/AVOID lain BELUM diuji dgn metode yang sama.
     """
     try:
         rating = quality.get("rating", "LOW")
@@ -396,15 +402,21 @@ def get_trade_recommendation(quality: dict) -> dict:
             color = "#2563eb"
             emoji = "🌊"
 
+        # === WAIT (dulu SWING TRADE conf 55, didowngrade): trend solid tapi akumulasi
+        # belum jelas - backtest 615 saham/5 tahun (README > "Backtest Confidence Tier
+        # SWING TRADE") menemukan tier ini WR 29.7%, avg return bersih cuma 0.43%, DAN
+        # arahnya BERBALIK antar split-half (rugi di paruh 1, untung di paruh 2) - tidak
+        # cukup diyakini utk jadi aksi beli, beda dgn 85/70 yg konsisten positif di kedua
+        # paruh. ===
         elif (rating in ["HIGH", "MODERATE"] and
               smart_money == "NEUTRAL" and
               trend_stars >= 2):
-            recommendation = "SWING TRADE"
-            confidence = 55
-            reason = "Trend solid, akumulasi belum jelas"
-            color = "#3b82f6"
-            emoji = "🌊"
-        
+            recommendation = "WAIT"
+            confidence = 40
+            reason = "Trend solid, tapi akumulasi belum jelas - tunggu konfirmasi smart money"
+            color = "#f59e0b"
+            emoji = "⏸️"
+
         # === WAIT: Akumulasi ada tapi trend lemah ===
         elif (smart_money == "ACCUMULATION" and 
               (rating == "LOW" or trend_stars < 2)):

@@ -1257,13 +1257,16 @@ return-nya lebih tinggi dari 85 (kombinasi "Trend+Akumulasi solid, momentum belu
 menang atas "Trend+Akumulasi+momentum semua aktif"). Confidence 55 (smart_money=NETRAL,
 bukan Akumulasi) jelas paling lemah & tidak konsisten.
 
-**Fix**: warna badge "Confidence" di tabel Kandidat ([app.py](app.py) `color_confidence()`)
-dibuat berdasarkan BUKTI backtest, bukan angka nominal apa adanya - 85 & 70 diberi warna
-biru kuat yang SETARA (`#1d4ed8`), 55 dibuat pudar/redup (`#cbd5e1`) sebagai sinyal lemah.
-Kolom "Confidence" ditambahkan ke tabel Kandidat (sebelumnya dihitung tapi tidak
-ditampilkan) supaya user bisa lihat angkanya langsung. Belum diubah: logika
-`get_trade_recommendation()` sendiri (confidence 55 masih diklasifikasikan SWING TRADE,
-bukan didowngrade ke WAIT) - itu keputusan produk terpisah, belum diputuskan.
+**Fix (2 tahap)**: (1) warna badge "Confidence" di tabel Kandidat ([app.py](app.py)
+`color_confidence()`) dibuat berdasarkan BUKTI backtest, bukan angka nominal apa adanya -
+85 & 70 diberi warna biru kuat yang SETARA (`#1d4ed8`). Kolom "Confidence" ditambahkan ke
+tabel Kandidat (sebelumnya dihitung tapi tidak ditampilkan). (2) User: "masuk WAIT saja,
+karena yang dibeli tidak semuanya juga" - cabang confidence 55 (`smart_money=NEUTRAL`)
+di `get_trade_recommendation()` **DIDOWNGRADE dari SWING TRADE ke WAIT** (confidence 40),
+sesuai bukti backtest-nya sendiri (WR 29.7%, avg return bersih 0.43%, arah berbalik antar
+split-half). SWING TRADE sekarang cuma tersisa confidence 85/70, yang keduanya konsisten
+net-profit di 2 paruh waktu - tidak ada lagi tier SWING TRADE yang terbukti lemah/tidak
+konsisten. Diverifikasi: py_compile OK, 115/115 pytest lolos.
 
 ## Default Universe Saham: Syariah (ISSI)
 

@@ -759,7 +759,7 @@ with t_kandidat:
     if not picks.empty and "Tipe" in picks.columns:
         st.caption("🌊 Semua kandidat = **Swing Trade tervalidasi** - RR/Entry/SL/Target jangan dilanggar. "
                    "Rekomendasi/Quality/Trend/Smart Money/Momentum = eksploratif, info tambahan saja. "
-                   "Confidence 85%/70% terbukti setara di backtest, 55% terlemah (lihat README).")
+                   "Confidence 85%/70% terbukti setara di backtest (lihat README).")
         if "Quality" in picks.columns:
             available_q = sorted(picks["Quality"].dropna().unique().tolist())
             q_filter = st.multiselect("Quality Rating", options=available_q, default=available_q)
@@ -801,19 +801,16 @@ with t_kandidat:
             if "WAIT" in val: return "background-color: #eab308; color: black; font-weight: bold;"
             return ""
         def color_confidence(val):
-            # Warna dibedakan berdasarkan BACKTEST NYATA (1.323 trade SWING TRADE, 615
-            # saham/5 tahun, walk-forward), BUKAN urutan nominal 85/70/55 apa adanya -
-            # terbukti conf 85 TIDAK mengungguli conf 70 (avg net return 1.27% vs 1.94%,
-            # kedua-nya konsisten positif di 2 paruh waktu); conf 55 (Netral, bukan
-            # Akumulasi) jelas paling lemah (avg 0.43%, arah malah berbalik antar paruh
-            # waktu, sample kecil 37 trade) - lihat README > "Backtest Confidence Tier
-            # SWING TRADE". Jadi 85 & 70 diberi warna kuat yang SETARA, 55 dibuat pudar.
+            # SWING TRADE cuma tersisa confidence 85/70 (conf 55 didowngrade ke WAIT -
+            # lihat get_trade_recommendation() & README > "Backtest Confidence Tier
+            # SWING TRADE"). Backtest 615 saham/5 tahun: 85 TIDAK mengungguli 70 (avg
+            # net return 1.27% vs 1.94%, keduanya konsisten positif di 2 paruh waktu) -
+            # jadi keduanya diberi warna yang SETARA, bukan digradasi seolah 85 > 70.
             try:
                 c = int(str(val).replace("%", "").strip())
             except ValueError:
                 return ""
             if c in (85, 70): return "background-color: #1d4ed8; color: white; font-weight: bold;"
-            if c == 55: return "background-color: #cbd5e1; color: #334155; font-weight: bold;"
             return ""
         def color_q(val):
             val = str(val)
