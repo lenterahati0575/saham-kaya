@@ -1181,6 +1181,31 @@ per-baris) - jelas menyebut BUKAN soal trend lebih kuat/lemah, tapi momentum akt
 Diverifikasi: py_compile OK, 115/115 pytest lolos, dicoba live - banner 1x muncul benar,
 caption penjelasan MOMENTUM vs TREN KUAT lengkap & jelas.
 
+### Audit keempat: "MOMENTUM" kategori yang salah utk kolom "Rekomendasi"
+
+User: "rekomendasi tidak cocok dengan istilah momentum, seharusnya kolom itu swing
+trade/wait/hold/sell/avoid karena judulnya rekomendasi... jangan cuma ganti kata2, jangan
+banyak penjelasan di UI (bikin kurang bersih), penjelasan detail cukup di belakang (kode/
+README) saja."
+
+Kesalahan tepat: kolom **Rekomendasi** seharusnya isinya AKSI (SWING TRADE/WAIT/AVOID -
+kata kerja/keputusan), bukan DESKRIPSI KONDISI ("MOMENTUM" itu kondisi pasar, bukan
+tindakan) - apalagi kolom "Momentum" (deskripsi kondisi momentum_strength) sudah ada
+sendiri, jadi Rekomendasi="MOMENTUM" tumpang tindih kategori dgn kolom lain, bukan cuma
+tumpang tindih kata seperti kasus SWING TRADE sebelumnya.
+
+**Fix (setia ke desain asli, bukan desain baru)**: kasus "momentum kuat" (dulu DAY TRADE
+-> MOMENTUM) digabung balik ke **SWING TRADE** (satu2nya aksi trading valid yg tersisa
+di sistem ini) - dibedakan lewat `confidence` (85/70/55) yang sudah ada, BUKAN lewat
+label kata baru. Rekomendasi kembali ke 3 nilai bersih: SWING TRADE / WAIT / AVOID -
+sama seperti struktur asli (4 aksi -> 3 aksi setelah DAY TRADE dihapus, bukan diganti
+jadi istilah kondisi). Caption panjang di UI (penjelasan MOMENTUM vs TREN KUAT) dihapus,
+diringkas jadi 1 baris - detail rasional pemetaan tetap ada di komentar kode/README,
+tidak ditampilkan ke user (sesuai arahan: UI bersih, penjelasan di belakang).
+
+Diverifikasi: py_compile OK, 115/115 pytest lolos, dicoba live - caption sekarang cuma
+2 kalimat.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

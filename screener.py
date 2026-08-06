@@ -355,11 +355,14 @@ def get_quality_rating(df: pd.DataFrame) -> dict:
 def get_trade_recommendation(quality: dict) -> dict:
     """
     Rekomendasi EKSPLORATIF (belum dibacktest) - beda total dari Score/Signal &
-    build_trade_candidates() yang tervalidasi. 4 kelas hasil, dipisahkan MURNI oleh field
-    `momentum` (bukan trend_stars - itu syaratnya SAMA di semua kelas "trend solid"):
-    - MOMENTUM: trend + akumulasi + momentum harga SEDANG AKTIF (naik beruntun+volume).
-    - TREN KUAT: trend + akumulasi/netral, momentum BELUM aktif (co: pullback/konsolidasi).
-    - WAIT / AVOID: trend/akumulasi belum meyakinkan atau smart money distribusi.
+    build_trade_candidates() yang tervalidasi. Output berupa AKSI (bukan deskripsi
+    kondisi - itu sudah ada di kolom Quality/Trend/Smart Money/Momentum terpisah):
+    SWING TRADE / WAIT / AVOID. Dulu ada "DAY TRADE" sbg aksi ke-4 (momentum kuat +
+    akumulasi + trend) - dihapus krn Day Trading terbukti tidak konsisten profit di
+    sistem ini (README > "Day Trading: Bukan Soal Parameter, Tapi Desain Sinyal");
+    kasus itu SEKARANG digabung ke SWING TRADE (satu-satunya aksi trading valid yang
+    tersisa) - dibedakan lewat `confidence` (85/70/55), bukan lewat label kata baru,
+    supaya tidak bertabrakan makna dgn kolom Momentum (deskripsi kondisi) yang sudah ada.
     """
     try:
         rating = quality.get("rating", "LOW")
@@ -367,55 +370,40 @@ def get_trade_recommendation(quality: dict) -> dict:
         smart_money = quality.get("smart_money_status", "N/A")
         momentum = quality.get("momentum_strength", "NONE")
         score = quality.get("score", 0)
-        
+
         recommendation = "WAIT"
         confidence = 0
         reason = ""
         color = "#6b7280"
         emoji = "⏸️"
-        
-        # === MOMENTUM (dulu dilabeli "DAY TRADE" - diganti krn Day Trading sbg strategi
-        # TERBUKTI tidak konsisten profit di sistem ini, lihat README > "Day Trading:
-        # Bukan Soal Parameter, Tapi Desain Sinyal". Label lama menyiratkan rekomendasi
-        # day-trading yang tidak lagi bisa dipertanggungjawabkan - kondisi underlying-nya
-        # (momentum+akumulasi+trend kuat) tetap info yang valid, cuma jangan dibaca sbg
-        # "cocok utk day trading". Label SENGAJA singkat ("MOMENTUM" bukan "MOMENTUM
-        # KUAT") - kolom Rekomendasi di tabel Kandidat sempit, teks panjang kepotong.) ===
-        # PENTING (supaya label & alasan cocok dgn formula, bukan cuma ganti kata): kedua
-        # cabang di bawah ("MOMENTUM" vs "TREN KUAT") SAMA-SAMA mensyaratkan trend_stars
-        # >= 2 - trend_stars BUKAN pembedanya. Pembeda SEBENARNYA (via if/elif) adalah
-        # field `momentum` (dari _count_consecutive_higher_closes - naik beruntun+volume):
-        # MOMENTUM = trend solid + akumulasi + momentum harga SEDANG AKTIF. TREN KUAT =
-        # trend solid + akumulasi/netral TAPI momentum BELUM aktif (blm ada lonjakan naik
-        # beruntun). Alasan di bawah SENGAJA sebut kata "momentum" scr eksplisit di kedua
-        # cabang, supaya pembedanya kelihatan di tabel - bukan cuma nama beda tanpa makna.
+
         if (momentum in ["VERY_STRONG", "STRONG", "MODERATE"] and
             rating in ["HIGH", "MODERATE"] and
             smart_money == "ACCUMULATION" and
             trend_stars >= 2):
-            recommendation = "MOMENTUM"
+            recommendation = "SWING TRADE"
             confidence = 85
-            reason = "Trend + Akumulasi + momentum harga AKTIF (naik beruntun & volume)"
-            color = "#16a34a"
-            emoji = "⚡"
+            reason = "Trend + Akumulasi + momentum harga aktif (naik beruntun & volume)"
+            color = "#2563eb"
+            emoji = "🌊"
 
         elif (rating in ["HIGH", "MODERATE"] and
               smart_money == "ACCUMULATION" and
               trend_stars >= 2):
-            recommendation = "TREN KUAT"
+            recommendation = "SWING TRADE"
             confidence = 70
-            reason = "Trend + Akumulasi solid, TAPI momentum BELUM aktif (co: pullback/konsolidasi)"
-            color = "#0891b2"
-            emoji = "📈"
+            reason = "Trend + Akumulasi solid, momentum belum aktif (co: pullback)"
+            color = "#2563eb"
+            emoji = "🌊"
 
         elif (rating in ["HIGH", "MODERATE"] and
               smart_money == "NEUTRAL" and
               trend_stars >= 2):
-            recommendation = "TREN KUAT"
+            recommendation = "SWING TRADE"
             confidence = 55
-            reason = "Trend solid, akumulasi belum jelas, momentum BELUM aktif"
-            color = "#0e7490"
-            emoji = "📈"
+            reason = "Trend solid, akumulasi belum jelas"
+            color = "#3b82f6"
+            emoji = "🌊"
         
         # === WAIT: Akumulasi ada tapi trend lemah ===
         elif (smart_money == "ACCUMULATION" and 

@@ -130,30 +130,25 @@ def show_daily_trading():
     
     filter_options = {
         "Konservatif": {
-            "rekomendasi": ["TREN KUAT"],
             "quality": ["✅ HIGH"],
             "rr": "≥ 3.0",
             "deskripsi": "Untuk trader yang ingin risiko minimal"
         },
         "Moderat": {
-            "rekomendasi": ["TREN KUAT", "MOMENTUM"],
             "quality": ["✅ HIGH", "⚠️ MODERATE"],
             "rr": "≥ 2.0",
             "deskripsi": "Balance antara risiko dan opportunity"
         },
         "Agresif": {
-            "rekomendasi": ["MOMENTUM"],
             "quality": ["✅ HIGH", "⚠️ MODERATE"],
             "rr": "≥ 1.5",
-            "deskripsi": "Untuk trader berpengalaman dengan risk tolerance tinggi - Kolom "
-                         "Rekomendasi/Quality EKSPLORATIF, belum divalidasi backtest"
+            "deskripsi": "Untuk trader berpengalaman dengan risk tolerance tinggi"
         }
     }
-    
+
     for style, config in filter_options.items():
         with st.expander(f"💡 Gaya {style}", expanded=False):
             st.write(f"**Deskripsi:** {config['deskripsi']}")
-            st.write(f"**Rekomendasi:** {', '.join(config['rekomendasi'])}")
             st.write(f"**Quality:** {', '.join(config['quality'])}")
             st.write(f"**RR:** {config['rr']}")
 
