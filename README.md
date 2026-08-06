@@ -1338,6 +1338,38 @@ bisa dibaca ulang dgn BENAR (setelah fix ini, cache `load_positions.clear()` /
 refresh app), memberi gambaran performa asli yang jauh lebih baik dari yang tampil
 sebelumnya.
 
+## Bug KRITIS #2: Day Trading (BPJS/BSJP) MASIH auto-buy via GitHub Actions, ketinggalan waktu penghapusan
+
+Setelah fix locale P&L di atas, user reboot & lihat data terkoreksi - tapi masih rugi
+(Win Rate 20%, Profit Factor 0.08). Ditelusuri lewat "Riwayat Semua Trade": SEMUA 3
+trade closed berjenis **BPJS** (Day Trading), bukan Swing - padahal Day Trading sudah
+"dihapus total" dari dashboard (`app.py`, lihat "Day Trading dihapus total" di atas).
+
+**Root cause**: `auto_run.py` - script TERPISAH yang dijalankan terjadwal oleh GitHub
+Actions (`.github/workflows/auto_backtest.yml`, 2x/hari kerja: 09:15 & 14:45 WIB),
+BUKAN dari dashboard - masih memanggil `classify_daytrading_tipe()` +
+`build_trade_candidates(..., DONCHIAN_LB_DAY=10, MIN_RR_DAY=2.0)` **TANPA filter
+regime IHSG**, membuka posisi BPJS/BSJP otomatis persis seperti sistem Day Trading
+lama yang sudah dibuktikan tidak konsisten profit. Penghapusan Day Trading sebelumnya
+HANYA menyentuh `app.py` (UI dashboard) - `auto_run.py` (otomasi latar belakang,
+sama sekali tidak terlihat dari dashboard) tidak ikut diubah, jadi Day Trading tetap
+jalan diam-diam via GitHub Actions setiap hari kerja tanpa disadari siapa pun yang
+cuma memantau lewat web.
+
+**Fix**: blok Auto-BUY Day Trading (BPJS/BSJP) di `auto_run.py` dihapus total -
+sekarang cuma Auto-BUY Swing (dgn filter regime IHSG, seperti dashboard) + Auto-SELL.
+Sekalian dibenahi: Auto-SELL di `auto_run.py` sebelumnya cuma kirim `price_lookup`
+(Close-only) ke `auto_close_positions()` - beda dari dashboard yang sudah pakai
+`hl_lookup` (High/Low hari itu, lebih presisi, sesuai metodologi backtest) - sekarang
+disamakan. Komentar YAML & docstring diperbarui, tidak ada lagi sisa referensi
+`day_tipe`/`opened_day`/`DONCHIAN_LB_DAY`/`MIN_RR_DAY` di `auto_run.py`.
+
+**Pelajaran**: kalau ada logika yang sama diduplikasi di lebih dari satu tempat (UI +
+automation terjadwal), penghapusan/perubahan HARUS diperiksa di SEMUA tempat, bukan
+cuma yang paling terlihat (dashboard). `auto_run.py` sengaja didesain memanggil fungsi
+yang sama dgn `app.py` (lihat docstring-nya) justru supaya konsisten - tapi itu tidak
+mencegah salah satu sisi lupa diupdate saat keputusan produk berubah.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

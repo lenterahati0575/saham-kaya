@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 from screener import (
     DEFAULT_PARAMS, load_ticker_universe, get_price_history_with_report, build_screener_table,
-    build_trade_candidates, classify_daytrading_tipe, fetch_ihsg_history, market_regime,
+    build_trade_candidates, fetch_ihsg_history, market_regime,
 )
 import gsheet_journal as gj
 import equity as eq
@@ -31,11 +31,9 @@ WIB = ZoneInfo("Asia/Jakarta")
 N_SCAN = 962                 # pindai semua saham (bukan cuma top-N seperti default dashboard) -
                               # 962 = seluruh saham tercatat IDX per tickers_idx.csv resmi BEI
 DONCHIAN_LB_SWING = 20
-DONCHIAN_LB_DAY = 10
 # MIN_RR_SWING=1.5 divalidasi lewat backtest realistis + out-of-sample (README > Backtest
-# Historis). MIN_RR_DAY dipertahankan di nilai lama - belum divalidasi serupa.
+# Historis).
 MIN_RR_SWING = 1.5
-MIN_RR_DAY = 2.0
 RISK_PCT_PER_TRADE = 1.0     # sama seperti default sidebar dashboard
 
 
@@ -78,13 +76,15 @@ def main():
         total_equity_now = None
     log(f"Total Equity utk position sizing: {'Rp{:,.0f}'.format(total_equity_now) if total_equity_now else 'belum ada snapshot - Lot fallback ke default'}")
 
-    # ---- Auto-BUY: Day Trading (tidak digate regime IHSG - belum divalidasi seperti Swing) ----
-    day_tipe = classify_daytrading_tipe()
-    cands_day = build_trade_candidates(table, price_data, DONCHIAN_LB_DAY, MIN_RR_DAY, top_n=10,
-                                        total_equity=total_equity_now, risk_pct=RISK_PCT_PER_TRADE)
-    opened_day = gj.open_positions_from_candidates(cands_day, day_tipe)
-    log(f"Auto-BUY Day Trading ({day_tipe}): {opened_day if opened_day else 'tidak ada posisi baru'}")
-
+    # ---- Auto-BUY: Day Trading (BPJS/BSJP) DIHAPUS ----
+    # Day Trading terbukti TIDAK konsisten profit (lihat README > "Day Trading: Bukan Soal
+    # Parameter, Tapi Desain Sinyal") - sudah dihapus dari dashboard (app.py), TAPI script ini
+    # (dijalankan terjadwal oleh GitHub Actions, terpisah dari dashboard) masih memanggilnya
+    # sendiri - ketinggalan waktu penghapusan, jadi BPJS/BSJP tetap ke-auto-buy 2x/hari
+    # (09:15 & 14:45 WIB) TANPA sepengetahuan siapa pun yang cuma lihat dashboard. Baru
+    # ditemukan saat user melaporkan floating loss besar & audit menemukan closed trade
+    # yang tercatat semuanya BPJS - bukan Swing.
+    #
     # ---- Auto-BUY: Swing Trading (digate regime IHSG - divalidasi lewat backtest realistis
     # + out-of-sample: net rugi kalau dipaksa aktif di pasar bearish, lihat README) ----
     ihsg_hist = fetch_ihsg_history()
@@ -100,8 +100,14 @@ def main():
         log(f"Auto-BUY Swing Trading: {opened_swing if opened_swing else 'tidak ada posisi baru'}")
 
     # ---- Auto-SELL: cek TP/SL/force-sell semua posisi OPEN ----
+    # hl_lookup (High/Low hari ini) - SAMA seperti yang dipakai dashboard (app.py) supaya
+    # TP/SL dicek dari rentang harga hari itu, bukan cuma 1 titik harga (Close) yang bisa
+    # MELEWATKAN TP/SL yang sebenarnya tersentuh intraday. Sebelum ini auto_run.py cuma
+    # kirim price_lookup (Close-only) - kurang presisi dibanding metodologi backtest.
     price_lookup = dict(zip(table["Kode"], table["Harga"]))
-    closed = gj.auto_close_positions(price_lookup)
+    hl_lookup = {kode: (float(df["High"].iloc[-1]), float(df["Low"].iloc[-1]))
+                 for kode, df in price_data.items() if df is not None and not df.empty}
+    closed = gj.auto_close_positions(price_lookup, hl_lookup)
     log(f"Auto-SELL: {closed if closed else 'tidak ada posisi yang perlu ditutup'}")
 
     # ---- Kirim ringkasan ke Telegram (supaya Bro tahu hasilnya TANPA perlu buka GitHub/web) ----
@@ -111,8 +117,6 @@ def main():
         waktu = datetime.now(WIB).strftime("%d %b %Y, %H:%M WIB")
         lines = [f"<b>🤖 Auto-Backtest Selesai</b> ({waktu})", ""]
         lines.append(f"📊 Dipindai: {len(table)} saham")
-        lines.append(f"🟢 Auto-BUY Day Trading ({day_tipe}): " +
-                      (", ".join(opened_day) if opened_day else "tidak ada"))
         swing_line = (f"dilewati (IHSG {regime['status']})" if regime["status"] != "BULLISH"
                       else (", ".join(opened_swing) if opened_swing else "tidak ada"))
         lines.append(f"🟢 Auto-BUY Swing (IHSG {regime['status']}): {swing_line}")

@@ -4,8 +4,10 @@ name: Auto Backtest IDX Screener
 # Dashboard") ternyata belum pernah ter-commit ke repo - jadi sebelum file ini ada,
 # auto_run.py TIDAK PERNAH terjadwal jalan otomatis walau instruksi setup-nya sudah ditulis
 # lengkap. Sekarang jadwalnya aktif sesuai yang dijanjikan README:
-#   09:15 WIB (02:15 UTC) hari kerja - cek sinyal pagi (BPJS), buka posisi Swing baru
-#   14:45 WIB (07:45 UTC) hari kerja - cek sinyal sore (BSJP), cek TP/SL/force-sell
+#   09:15 WIB (02:15 UTC) hari kerja - buka posisi Swing baru, cek TP/SL/force-sell
+#   14:45 WIB (07:45 UTC) hari kerja - buka posisi Swing baru, cek TP/SL/force-sell
+# (Day Trading BPJS/BSJP DIHAPUS dari sini - lihat auto_run.py & README, terbukti tidak
+# konsisten profit, sudah dihapus dari dashboard tapi ketinggalan di script terjadwal ini.)
 
 on:
   schedule:
