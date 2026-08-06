@@ -1291,6 +1291,53 @@ lain = info tambahan" di caption #2 juga dihapus - sekarang tersisa 1 baris pend
 "Rekomendasi" (multiselect SWING TRADE/WAIT/AVOID) ditambahkan di [app.py](app.py),
 sejajar dgn filter "Quality Rating" yang sudah ada.
 
+## Bug KRITIS: gspread numericise() rusak angka P&L locale Indonesia (10x-100x lipat)
+
+User lapor floating loss ~50% di tab Performance, mengira sistemnya jelek. Audit
+menemukan akar masalah yang JAUH lebih serius: bukan sinyal tradingnya buruk, tapi
+**cara baca data dari Google Sheets salah**, sudah lama, sistematis, di SEMUA P&L.
+
+**Root cause**: `gj.load_positions()` pakai `ws.get_all_records()` bawaan gspread, yang
+DEFAULT numericise-kan tiap sel sendiri lewat `gspread.utils.numericise()`. Fungsi itu
+menganggap koma = pemisah RIBUAN gaya Inggris & MENGHAPUSNYA sebelum parsing - lihat
+docstring-nya sendiri: `numericise("2,000.1") -> 2000.1`. Sel Google Sheets locale
+Indonesia (koma = DESIMAL, mis. "131683,2" utk Rp131.683,2) kena salah baca: koma
+dihapus -> "1316832" -> diparsing jadi 1.316.832 (bukan 131.683,2) - **inflasi 10x**
+kalau 1 digit desimal, **100x** kalau 2 digit (kasus P&L (%), krn 2 digit di belakang
+koma). Diverifikasi LANGSUNG dari screenshot sheet POSISI asli user: trade GDST P&L
+sungguhan **Rp131.683,2 (+7,01%)**, muncul di tabel Performance sbg **Rp1.316.832
+(+701%)**. Trade APLN: asli **-Rp10.846,8 (-0,4%)**, tersebar sbg **-Rp108.468 (-4%)**.
+Rumus P&L di `auto_close_positions()` sendiri SUDAH BENAR (diverifikasi manual thd
+sheet asli) - bug murni di sisi PEMBACAAN (gspread), bukan di rumus.
+
+**Kenapa ini sudah lama tidak ketahuan**: satu kasus persis ini ("P&L +701%") sudah
+pernah muncul SEBELUM audit ini, tapi sesi sebelumnya cuma memperbaiki bug klasifikasi
+WIN/LOSS force-sell (lihat "Bug nyata dari laporan user" di `summarize()`,
+`gsheet_journal.py`) - MENERIMA angka 701% itu apa adanya sbg data sungguhan, tanpa
+menyadari angkanya sendiri sudah salah baca 100x lipat sejak awal.
+
+**Dampak**: SEMUA P&L (Rp) dgn pecahan desimal & SEMUA P&L (%) (yang hampir pasti
+berdesimal krn hasil pembagian) di sheet POSISI selama ini terbaca salah - Realized
+P/L, Win Rate, Profit Factor, Equity Curve di tab Performance jadi TIDAK BISA
+dipercaya sampai fix ini. Karena mayoritas nilai di data user condong rugi, inflasi
+ini bikin kesan sistem jauh lebih buruk dari kenyataan (walau arah untung/rugi per
+trade tetap benar - cuma MAGNITUDE-nya yang salah, kadang 10-100x lipat).
+
+**Fix**: `numericise_ignore=['all']` di `get_all_records()` (matikan numericise
+otomatis gspread sepenuhnya) + parsing manual di `load_positions()` khusus kolom
+numerik (`NUMERIC_COLS`) dgn urutan locale Indonesia yang BENAR: hapus titik (pemisah
+ribuan) dulu, BARU ganti koma jadi titik (desimal). Kolom tanggal/teks tidak
+terpengaruh (gspread tidak pernah menganggapnya angka sejak awal). 4 test regresi
+baru (`TestLoadPositionsLocaleParsing`, `tests/test_gsheet_journal.py`) mock
+`get_all_records()` dgn nilai locale Indonesia PERSIS dari screenshot sheet asli user
+(GDST/APLN/ANTM), assert hasil parsing = nilai asli, BUKAN versi 10x/100x lipat.
+119/119 pytest lolos (115 lama + 4 baru).
+
+**Saran ke user**: JANGAN hapus data sheet POSISI dulu - data lama sekarang justru
+bisa dibaca ulang dgn BENAR (setelah fix ini, cache `load_positions.clear()` /
+refresh app), memberi gambaran performa asli yang jauh lebih baik dari yang tampil
+sebelumnya.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

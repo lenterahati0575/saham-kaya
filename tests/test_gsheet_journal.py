@@ -251,3 +251,80 @@ class TestSummarizeForceSell:
         stats = gj.summarize(df)
         assert stats["win"] == 1
         assert stats["loss"] == 1
+
+
+class TestLoadPositionsLocaleParsing:
+    """Bug nyata dari laporan user (screenshot tab Performance): P&L GDST tampil
+    Rp1.316.832/+701%, padahal sheet aslinya Rp131.683,2/+7,01%. Akar masalah:
+    gspread.utils.numericise() (dipakai default oleh ws.get_all_records()) menganggap
+    koma = pemisah ribuan gaya Inggris & MENGHAPUSNYA sblm parsing - "131683,2" (locale
+    Indonesia, koma=desimal) jadi "1316832". Fix: numericise_ignore=['all'] + parsing
+    manual (hapus titik ribuan, ganti koma jadi titik desimal) di load_positions()."""
+
+    def _mock_ws_locale(self, rows: list[dict]):
+        headers = gj.HEADERS
+        ws = MagicMock()
+        ws.get_all_records.return_value = [{h: r.get(h, "") for h in headers} for r in rows]
+        return ws
+
+    def test_pnl_koma_desimal_diparsing_benar_bukan_dikali_10(self):
+        # Persis kasus GDST di screenshot user.
+        ws = self._mock_ws_locale([{
+            "Tanggal Open": "2026-08-05 12:30", "Saham": "GDST", "Harga Beli": "108",
+            "TP": "149", "SL": "89", "Tipe": "BPJS", "Lot": "174",
+            "Tanggal Close": "2026-08-06 12:40", "Harga Jual": "116",
+            "P&L (Rp)": "131683,2", "P&L (%)": "7,01", "Status": "FORCE SELL (1 hari)", "Hari": "1",
+        }])
+        gj.load_positions.clear()
+        with patch.object(gj, "_get_worksheet", return_value=ws):
+            df = gj.load_positions()
+        gj.load_positions.clear()
+        assert df.iloc[0]["P&L (Rp)"] == 131683.2
+        assert df.iloc[0]["P&L (%)"] == 7.01
+        # Regresi eksplisit: bukan 10x/100x lipat gara2 koma dihapus mentah2.
+        assert df.iloc[0]["P&L (Rp)"] != 1316832
+        assert df.iloc[0]["P&L (%)"] != 701
+
+    def test_pnl_rugi_koma_desimal_tetap_negatif_benar(self):
+        # Kasus APLN di screenshot: "-10846,8" / "-0,4" - tanda negatif harus tetap terjaga.
+        ws = self._mock_ws_locale([{
+            "Tanggal Open": "2026-08-05 12:30", "Saham": "APLN", "Harga Beli": "131",
+            "TP": "167", "SL": "115", "Tipe": "BPJS", "Lot": "207",
+            "Tanggal Close": "2026-08-06 12:40", "Harga Jual": "131",
+            "P&L (Rp)": "-10846,8", "P&L (%)": "-0,4", "Status": "FORCE SELL (1 hari)", "Hari": "1",
+        }])
+        gj.load_positions.clear()
+        with patch.object(gj, "_get_worksheet", return_value=ws):
+            df = gj.load_positions()
+        gj.load_positions.clear()
+        assert df.iloc[0]["P&L (Rp)"] == -10846.8
+        assert df.iloc[0]["P&L (%)"] == -0.4
+
+    def test_angka_bulat_tanpa_koma_tidak_terpengaruh(self):
+        # Kasus ANTM/PADI: P&L (Rp) kebetulan bulat (tanpa desimal) - harus tetap sama.
+        ws = self._mock_ws_locale([{
+            "Tanggal Open": "2026-08-05 12:30", "Saham": "ANTM", "Harga Beli": "3060",
+            "TP": "3580", "SL": "2800", "Tipe": "BPJS", "Lot": "12",
+            "Tanggal Close": "2026-08-06 12:40", "Harga Jual": "3120",
+            "P&L (Rp)": "57312", "P&L (%)": "1,56", "Status": "FORCE SELL (1 hari)", "Hari": "1",
+        }])
+        gj.load_positions.clear()
+        with patch.object(gj, "_get_worksheet", return_value=ws):
+            df = gj.load_positions()
+        gj.load_positions.clear()
+        assert df.iloc[0]["P&L (Rp)"] == 57312
+        assert df.iloc[0]["P&L (%)"] == 1.56
+
+    def test_baris_open_dgn_kolom_kosong_tidak_crash(self):
+        ws = self._mock_ws_locale([{
+            "Tanggal Open": "2026-08-05 12:30", "Saham": "KOTA", "Harga Beli": "163",
+            "TP": "281", "SL": "89", "Tipe": "SWING", "Lot": "44",
+            "Tanggal Close": "", "Harga Jual": "", "P&L (Rp)": "", "P&L (%)": "",
+            "Status": "OPEN", "Hari": "",
+        }])
+        gj.load_positions.clear()
+        with patch.object(gj, "_get_worksheet", return_value=ws):
+            df = gj.load_positions()
+        gj.load_positions.clear()
+        assert pd.isna(df.iloc[0]["P&L (Rp)"])
+        assert df.iloc[0]["Harga Beli"] == 163

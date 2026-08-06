@@ -44,8 +44,11 @@ SHEET_NAME = "POSISI"
 FEE_PCT_ROUNDTRIP = 0.15 + 0.25
 
 # HEADERS DENGAN KOLOM LOT (kolom G)
-HEADERS = ["Tanggal Open", "Saham", "Harga Beli", "TP", "SL", "Tipe", 
+HEADERS = ["Tanggal Open", "Saham", "Harga Beli", "TP", "SL", "Tipe",
            "Lot", "Tanggal Close", "Harga Jual", "P&L (Rp)", "P&L (%)", "Status", "Hari"]
+
+# Kolom numerik (non-tanggal, non-teks) - dipakai load_positions() utk parsing manual.
+NUMERIC_COLS = ["Harga Beli", "TP", "SL", "Lot", "Harga Jual", "P&L (Rp)", "P&L (%)", "Hari"]
 
 
 def is_configured() -> bool:
@@ -75,13 +78,35 @@ def _get_worksheet():
 
 @st.cache_data(ttl=30, show_spinner=False)
 def load_positions() -> pd.DataFrame:
-    """Load semua posisi dari Google Sheets ke DataFrame."""
+    """Load semua posisi dari Google Sheets ke DataFrame.
+
+    BUG NYATA yang ditemukan dari laporan user (lihat screenshot tab Performance -
+    P&L GDST tampil Rp1.316.832/+701%, padahal sheet aslinya Rp131.683,2/+7,01%):
+    `ws.get_all_records()` bawaan gspread numericise-kan tiap sel SENDIRI, dan
+    `gspread.utils.numericise()` menganggap koma = pemisah RIBUAN gaya Inggris lalu
+    MENGHAPUSNYA sblm parsing (lihat docstring-nya sendiri: `numericise("2,000.1")
+    -> 2000.1`). Sel locale Indonesia yang tampil "131683,2" (koma = DESIMAL) jadi
+    "1316832" - inflasi 10x kalau 1 digit desimal, 100x kalau 2 digit (P&L (%)).
+    Ini BUKAN salah rumus P&L (sudah diverifikasi manual thd sheet asli, rumus di
+    auto_close_positions() benar) - murni salah baca oleh gspread di sisi ini.
+
+    Fix: `numericise_ignore=['all']` mematikan numericise otomatis gspread (semua sel
+    balik jadi string APA ADANYA, sesuai FORMAT TAMPILAN sheet) - lalu kolom numerik
+    diparsing manual DI SINI dgn urutan yg benar utk locale Indonesia: hapus titik
+    (pemisah ribuan) dulu, BARU ganti koma jadi titik (desimal)."""
     try:
         ws = _get_worksheet()
-        records = ws.get_all_records()
+        records = ws.get_all_records(numericise_ignore=['all'])
         df = pd.DataFrame(records)
         if df.empty:
             df = pd.DataFrame(columns=HEADERS)
+        else:
+            for col in NUMERIC_COLS:
+                if col in df.columns:
+                    cleaned = (df[col].astype(str)
+                               .str.replace(".", "", regex=False)
+                               .str.replace(",", ".", regex=False))
+                    df[col] = pd.to_numeric(cleaned, errors="coerce")
         return df
     except Exception as e:
         print(f"Error load positions: {e}")
