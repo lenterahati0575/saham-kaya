@@ -750,17 +750,20 @@ with t_kandidat:
             picks = picks.iloc[0:0]
             st.info("Tidak ada kandidat yang lolos kriteria RR/regime yang sudah divalidasi.")
     if not picks.empty and "Tipe" in picks.columns:
-        st.caption("🌊 **SWING TRADE TERVALIDASI** - RR/Entry/Target/Stop Loss harga mati.")
-        if "Rekomendasi" in picks.columns:
-            available_r = sorted(picks["Rekomendasi"].dropna().unique().tolist())
-            r_filter = st.multiselect("Rekomendasi", options=available_r, default=available_r)
-            if r_filter:
-                picks = picks[picks["Rekomendasi"].isin(r_filter)]
-        if "Quality" in picks.columns:
-            available_q = sorted(picks["Quality"].dropna().unique().tolist())
-            q_filter = st.multiselect("Quality Rating", options=available_q, default=available_q)
-            if q_filter:
-                picks = picks[picks["Quality"].isin(q_filter)]
+        st.caption("🌊 **SWING TRADE TERVALIDASI** - RR/Entry/Target/Stop Loss harga mati. Disiplin kunci sukses trading.")
+        fcol1, fcol2 = st.columns(2)
+        with fcol1:
+            if "Rekomendasi" in picks.columns:
+                available_r = sorted(picks["Rekomendasi"].dropna().unique().tolist())
+                r_filter = st.multiselect("Rekomendasi", options=available_r, default=available_r)
+                if r_filter:
+                    picks = picks[picks["Rekomendasi"].isin(r_filter)]
+        with fcol2:
+            if "Quality" in picks.columns:
+                available_q = sorted(picks["Quality"].dropna().unique().tolist())
+                q_filter = st.multiselect("Quality Rating", options=available_q, default=available_q)
+                if q_filter:
+                    picks = picks[picks["Quality"].isin(q_filter)]
     if not picks.empty and "RR" in picks.columns:
         picks = picks.sort_values(["RR", "Quality Score"], ascending=[False, False])
     if picks.empty:
