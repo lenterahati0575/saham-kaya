@@ -749,17 +749,12 @@ with t_kandidat:
             picks = picks.merge(cands_valid[["Kode", "Tipe", "RR", "Entry", "Target", "Stop Loss", "Risiko %"]], on="Kode", how="inner")
             n_gugur = n_sebelum - picks["Kode"].nunique()
             if n_gugur > 0:
-                st.caption(f"ℹ️ {n_gugur} saham dgn Signal STRONG BUY/BUY tidak muncul di bawah - "
-                           "tidak lolos RR minimum atau regime IHSG (kriteria yg SAMA dgn yg dipakai "
-                           "'Buka Posisi Otomatis' di bawah). Ini SENGAJA, bukan bug - drpd tampilkan "
-                           "Entry/SL/Target yg belum terbukti.")
+                st.caption(f"ℹ️ **{n_gugur} SINYAL TERSEMBUNYI** - belum lolos RR/regime (by design, lihat README).")
         else:
             picks = picks.iloc[0:0]
             st.info("Tidak ada kandidat yang lolos kriteria RR/regime yang sudah divalidasi.")
     if not picks.empty and "Tipe" in picks.columns:
-        st.caption("🌊 Semua kandidat = **Swing Trade tervalidasi** - RR/Entry/SL/Target jangan dilanggar. "
-                   "Rekomendasi/Quality/Trend/Smart Money/Momentum = eksploratif, info tambahan saja. "
-                   "Confidence 85%/70% terbukti setara di backtest (lihat README).")
+        st.caption("🌊 **SWING TRADE TERVALIDASI** - RR/Entry/Target/Stop Loss harga mati. Kolom lain = info tambahan (detail: README).")
         if "Quality" in picks.columns:
             available_q = sorted(picks["Quality"].dropna().unique().tolist())
             q_filter = st.multiselect("Quality Rating", options=available_q, default=available_q)

@@ -1268,6 +1268,23 @@ split-half). SWING TRADE sekarang cuma tersisa confidence 85/70, yang keduanya k
 net-profit di 2 paruh waktu - tidak ada lagi tier SWING TRADE yang terbukti lemah/tidak
 konsisten. Diverifikasi: py_compile OK, 115/115 pytest lolos.
 
+### Caption tabel Kandidat dipersingkat - detail dipindah ke sini
+
+User: "sebaiknya ini ada di README saja kalau masih dibutuhkan, diganti dengan pesan
+trading... ringkas tapi bagus." Dua caption panjang di tabel Kandidat diringkas jadi
+1 baris tebal masing-masing; rasional lengkapnya:
+
+1. **"N sinyal tersembunyi"** - saham dgn Signal STRONG BUY/BUY yang TIDAK muncul di
+   tabel Kandidat bukan bug - itu saham yang tidak lolos RR minimum atau regime IHSG>MA50,
+   kriteria SAMA yang dipakai `build_trade_candidates()` & tombol "Buka Posisi Otomatis"
+   di bawahnya. Sengaja disembunyikan drpd menampilkan Entry/SL/Target yang belum lolos
+   validasi RR/regime.
+2. **"SWING TRADE TERVALIDASI"** - semua baris yang tampil sudah lolos filter tervalidasi
+   backtest (Signal+RR+regime). RR/Entry/Target/Stop Loss = harga MATI, jangan dilanggar.
+   Rekomendasi/Quality/Trend/Smart Money/Momentum/Confidence = lapisan eksploratif di
+   atasnya, info tambahan saja (lihat audit kelima & "Backtest Confidence Tier" di atas
+   utk detail statusnya masing-masing).
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah
