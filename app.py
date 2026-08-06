@@ -655,6 +655,7 @@ if gj.is_configured():
     except Exception:
         total_equity_now = None
 
+day_tipe = classify_daytrading_tipe()  # dipakai bareng oleh tab Kandidat & Backtest
 cands_day_all = build_trade_candidates(table, price_data, int(donchian_lb_day), min_rr_day, top_n=10,
                                         total_equity=total_equity_now, risk_pct=risk_pct_per_trade)
 cands_swing_all = build_trade_candidates(table, price_data, int(donchian_lb), min_rr_swing, top_n=10,
@@ -742,66 +743,67 @@ with t_kandidat:
         if sektor_pilih_1:
             picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
     if not picks.empty:
-        rr_data = []
-        for _, row in picks.iterrows():
-            kode = row["Kode"]
-            df = price_data.get(kode)
-            try:
-                if df is not None and len(df) >= int(donchian_lb) + 2:
-                    hist = df.iloc[-(int(donchian_lb) + 1) : -1]
-                    dh, dl = float(hist["High"].max()), float(hist["Low"].min())
-                    entry = float(row["Harga"])
-                    sl_donchian = dl
-                    ma20 = float(df["Close"].rolling(20).mean().iloc[-1]) if len(df) >= 20 else dl
-                    sl_max = entry * 0.90
-                    sl_type = "Swing (max 10%)"
-                    sl_candidates = [x for x in [sl_donchian, ma20, sl_max] if x < entry]
-                    stop_loss = max(sl_candidates) if sl_candidates else sl_max
-                    target = dh + (dh - dl)
-                    risk = entry - stop_loss
-                    reward = target - entry
-                    rr = reward / risk if risk > 0 else 0
-                    risk_pct = (risk / entry) * 100
-                    rr_data.append({"Kode": kode, "RR": round(rr, 2), "Entry": round(entry, 0), "Target": round(target, 0), "Stop Loss": round(stop_loss, 0), "Risiko %": round(risk_pct, 1), "SL Type": sl_type})
-                else:
-                    rr_data.append({"Kode": kode, "RR": 0, "Entry": 0, "Target": 0, "Stop Loss": 0, "Risiko %": 0, "SL Type": ""})
-            except Exception:
-                rr_data.append({"Kode": kode, "RR": 0, "Entry": 0, "Target": 0, "Stop Loss": 0, "Risiko %": 0, "SL Type": ""})
-        picks = picks.merge(pd.DataFrame(rr_data), on="Kode", how="left")
-    if not picks.empty and "Rekomendasi" in picks.columns:
+        # DULU tab ini hitung Entry/SL/Target/RR SENDIRI dgn formula SL berbeda (max dari
+        # Donchian Low/MA20/10% cap, mana yg paling ketat) DAN tanpa filter RR minimum -
+        # menyimpang dari build_trade_candidates() yg BENAR-BENAR divalidasi backtest 5
+        # tahun + out-of-sample (SL = Donchian Low murni, difilter RR>=min_rr, Swing
+        # digate regime IHSG). Akibatnya angka yg ditampilkan di sini TIDAK PERNAH terbukti
+        # menghasilkan hasil sama seperti backtest - user tanya langsung "apakah sudah
+        # pernah dibacktest?", dan jawabannya waktu itu TIDAK utk versi lama ini.
+        # Fix: reuse cands_day_all/cands_swing_all (SUDAH dihitung di atas, fungsi SAMA
+        # persis dgn yg dipakai tab Top 10/Backtest yg sudah divalidasi) - bukan hitung
+        # ulang formula berbeda. Kandidat yg TIDAK lolos RR/regime otomatis TIDAK muncul
+        # di sini lagi (dulu tetap ditampilkan tanpa filter).
+        cands_tipe = []
+        if not cands_swing_all.empty:
+            c = cands_swing_all.copy(); c["Tipe"] = "🌊 SWING TRADE"; cands_tipe.append(c)
+        if not cands_day_all.empty:
+            c = cands_day_all.copy(); c["Tipe"] = f"⚡ DAY TRADE ({day_tipe})"; cands_tipe.append(c)
+        if cands_tipe:
+            cands_valid = pd.concat(cands_tipe, ignore_index=True)
+            # Kalau satu saham lolos Swing DAN Day, tampilkan yg RR-nya lebih tinggi saja
+            # (bukan duplikat baris) - pilihan mana yg lebih menarik dari 2 setup valid.
+            cands_valid = cands_valid.sort_values("RR", ascending=False).drop_duplicates(subset="Saham", keep="first")
+            cands_valid = cands_valid.rename(columns={"Saham": "Kode"})
+            cands_valid["Risiko %"] = ((cands_valid["Entry"] - cands_valid["Stop Loss"]) / cands_valid["Entry"] * 100).round(1)
+            n_sebelum = len(picks)
+            picks = picks.merge(cands_valid[["Kode", "Tipe", "RR", "Entry", "Target", "Stop Loss", "Risiko %"]], on="Kode", how="inner")
+            n_gugur = n_sebelum - len(picks)
+            if n_gugur > 0:
+                st.caption(f"ℹ️ {n_gugur} saham dgn Signal STRONG BUY/BUY tidak muncul di bawah - "
+                           "tidak lolos RR minimum atau regime IHSG (kriteria yg SAMA dgn tab Top 10/"
+                           "Backtest yg sudah divalidasi). Ini SENGAJA, bukan bug - drpd tampilkan "
+                           "Entry/SL/Target yg belum terbukti.")
+        else:
+            picks = picks.iloc[0:0]
+            st.info("Tidak ada kandidat yang lolos kriteria RR/regime yang sudah divalidasi "
+                    "(lihat tab Top 10 utk kriteria yg sama).")
+    if not picks.empty and "Tipe" in picks.columns:
         st.markdown("### Filter Trading")
-        col_f1, col_f2, col_f3 = st.columns(3)
+        col_f1, col_f2 = st.columns(2)
         with col_f1:
-            available_rec = sorted(picks["Rekomendasi"].dropna().unique().tolist())
-            default_rec = [x for x in available_rec if "AVOID" not in x and "WAIT" not in x]
-            if not default_rec:
-                default_rec = available_rec
-            rec_filter = st.multiselect("1️⃣ Rekomendasi", options=available_rec, default=default_rec, help="Pilih gaya trading yang sesuai")
-            if rec_filter:
-                picks = picks[picks["Rekomendasi"].isin(rec_filter)]
+            available_tipe = sorted(picks["Tipe"].dropna().unique().tolist())
+            tipe_filter = st.multiselect("1️⃣ Tipe (SUDAH divalidasi backtest)", options=available_tipe,
+                                          default=available_tipe, help="SWING/DAY TRADE - RR & regime "
+                                          "sudah difilter sesuai kriteria yg divalidasi, ini cuma pilih "
+                                          "mana yg ingin dilihat.")
+            if tipe_filter:
+                picks = picks[picks["Tipe"].isin(tipe_filter)]
         with col_f2:
             if "Quality" in picks.columns:
                 available_q = sorted(picks["Quality"].dropna().unique().tolist())
-                default_q = [x for x in ["✅ HIGH", "⚠️ MODERATE"] if x in available_q]
-                if not default_q:
-                    default_q = available_q
-                q_filter = st.multiselect("2️⃣ Quality Rating", options=available_q, default=default_q, help="HIGH = paling aman, MODERATE = cukup baik")
+                q_filter = st.multiselect("2️⃣ Quality Rating (belum divalidasi)", options=available_q,
+                                           default=available_q, help="Quality/Smart Money/Momentum - "
+                                           "sinyal EKSPLORATIF terpisah, belum dibacktest sbg strategi. "
+                                           "Info tambahan, bukan filter utama.")
                 if q_filter:
                     picks = picks[picks["Quality"].isin(q_filter)]
-        with col_f3:
-            use_rr_filter = st.checkbox("Filter RR ≥ 2.0", value=False, help="Aktifkan untuk hanya tampilkan RR ≥ 2.0")
-            if use_rr_filter and "RR" in picks.columns:
-                picks = picks[picks["RR"] >= 2.0]
-                st.success("✅ Filter RR ≥ 2.0 aktif")
-            elif "RR" in picks.columns:
-                st.info("ℹ️ Menampilkan semua RR (aktifkan filter jika perlu)")
         st.markdown("""
         <div style="background: #1f2937; padding: 12px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #16a34a;">
             <b>💡 Panduan Cuan Konsisten:</b><br>
-            1. <b>Prioritas 1:</b> Quality = ✅ HIGH + RR ≥ 2.0 + SWING/DAY TRADE<br>
-            2. <b>Prioritas 2:</b> Quality = ⚠️ MODERATE + RR ≥ 1.5 + SWING TRADE<br>
-            3. <b>Hindari:</b> RR < 1.0 atau AVOID<br>
-            4. <b>Entry</b> di harga sekarang, pasang <b>Stop Loss</b> dan <b>Target</b> sesuai kolom. <b>JANGAN DILANGGAR!</b>
+            1. Kolom <b>Tipe</b>, <b>RR</b>, <b>Entry</b>, <b>Stop Loss</b>, <b>Target</b> di bawah SUDAH divalidasi lewat backtest realistis + out-of-sample (sama dgn tab Top 10) - <b>JANGAN DILANGGAR</b> angka SL/Target-nya.<br>
+            2. Kolom <b>Rekomendasi/Quality/Trend/Smart Money/Momentum</b> itu sinyal EKSPLORATIF terpisah (belum dibacktest) - anggap info tambahan, bukan dasar keputusan utama.<br>
+            3. Semakin tinggi RR, semakin baik rasio untung:rugi - tapi tetap gunakan Stop Loss, tidak ada yang 100% pasti.
         </div>
         """, unsafe_allow_html=True)
     if not picks.empty and "RR" in picks.columns:
@@ -826,8 +828,8 @@ with t_kandidat:
                     show[col] = show[col].map(lambda x: f"Rp{x:,.0f}" if pd.notnull(x) and x > 0 else "-")
         kolom_tampil = [
             "Kode", "Nama", "Signal", "Score",
-            "Rekomendasi", "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss", "SL Type",
-            "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
+            "Tipe", "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss",
+            "Rekomendasi", "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
             "Harga", "Perubahan %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
         ]
         kolom_tampil.insert(2, "Sektor")
@@ -854,6 +856,8 @@ with t_kandidat:
             except:
                 return ""
         styler = show[kolom_tampil].style
+        if "Tipe" in kolom_tampil:
+            styler = styler.map(color_rec, subset=["Tipe"])
         if "Rekomendasi" in kolom_tampil:
             styler = styler.map(color_rec, subset=["Rekomendasi"])
         if "Quality" in kolom_tampil:
@@ -1090,7 +1094,6 @@ with t_backtest:
                 st.error(f"❌ Error auto-close otomatis: {str(e)}")
                 import traceback
                 st.code(traceback.format_exc())
-            day_tipe = classify_daytrading_tipe()
             st.caption(f"Waktu sekarang WIB terdeteksi sebagai tipe **{day_tipe}** untuk Day Trading ({'Beli Pagi, rencana Jual Sore' if day_tipe=='BPJS' else 'Beli Sore, rencana Jual besok Pagi'}).")
             st.write(f" **Kandidat Day Trading tersedia:** {len(cands_day_all)}")
             st.write(f" **Kandidat Swing Trading tersedia:** {len(cands_swing_all)}")
@@ -1220,7 +1223,6 @@ with t_top10:
     st.caption(f"Entry = harga sekarang · Stop Loss = Donchian Low (struktural) · "
     f"Target = proyeksi measured-move dari lebar channel Donchian · "
     f"RR ≥ {min_rr_day:.1f}:1 (Day) / RR ≥ {min_rr_swing:.1f}:1 (Swing)")
-    day_tipe = classify_daytrading_tipe()
     st.subheader(f"⚡ Top 10 Day Trading (Donchian {int(donchian_lb_day)} hari) — tipe {day_tipe}")
     cands_day = cands_day_all
     if cands_day.empty:

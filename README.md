@@ -706,6 +706,40 @@ Ditambahkan 2 hal:
    belum divalidasi sbg strategi trading tersendiri (beda dgn Volume Ratio yang sudah lama
    jadi bagian Score yang tervalidasi).
 
+## Bug Kritis: Tab Kandidat Menampilkan Entry/SL/Target yang BELUM Divalidasi
+
+User bertanya langsung: **"apakah sistem kita (tab Kandidat) sudah pernah dilakukan
+backtest?"** Jawaban jujurnya waktu itu: **tidak sepenuhnya**.
+
+**Yang SUDAH divalidasi** (backtest 5 tahun + out-of-sample, lihat "Backtest Historis"):
+Score/Signal (STRONG BUY/BUY, ambang score_buy=5) + fungsi `build_trade_candidates()` yang
+dipakai tab **Top 10** & **Backtest** - Stop Loss = Donchian Low murni, difilter RR minimum,
+Swing digate regime IHSG.
+
+**Yang TIDAK divalidasi** (baru ditemukan di tab Kandidat versi lama):
+1. Kolom **"Rekomendasi"** (WAIT/SWING/DAY/AVOID) - dari sistem skor TERPISAH (Quality/Smart
+   Money/Momentum), tidak pernah dibacktest.
+2. **Stop Loss** dihitung dgn formula BEDA dari yang divalidasi - tab Kandidat pilih yg PALING
+   KETAT dari (Donchian Low, MA20, atau 10% di bawah entry), sedangkan backtest yang
+   divalidasi cuma pakai Donchian Low murni. Entry/Target/SL/RR yang ditampilkan **berbeda**
+   dari yang dibuktikan profitable di backtest.
+3. Tab Kandidat **tidak memfilter RR minimum** - semua STRONG BUY/BUY ditampilkan apa
+   adanya, beda dari `build_trade_candidates()` yang membuang kandidat RR di bawah ambang.
+
+**Fix**: tab Kandidat sekarang REUSE `cands_day_all`/`cands_swing_all` (dihitung dari
+`build_trade_candidates()` yang SAMA persis dipakai tab Top 10/Backtest) - bukan hitung
+ulang formula sendiri. Kandidat yang tidak lolos RR/regime **otomatis tidak muncul** lagi
+(dulu tetap ditampilkan tanpa filter) - caption baru menjelaskan berapa saham yang "gugur"
+dan kenapa. Kolom **"Tipe"** (SWING TRADE/DAY TRADE, warna sesuai yang lolos) menggantikan
+peran "Rekomendasi" sbg penanda utama yang SUDAH divalidasi - "Rekomendasi"/Quality tetap
+ditampilkan sbg info tambahan, tapi dilabeli jelas "belum divalidasi" di UI & caption.
+
+Diverifikasi: reproduksi manual - dari 17 saham Signal STRONG BUY/BUY, cuma **5** yang lolos
+kriteria RR/regime yang divalidasi (BKSL/ANTM Swing, ENRG/BRMS/BUMI Day) - Entry/Target/SL
+persis sama dgn yang dihasilkan `build_trade_candidates()`. Dicek live (n_scan berbeda):
+caption "22 saham tidak lolos..." tampil benar, filter Tipe & Quality berfungsi, tanpa
+exception.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah
