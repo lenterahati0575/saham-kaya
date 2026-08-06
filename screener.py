@@ -370,17 +370,18 @@ def get_trade_recommendation(quality: dict) -> dict:
         color = "#6b7280"
         emoji = "⏸️"
         
-        # === MOMENTUM KUAT (dulu dilabeli "DAY TRADE" - diganti krn Day Trading sbg
-        # strategi TERBUKTI tidak konsisten profit di sistem ini, lihat README > "Day
-        # Trading: Bukan Soal Parameter, Tapi Desain Sinyal". Label lama menyiratkan
-        # rekomendasi day-trading yang tidak lagi bisa dipertanggungjawabkan - kondisi
-        # underlying-nya (momentum+akumulasi+trend kuat) tetap info yang valid, cuma
-        # jangan dibaca sbg "cocok utk day trading") ===
+        # === MOMENTUM (dulu dilabeli "DAY TRADE" - diganti krn Day Trading sbg strategi
+        # TERBUKTI tidak konsisten profit di sistem ini, lihat README > "Day Trading:
+        # Bukan Soal Parameter, Tapi Desain Sinyal". Label lama menyiratkan rekomendasi
+        # day-trading yang tidak lagi bisa dipertanggungjawabkan - kondisi underlying-nya
+        # (momentum+akumulasi+trend kuat) tetap info yang valid, cuma jangan dibaca sbg
+        # "cocok utk day trading". Label SENGAJA singkat ("MOMENTUM" bukan "MOMENTUM
+        # KUAT") - kolom Rekomendasi di tabel Kandidat sempit, teks panjang kepotong.) ===
         if (momentum in ["VERY_STRONG", "STRONG", "MODERATE"] and
             rating in ["HIGH", "MODERATE"] and
             smart_money == "ACCUMULATION" and
             trend_stars >= 2):
-            recommendation = "MOMENTUM KUAT"
+            recommendation = "MOMENTUM"
             confidence = 85
             reason = "Momentum + Akumulasi + Trend positif"
             color = "#16a34a"

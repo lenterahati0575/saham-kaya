@@ -814,7 +814,7 @@ with t_kandidat:
         kolom_tampil = [col for col in kolom_tampil if col in show.columns]
         def color_rec(val):
             val = str(val)
-            if "MOMENTUM KUAT" in val: return "background-color: #15803d; color: white; font-weight: bold;"
+            if "MOMENTUM" in val: return "background-color: #15803d; color: white; font-weight: bold;"
             if "SWING TRADE" in val: return "background-color: #2563eb; color: white; font-weight: bold;"
             if "AVOID" in val: return "background-color: #dc2626; color: white; font-weight: bold;"
             if "WAIT" in val: return "background-color: #eab308; color: black; font-weight: bold;"

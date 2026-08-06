@@ -136,13 +136,13 @@ def show_daily_trading():
             "deskripsi": "Untuk trader yang ingin risiko minimal"
         },
         "Moderat": {
-            "rekomendasi": ["SWING TRADE", "MOMENTUM KUAT"],
+            "rekomendasi": ["SWING TRADE", "MOMENTUM"],
             "quality": ["✅ HIGH", "⚠️ MODERATE"],
             "rr": "≥ 2.0",
             "deskripsi": "Balance antara risiko dan opportunity"
         },
         "Agresif": {
-            "rekomendasi": ["MOMENTUM KUAT"],
+            "rekomendasi": ["MOMENTUM"],
             "quality": ["✅ HIGH", "⚠️ MODERATE"],
             "rr": "≥ 1.5",
             "deskripsi": "Untuk trader berpengalaman dengan risk tolerance tinggi - Kolom "

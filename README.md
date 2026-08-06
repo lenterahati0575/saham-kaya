@@ -1135,10 +1135,20 @@ beda total dari sistem Tipe/Donchian yang baru dihapus) masih mengeluarkan label
 
 Ini bukan bug sisa penghapusan - itu heuristik independen (momentum+akumulasi+trend),
 tapi labelnya sekarang menyesatkan (menyiratkan rekomendasi day-trading yang sudah
-terbukti tidak konsisten). **Fix**: label diganti jadi **"MOMENTUM KUAT"** (kondisi
+terbukti tidak konsisten). **Fix pertama**: label diganti jadi "MOMENTUM KUAT" (kondisi
 underlying-nya tetap valid sbg info, cuma tidak lagi menyiratkan strategi day-trading).
 `tutorial.py` (contoh filter "Agresif"/"Moderat" yg mereferensikan "DAY TRADE") diupdate
-sepadan. Dicek ulang seluruh repo (`grep -rn "DAY TRADE"`) - 0 sisa string literal.
+sepadan.
+
+**Ditemukan lagi lewat screenshot user** (audit kedua - user tegur "terasa audit yang
+kurang hati2"): "MOMENTUM KUAT" (13 karakter) lebih panjang dari "DAY TRADE" (9) atau
+"SWING TRADE" (11) yang diganti - kolom Rekomendasi di tabel Kandidat sempit (banyak
+kolom lain berbagi lebar), jadi teksnya KEPOTONG jadi "MOMENTUM KU..." di UI - lolos dari
+verifikasi pertama krn cuma dicek py_compile/pytest/grep source code, TIDAK dicek lebar
+kolom aktual di render live. **Fix final**: dipersingkat jadi **"MOMENTUM"** (8 karakter,
+lebih pendek dari "DAY TRADE" yang sudah terbukti pas). Pelajaran: perubahan teks label
+di kolom tabel sempit butuh verifikasi VISUAL render live, bukan cuma cek source code -
+"terlihat benar di kode" TIDAK sama dengan "terlihat benar di layar".
 
 ## Default Universe Saham: Syariah (ISSI)
 
