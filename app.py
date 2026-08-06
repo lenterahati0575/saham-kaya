@@ -898,9 +898,16 @@ with t_kandidat:
             st.error(f" Error koneksi: {str(e)}")
         else:
             price_lookup = dict(zip(table["Kode"], table["Harga"]))
+            # High/Low HARI INI (dari price_data, sudah difetch utk screener) - dipakai
+            # auto_close_positions() supaya TP/SL dicek dari rentang harga hari itu (SAMA
+            # dgn metodologi backtest yg sudah divalidasi: High>=Target / Low<=SL), bukan
+            # cuma 1 titik harga (Close) yg bisa MELEWATKAN TP/SL yg sebenarnya tersentuh
+            # intraday lalu harga balik lagi sebelum sempat dicek. Lihat README.
+            hl_lookup = {kode: (float(df["High"].iloc[-1]), float(df["Low"].iloc[-1]))
+                         for kode, df in price_data.items() if df is not None and not df.empty}
             try:
                 with st.spinner("🔍 Mengecek auto-close otomatis (TP/SL/Force-Sell)..."):
-                    auto_closed = gj.auto_close_positions(price_lookup)
+                    auto_closed = gj.auto_close_positions(price_lookup, hl_lookup)
                 if auto_closed:
                     st.success(f" Auto-close otomatis: {', '.join(auto_closed)}")
                     st.balloons()
@@ -984,12 +991,17 @@ with t_kandidat:
                         if open_positions.empty:
                             st.info("ℹ️ Tidak ada posisi OPEN untuk dicek")
                         else:
-                            # Pakai enrich_price_lookup() yang SAMA dgn yang dipakai
-                            # auto_close_positions() di baliknya - dulu tabel debug ini baca
-                            # price_lookup MENTAH (belum dilengkapi), jadi kelihatan "N/A"
-                            # utk saham di luar window scan padahal logika penutupan yang
-                            # sebenarnya sudah benar (dua sumber data yang beda, membingungkan).
+                            # Pakai enrich_price_lookup()/enrich_hl_lookup() yang SAMA dgn
+                            # yang dipakai auto_close_positions() di baliknya - dulu tabel
+                            # debug ini baca price_lookup MENTAH (belum dilengkapi), jadi
+                            # kelihatan "N/A" utk saham di luar window scan padahal logika
+                            # penutupan yang sebenarnya sudah benar (dua sumber data yang
+                            # beda, membingungkan). check_status() di bawah juga HARUS pakai
+                            # High/Low & urutan cek (SL dulu) yang SAMA dgn auto_close_positions() -
+                            # kalau tidak, tabel debug ini bisa bilang "HOLD" padahal sistem
+                            # sebenarnya SUDAH menutup posisi itu (atau sebaliknya).
                             price_lookup_cek = gj.enrich_price_lookup(price_lookup, open_positions["Saham"].unique())
+                            hl_lookup_cek = gj.enrich_hl_lookup(hl_lookup, open_positions["Saham"].unique())
                             st.write("**📊 Posisi yang dicek:**")
                             debug_df = open_positions[["Saham", "Harga Beli", "TP", "SL", "Tipe", "Lot", "Tanggal Open"]].copy()
                             debug_df["Harga Sekarang"] = debug_df["Saham"].map(lambda x: f"Rp{price_lookup_cek.get(x, 0):,.0f}" if x in price_lookup_cek else "N/A")
@@ -997,15 +1009,17 @@ with t_kandidat:
                                 saham = row["Saham"]
                                 if saham not in price_lookup_cek: return "⚠️ Harga tidak tersedia"
                                 current = price_lookup_cek[saham]
+                                hl = hl_lookup_cek.get(saham)
+                                today_high, today_low = hl if hl is not None else (current, current)
                                 tp = float(row["TP"]) if pd.notna(row["TP"]) else None
                                 sl = float(row["SL"]) if pd.notna(row["SL"]) else None
-                                if tp and current >= tp: return f"✅ HIT TP"
-                                elif sl and current <= sl: return f"❌ HIT SL"
+                                if sl and today_low <= sl: return f"❌ HIT SL"
+                                elif tp and today_high >= tp: return f"✅ HIT TP"
                                 else: return f"⏳ HOLD"
                             debug_df["Status"] = debug_df.apply(check_status, axis=1)
                             st.dataframe(debug_df, use_container_width=True)
                             st.write("\n🔄 **Memproses penutupan posisi...**")
-                            closed = gj.auto_close_positions(price_lookup_cek)
+                            closed = gj.auto_close_positions(price_lookup_cek, hl_lookup_cek)
                         if closed:
                             st.success(f"✅ Berhasil ditutup: {', '.join(closed)}")
                             st.balloons()

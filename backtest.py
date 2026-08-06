@@ -127,10 +127,34 @@ def run_historical_backtest(price_data: dict[str, pd.DataFrame], params: dict | 
     return {"detail": detail, "summary": summary}
 
 
+def _make_regime_checker(ihsg_df: pd.DataFrame | None, ma_period: int = 50):
+    """Bikin fungsi `is_bullish(tanggal) -> bool|None` dari histori IHSG, dipakai walk-forward
+    (regime dihitung dari IHSG s.d. tanggal ITU SAJA - tidak ada lookahead, sama seperti
+    compute_metrics()). None kalau ihsg_df tidak diisi (filter regime tidak diaktifkan) atau
+    tanggal di luar rentang data IHSG yang tersedia."""
+    if ihsg_df is None or ihsg_df.empty:
+        return lambda _tanggal: None
+    ma = ihsg_df["Close"].rolling(ma_period).mean()
+    bullish = (ihsg_df["Close"] > ma)
+
+    def is_bullish(tanggal) -> bool | None:
+        d = pd.Timestamp(tanggal).normalize()
+        # cari tanggal IHSG terdekat <= tanggal saham (kalender bursa saham vs IHSG bisa
+        # beda 1 hari kalau salah satu libur, jadi bukan exact-match index lookup)
+        idx = bullish.index.searchsorted(d, side="right") - 1
+        if idx < 0 or pd.isna(ma.iloc[idx]):
+            return None
+        return bool(bullish.iloc[idx])
+
+    return is_bullish
+
+
 def _simulate_realistic_trades_single(kode: str, df: pd.DataFrame, params: dict, max_hold_days: int = 10,
                                        step: int = 5, min_history: int = 60, min_rr: float = 2.0,
                                        fee_pct: float = DEFAULT_FEE_PCT,
-                                       signal_filter: tuple = ("STRONG BUY", "BUY")) -> list[dict]:
+                                       signal_filter: tuple = ("STRONG BUY", "BUY"),
+                                       require_bullish_regime: bool = False,
+                                       ihsg_df: pd.DataFrame | None = None) -> list[dict]:
     """Simulasikan trade NYATA (Entry/Target/Stop Loss ala build_trade_candidates()) untuk
     tiap sinyal tradeable yang muncul di histori, dieksekusi hari bursa berikutnya sampai
     salah satu tersentuh:
@@ -140,16 +164,29 @@ def _simulate_realistic_trades_single(kode: str, df: pd.DataFrame, params: dict,
     - Sampai max_hold_days berlalu tanpa kena TP/SL -> force-sell di Close hari terakhir
       (meniru aturan force-sell SWING 10 hari di gsheet_journal.py).
     Return dipotong fee_pct (round-trip) - inilah return BERSIH yang relevan untuk menilai
-    apakah sistem ini profitable, bukan return kotor."""
+    apakah sistem ini profitable, bukan return kotor.
+
+    require_bullish_regime + ihsg_df: kalau diisi, entry HANYA diambil saat IHSG > MA50 pada
+    tanggal itu (walk-forward, bukan status regime SEKARANG) - mode default (False) TIDAK
+    menggate apa pun, hasilnya jadi UNDERSTATE performa Swing yang sebenarnya (di live,
+    Swing SELALU digate regime, lihat build_trade_candidates()). Tambahan ini dibuat supaya
+    tool validasi resmi ini bisa reproduksi angka yang sama dgn perbandingan head-to-head di
+    README ("Regresi: Fix di Atas Ternyata Pakai Formula Stop Loss yang LEBIH BURUK"), yang
+    sebelum ini cuma pernah diuji lewat skrip sekali-pakai di luar repo."""
     rows = []
     n = len(df)
     lookback = params["donchian_lookback"]
     start = max(min_history, lookback + 2)
+    is_bullish = _make_regime_checker(ihsg_df) if require_bullish_regime else (lambda _t: None)
     for t in range(start, n - 1, step):
         window = df.iloc[: t + 1]  # HANYA data sampai hari t - tidak ada lookahead
         m = compute_metrics(window, params)
         if m is None or m["Signal"] not in signal_filter:
             continue
+        if require_bullish_regime:
+            bullish = is_bullish(df.index[t])
+            if bullish is None or not bullish:
+                continue
 
         dh, dl = _donchian_levels(window, lookback)
         if dh is None or dl is None or dl <= 0:
@@ -200,18 +237,26 @@ def _simulate_realistic_trades_single(kode: str, df: pd.DataFrame, params: dict,
 def run_realistic_backtest(price_data: dict[str, pd.DataFrame], params: dict | None = None,
                             max_hold_days: int = 10, step: int = 5, min_rr: float = 2.0,
                             fee_pct: float = DEFAULT_FEE_PCT,
-                            signal_filter: tuple = ("STRONG BUY", "BUY")) -> dict:
+                            signal_filter: tuple = ("STRONG BUY", "BUY"),
+                            require_bullish_regime: bool = False,
+                            ihsg_df: pd.DataFrame | None = None) -> dict:
     """Jalankan simulasi trade realistis (TP/SL/force-sell + fee) di semua saham dalam
     price_data, untuk sinyal yang benar-benar tradeable saja. Return dict berisi 'detail'
     (tiap trade simulasi) dan 'summary' (win rate & return BERSIH per jenis Signal &
-    Exit Reason) - inilah jawaban atas "apakah sistem ini profitable setelah biaya"."""
+    Exit Reason) - inilah jawaban atas "apakah sistem ini profitable setelah biaya".
+
+    require_bullish_regime=True (butuh ihsg_df diisi): entry cuma diambil saat IHSG>MA50
+    pada tanggal itu (walk-forward) - default False TIDAK menggate apa pun, UNDERSTATE
+    performa Swing yang sebenarnya krn live SELALU menggate Swing dgn regime ini. Lihat
+    README > "Regresi: Fix di Atas Ternyata Pakai Formula Stop Loss yang LEBIH BURUK"."""
     params = params or DEFAULT_PARAMS
     all_rows: list[dict] = []
     for kode, df in price_data.items():
         if df is None or df.empty:
             continue
         all_rows.extend(_simulate_realistic_trades_single(
-            kode, df, params, max_hold_days, step, min_rr=min_rr, fee_pct=fee_pct, signal_filter=signal_filter))
+            kode, df, params, max_hold_days, step, min_rr=min_rr, fee_pct=fee_pct,
+            signal_filter=signal_filter, require_bullish_regime=require_bullish_regime, ihsg_df=ihsg_df))
 
     detail = pd.DataFrame(all_rows)
     if detail.empty:
@@ -255,6 +300,11 @@ def _main():
     ap.add_argument("--fee-pct", type=float, default=DEFAULT_FEE_PCT,
                      help="[Backtest #2] Fee round-trip (%%) yang dipotong dari return kotor.")
     ap.add_argument("--step", type=int, default=5, help="Jarak antar titik pengujian (hari bursa).")
+    ap.add_argument("--regime-filter", action="store_true",
+                     help="[Backtest #2] Gate entry ke IHSG>MA50 (walk-forward, sama seperti Swing "
+                          "di live lewat build_trade_candidates) - TANPA flag ini, angka Backtest #2 "
+                          "UNDERSTATE performa Swing yang sebenarnya. Lihat README > 'Regresi: Fix di "
+                          "Atas Ternyata Pakai Formula Stop Loss yang LEBIH BURUK'.")
     args = ap.parse_args()
 
     from screener import load_ticker_universe, get_price_history_with_report
@@ -272,6 +322,12 @@ def _main():
         print(f"⚠️ {len(failed_tickers)} saham gagal diambil setelah retry (tidak ikut backtest): "
               f"{', '.join(failed_tickers[:20])}{' ...' if len(failed_tickers) > 20 else ''}")
 
+    ihsg_df = None
+    if args.regime_filter:
+        from screener import fetch_ihsg_history
+        print("Mengambil histori IHSG utk filter regime...")
+        ihsg_df = fetch_ihsg_history(period="max")
+
     hasil = run_historical_backtest(price_data, DEFAULT_PARAMS, forward_days=args.forward_days, step=args.step)
     if hasil["summary"].empty:
         print("Tidak ada sinyal yang bisa diuji (data terlalu pendek atau semua gagal diambil).")
@@ -286,8 +342,10 @@ def _main():
     print(f"Detail lengkap disimpan ke {out_path}")
 
     realistis = run_realistic_backtest(price_data, DEFAULT_PARAMS, max_hold_days=args.max_hold_days,
-                                        step=args.step, min_rr=args.min_rr, fee_pct=args.fee_pct)
-    print(f"\n=== Backtest #2: Kalau beneran dieksekusi (TP/SL/force-sell, RR>={args.min_rr}, fee {args.fee_pct}%) ===")
+                                        step=args.step, min_rr=args.min_rr, fee_pct=args.fee_pct,
+                                        require_bullish_regime=args.regime_filter, ihsg_df=ihsg_df)
+    regime_note = " + filter regime IHSG>MA50" if args.regime_filter else " (TANPA filter regime - understate Swing, lihat --help)"
+    print(f"\n=== Backtest #2: Kalau beneran dieksekusi (TP/SL/force-sell, RR>={args.min_rr}, fee {args.fee_pct}%{regime_note}) ===")
     if realistis["summary"].empty:
         print("Tidak ada trade STRONG BUY/BUY yang lolos filter RR minimum untuk disimulasikan.")
     else:

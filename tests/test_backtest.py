@@ -10,6 +10,7 @@ from screener import DEFAULT_PARAMS
 from backtest import (
     run_historical_backtest, _walk_forward_single,
     run_realistic_backtest, _simulate_realistic_trades_single, DEFAULT_FEE_PCT,
+    _make_regime_checker,
 )
 
 
@@ -165,6 +166,67 @@ class TestRealisticBacktest:
         hasil = run_realistic_backtest({}, DEFAULT_PARAMS)
         assert hasil["summary"].empty
         assert hasil["detail"].empty
+
+
+def _ihsg_df(idx, trend="up"):
+    """IHSG sintetis dgn Close naik terus (Close > MA50 - BULLISH) atau turun terus
+    (Close < MA50 - BEARISH) sepanjang idx, dipakai TestRegimeFilterBacktest."""
+    n = len(idx)
+    if trend == "up":
+        close = 5000 + np.arange(n) * 5.0
+    else:
+        close = 5000 - np.arange(n) * 5.0
+    return pd.DataFrame({"Open": close, "High": close, "Low": close, "Close": close}, index=idx)
+
+
+class TestRegimeFilterBacktest:
+    """require_bullish_regime + ihsg_df - gap yang ditemukan lewat audit "screener terbaik
+    & profesional": tool validasi resmi (backtest.py) dulu TIDAK punya opsi gate regime IHSG
+    sama sekali, padahal Swing di LIVE (build_trade_candidates) SELALU digate. Akibatnya
+    angka Backtest #2 versi lama UNDERSTATE performa Swing yang sebenarnya (dibuktikan lewat
+    skrip sekali-pakai di luar repo, bukan tool resmi - lihat README)."""
+
+    def test_default_tidak_menggate_apa_pun(self):
+        after = [{"Open": 1085, "High": 1100, "Low": 1080, "Close": 1095, "Volume": 10_000_000}]
+        after += [{"Open": 1095, "High": 1095, "Low": 1095, "Close": 1095, "Volume": 10_000_000}] * 9
+        df = _breakout_then_df(after)
+        ihsg_bearish = _ihsg_df(df.index, trend="down")  # regime BEARISH di seluruh histori
+        rows = _simulate_realistic_trades_single("AAA", df, DEFAULT_PARAMS, max_hold_days=10,
+                                                   step=5, min_rr=0, fee_pct=DEFAULT_FEE_PCT,
+                                                   require_bullish_regime=False, ihsg_df=ihsg_bearish)
+        assert len(rows) == 1  # regime BEARISH tapi TIDAK digate (default) -> trade tetap muncul
+
+    def test_regime_bullish_meloloskan_trade(self):
+        after = [{"Open": 1085, "High": 1100, "Low": 1080, "Close": 1095, "Volume": 10_000_000}]
+        after += [{"Open": 1095, "High": 1095, "Low": 1095, "Close": 1095, "Volume": 10_000_000}] * 9
+        df = _breakout_then_df(after)
+        ihsg_bullish = _ihsg_df(df.index, trend="up")
+        rows = _simulate_realistic_trades_single("AAA", df, DEFAULT_PARAMS, max_hold_days=10,
+                                                   step=5, min_rr=0, fee_pct=DEFAULT_FEE_PCT,
+                                                   require_bullish_regime=True, ihsg_df=ihsg_bullish)
+        assert len(rows) == 1
+
+    def test_regime_bearish_mengosongkan_trade(self):
+        after = [{"Open": 1085, "High": 1100, "Low": 1080, "Close": 1095, "Volume": 10_000_000}]
+        after += [{"Open": 1095, "High": 1095, "Low": 1095, "Close": 1095, "Volume": 10_000_000}] * 9
+        df = _breakout_then_df(after)
+        ihsg_bearish = _ihsg_df(df.index, trend="down")
+        rows = _simulate_realistic_trades_single("AAA", df, DEFAULT_PARAMS, max_hold_days=10,
+                                                   step=5, min_rr=0, fee_pct=DEFAULT_FEE_PCT,
+                                                   require_bullish_regime=True, ihsg_df=ihsg_bearish)
+        assert rows == []
+
+    def test_make_regime_checker_tanpa_lookahead(self):
+        # Titik SEBELUM histori IHSG tersedia -> None (bukan nekat pakai data yg belum ada).
+        idx = pd.date_range("2022-01-01", periods=100, freq="B")
+        ihsg = _ihsg_df(idx, trend="up")
+        is_bullish = _make_regime_checker(ihsg, ma_period=50)
+        assert is_bullish(idx[10]) is None  # MA50 belum terbentuk (butuh 50 titik)
+        assert is_bullish(idx[80]) is True  # sudah cukup histori, trend naik -> bullish
+
+    def test_make_regime_checker_none_kalau_ihsg_kosong(self):
+        is_bullish = _make_regime_checker(None)
+        assert is_bullish(pd.Timestamp("2022-01-01")) is None
 
 
 if __name__ == "__main__":

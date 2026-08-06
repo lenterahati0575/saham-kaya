@@ -89,6 +89,78 @@ class TestEnrichPriceLookup:
         assert original == {"AAAA": 100.0}  # dict asli caller tidak boleh berubah
 
 
+class TestEnrichHlLookup:
+    """enrich_hl_lookup() - sibling enrich_price_lookup() tapi utk High/Low, dipakai
+    auto_close_positions() supaya TP/SL dicek dari rentang harga hari itu, bukan cuma Close."""
+
+    def test_saham_yang_kurang_di_fetch_dan_ditambahkan(self):
+        fake_df = pd.DataFrame({"High": [130.0], "Low": [90.0]})
+        with patch("screener.fetch_price_history", return_value={"ZZZZ": fake_df}) as mock_fetch:
+            result = gj.enrich_hl_lookup({"AAAA": (110.0, 95.0)}, ["AAAA", "ZZZZ"])
+        mock_fetch.assert_called_once_with(["ZZZZ"], period="5d")
+        assert result == {"AAAA": (110.0, 95.0), "ZZZZ": (130.0, 90.0)}
+
+    def test_tidak_ada_yang_kurang_tidak_fetch(self):
+        with patch("screener.fetch_price_history") as mock_fetch:
+            result = gj.enrich_hl_lookup({"AAAA": (110.0, 95.0)}, ["AAAA"])
+        mock_fetch.assert_not_called()
+        assert result == {"AAAA": (110.0, 95.0)}
+
+
+class TestAutoClosePositionsHighLow:
+    """Bug/gap nyata: dulu TP/SL cuma dicek dari 1 titik harga (Close) - bisa MELEWATKAN
+    TP/SL yang sebenarnya tersentuh intraday (High/Low) lalu harga balik lagi sebelum
+    sempat dicek. Ini bikin live SISTEMATIS beda dari backtest yang sudah divalidasi
+    (backtest selalu cek High>=Target / Low<=SL). hl_lookup menutup gap ini."""
+
+    def test_tp_kesentuh_via_high_walau_close_di_bawah_tp(self):
+        # Close=105 (di bawah TP=110), tapi High hari itu=115 (SUDAH lewat TP) - versi lama
+        # (Close-only) akan bilang masih HOLD, padahal TP sebenarnya sudah tersentuh.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=110.0, sl=90.0)
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 105.0}, {"ZZZZ": (115.0, 100.0)})
+        assert closed == ["ZZZZ (WIN (TP))"]
+        # Exit price dicatat TEPAT di level TP (110), bukan di Close (105) atau High (115).
+        update_call = ws.update.call_args[0][1]
+        assert update_call[0][1] == 110.0
+
+    def test_sl_kesentuh_via_low_walau_close_di_atas_sl(self):
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=110.0, sl=90.0)
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 95.0}, {"ZZZZ": (100.0, 85.0)})
+        assert closed == ["ZZZZ (LOSS (SL))"]
+        update_call = ws.update.call_args[0][1]
+        assert update_call[0][1] == 90.0
+
+    def test_sl_dicek_lebih_dulu_kalau_high_low_hari_itu_kena_dua_duanya(self):
+        # High=120 (>=TP 110) DAN Low=85 (<=SL 90) di HARI YANG SAMA - asumsi konservatif
+        # SAMA seperti backtest.py: anggap SL kena duluan, bukan TP.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=110.0, sl=90.0)
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 105.0}, {"ZZZZ": (120.0, 85.0)})
+        assert closed == ["ZZZZ (LOSS (SL))"]
+
+    def test_tanpa_hl_lookup_tetap_jalan_seperti_dulu_close_only(self):
+        # Backward-compat: caller yang TIDAK kasih hl_lookup sama sekali (mis. kode lama
+        # yang belum diupdate) - harus tetap berfungsi persis seperti sebelum fitur ini ada.
+        # fetch_price_history di-mock kosong (bukan network call asli) - "ZZZZ" dianggap
+        # "hilang" dari hl_lookup kosong, tapi fetch tambahan gagal/kosong -> fallback ke
+        # Close-only (perilaku lama), BUKAN error.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=110.0, sl=90.0)
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws), \
+             patch("screener.fetch_price_history", return_value={}):
+            closed = gj.auto_close_positions({"ZZZZ": 115.0})  # tidak kasih hl_lookup
+        assert closed == ["ZZZZ (WIN (TP))"]
+
+
 class TestAutoClosePositionsMissingTicker:
     """Saham OPEN yang tidak ada di price_lookup (di luar batch scan) harus tetap bisa dicek,
     bukan di-skip selamanya - itu bug nyata yang ditemukan dari laporan user (9 dari 14

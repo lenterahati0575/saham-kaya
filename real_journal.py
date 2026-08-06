@@ -124,7 +124,18 @@ def open_trade(tanggal_entry: str, sekuritas: str, saham: str, setup: str,
                 entry: float, sl: float, target: float, lot: int, catatan: str = ""):
     ws = _get_trades_ws()
     existing = load_trades()
-    no = len(existing) + 1
+    # BUKAN len(existing)+1 - itu bug nyata: kalau ada trade yang pernah DIHAPUS
+    # (delete_trade() betul2 delete_rows di sheet), jumlah baris berkurang, jadi No baru bisa
+    # COLLIDE dgn No yang masih ada (mis. trade No 1,2,3 -> hapus No 2 -> tinggal 2 baris ->
+    # trade baru dihitung No=3, padahal No 3 SUDAH ADA). Akibatnya close_trade()/edit_trade()/
+    # delete_trade() yang cari baris via `trades["No"]==no` bisa match 2 baris & diam2 selalu
+    # ambil yang PERTAMA (.iloc[0]) - salah trade yang ketutup/keedit tanpa ada pesan error.
+    # Fix: No baru = MAX No yang pernah ada + 1, bukan jumlah baris + 1.
+    if not existing.empty and "No" in existing.columns:
+        no_terpakai = pd.to_numeric(existing["No"], errors="coerce")
+        no = int(no_terpakai.max()) + 1 if no_terpakai.notna().any() else 1
+    else:
+        no = 1
     row = [no, tanggal_entry, sekuritas, saham.upper(), setup, entry, sl, target, lot,
            "", "", "", "", "", "OPEN", catatan]
     ws.append_row(row, value_input_option="RAW")

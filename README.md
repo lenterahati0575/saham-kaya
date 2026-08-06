@@ -875,6 +875,88 @@ BEDA utk data yang sama (sekarang konsisten).
 mereplikasi PERSIS kasus screenshot user (3 FORCE SELL + 10 OPEN, cek total/open/win/loss/
 winrate semua benar). 97/97 pytest lolos.
 
+## Audit Menyeluruh: "Buat Screener Terbaik & Profesional"
+
+User minta audit menyeluruh modul-modul yang menangani uang/eksekusi (`screener.py`,
+`gsheet_journal.py`, `real_journal.py`, `calculators.py`, `equity.py`, `backtest.py`) untuk
+cari bug yang bisa menyebabkan kerugian, lalu menyerahkan keputusan perbaikan sepenuhnya
+("saya serahkan kekamu bagaimana screener menjadi screener terbaik dan profesional").
+Ditemukan 1 bug nyata + 2 gap struktural, ketiganya diperbaiki:
+
+### 🔴 Bug nyata: `real_journal.py` - nomor trade bisa collide setelah hapus data
+
+`open_trade()` dulu pakai `no = len(existing) + 1` (nomor trade baru = JUMLAH BARIS + 1,
+bukan NOMOR TERTINGGI + 1). Skenario nyata: trade No 1,2,3 ada. Hapus No 2 (`delete_trade()`
+betul-betul `delete_rows()` di sheet) - tersisa 2 baris. Trade baru berikutnya dihitung
+`No = 2+1 = 3` - **padahal No 3 SUDAH ADA**, jadi ada 2 baris dengan No sama.
+`close_trade()`/`edit_trade()`/`delete_trade()` semua cari baris via `trades["No"]==no` lalu
+ambil `.iloc[0]` (baris PERTAMA yang cocok) - kalau ada 2 baris dengan No sama, sistem diam2
+selalu memutakhirkan baris yang PERTAMA muncul di sheet, bukan yang dimaksud. Ini bisa merusak
+catatan transaksi uang beneran tanpa pemberitahuan apa pun.
+
+**Fix**: `no = MAX(No yang ada) + 1`, bukan jumlah baris + 1 - tidak collide lagi walau ada
+baris yang dihapus. 3 test baru di `tests/test_real_journal.py::TestOpenTradeNumbering`,
+termasuk reproduksi PERSIS skenario di atas (No 1,3 tersisa setelah hapus No 2 -> trade baru
+harus No 4, bukan No 3).
+
+### 🟡 Gap: TP/SL live cuma dicek dari 1 titik harga (Close), backtest pakai High/Low
+
+`auto_close_positions()` dulu cuma menerima `price_lookup` (1 harga Close per saham) - kalau
+harga sempat menembus TP/SL secara intraday lalu balik lagi sebelum sempat dicek dashboard,
+tembusan itu TIDAK PERNAH terdeteksi. Ini gap nyata vs metodologi backtest yang sudah
+divalidasi (`backtest.py` selalu cek `High>=Target` / `Low<=SL`, bukan cuma harga penutupan) -
+artinya hasil LIVE bisa sistematis berbeda dari yang dibuktikan backtest, ke arah manapun
+(TP yang terlewat = untung yang hilang, SL yang terlewat = posisi tetap terbuka menembus
+level yang seharusnya sudah dipotong rugi).
+
+**Fix**: `auto_close_positions()` sekarang menerima `hl_lookup` opsional (`{kode: (High, Low)
+hari ini}`, dibangun dari `price_data` yang sudah difetch screener - tidak ada fetch
+tambahan). TP dicek dari **High** hari itu, SL dari **Low** hari itu - jauh lebih dekat ke
+apa yang sebenarnya terjadi. Urutan cek juga diseragamkan: **SL dicek LEBIH DULU** (asumsi
+konservatif kalau High & Low hari yang sama menembus TP & SL sekaligus - dulu kodenya malah
+cek TP dulu, beda urutan dari `backtest.py` yang SL-dulu; sekarang sama). Exit price yang
+dicatat juga diubah jadi TEPAT di level TP/SL yang tersentuh (bukan harga Close saat dicek),
+supaya P&L live sebanding dgn P&L yang diklaim backtest, bukan angka beda metodologi.
+Backward-compatible: kalau `hl_lookup` tidak diisi (caller lama), fallback ke Close-only
+seperti perilaku sebelumnya - TIDAK ada fetch tambahan cuma demi High/Low kalau harga
+Close-nya sendiri sudah ada (hindari boros kuota Yahoo Finance).
+
+Debug tabel "Posisi yang dicek" di tab Kandidat diupdate sama (High/Low + urutan SL-dulu) -
+supaya yang user LIHAT di situ tetap konsisten dgn apa yang sistem SEBENARNYA putuskan,
+mengikuti prinsip yang sama dgn fix `enrich_price_lookup()` sebelumnya. 6 test baru
+(`TestEnrichHlLookup`, `TestAutoClosePositionsHighLow`), termasuk kasus "TP kesentuh via
+High walau Close di bawah TP" dan "SL & TP dua-duanya kesentuh hari yang sama -> SL menang".
+
+### 🟡 Gap: tool validasi resmi (`backtest.py`) tidak punya opsi filter regime IHSG
+
+`backtest.py` (yang dipakai utk membuktikan sistem ini profitable, lihat "Backtest
+Historis") tidak punya cara menggate entry ke regime IHSG>MA50 sama sekali - padahal Swing
+di LIVE (`build_trade_candidates()`) SELALU digate begitu. Akibatnya kalau tool resmi ini
+dijalankan ulang (`python backtest.py`), angkanya UNDERSTATE performa Swing yang sebenarnya.
+Perbandingan head-to-head yang membuktikan performa Swing dengan filter regime (dipakai di
+bagian "Regresi..." di atas) cuma pernah dijalankan lewat skrip sekali-pakai di luar repo,
+bukan tool resmi.
+
+**Fix**: tambah `require_bullish_regime` + `ihsg_df` ke `_simulate_realistic_trades_single()`/
+`run_realistic_backtest()` (walk-forward - regime dihitung dari IHSG s.d. tanggal ITU SAJA,
+tidak ada lookahead, sama seperti `compute_metrics()`) + flag CLI baru `--regime-filter`.
+5 test baru (`TestRegimeFilterBacktest`) memverifikasi: default tidak menggate apa pun
+(perilaku lama dipertahankan), regime BULLISH meloloskan trade, regime BEARISH mengosongkan
+trade, dan checker regime tidak lookahead (return `None` sebelum MA50 terbentuk).
+
+**Total setelah audit ini: 111/111 pytest lolos** (dari 97 sebelumnya).
+
+### Tidak diperbaiki (keterbatasan struktural, bukan bug kode)
+
+Ditemukan juga 1 risiko struktural yang TIDAK ada perbaikan sederhana: **tidak ada
+locking/transaksi di Google Sheets** - kalau GitHub Actions (auto-run terjadwal) dan klik
+manual di dashboard kebetulan jalan hampir bersamaan, keduanya bisa lolos cek "belum ada
+posisi OPEN" sebelum salah satu selesai menulis -> posisi dobel utk saham yang sama, dan
+salah satu baris OPEN bisa "nyangkut" selamanya (`_find_row_number()` cuma nemu baris
+PERTAMA yang cocok). Risiko rendah utk pemakaian 1 user, butuh migrasi ke database
+sungguhan (bukan Google Sheets) utk benar-benar dihilangkan - di luar scope perbaikan saat
+ini, didokumentasikan di sini supaya user tahu risikonya.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

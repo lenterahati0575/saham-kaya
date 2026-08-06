@@ -213,7 +213,28 @@ def enrich_price_lookup(price_lookup: dict, tickers_needed) -> dict:
     return price_lookup
 
 
-def auto_close_positions(price_lookup: dict) -> list[str]:
+def enrich_hl_lookup(hl_lookup: dict, tickers_needed) -> dict:
+    """Sama seperti enrich_price_lookup(), tapi utk High/Low hari ini (bukan cuma Close) -
+    dipakai auto_close_positions() supaya bisa cek TP/SL via HIGH/LOW intrabar utk saham
+    yang posisinya OPEN tapi di luar batch scan dashboard. Fetch TERPISAH dari
+    enrich_price_lookup() (bukan digabung) - fungsi murni ini sengaja dibuat mandiri &
+    simpel, mirror pola yang sudah ada, drpd mengubah signature enrich_price_lookup() yang
+    sudah dipakai & ditest di tempat lain."""
+    hl_lookup = dict(hl_lookup)
+    missing = [k for k in tickers_needed if k not in hl_lookup]
+    if missing:
+        from screener import fetch_price_history
+        try:
+            missing_price_data = fetch_price_history(missing, period="5d")
+            for kode, df_price in missing_price_data.items():
+                if not df_price.empty and "High" in df_price.columns and "Low" in df_price.columns:
+                    hl_lookup[kode] = (float(df_price["High"].iloc[-1]), float(df_price["Low"].iloc[-1]))
+        except Exception:
+            pass  # fetch tambahan gagal - lanjut dgn apa yang sudah ada (fallback ke harga Close saja)
+    return hl_lookup
+
+
+def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> list[str]:
     """Cek semua posisi OPEN: tutup kalau TP/SL tersentuh, ATAU force-sell sesuai aturan waktu.
 
     Aturan force-sell:
@@ -222,10 +243,17 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
       daripada 10 hari di kedua periode uji, lihat README bagian "Backtest Historis").
     - BPJS   : force sell kalau sudah lewat 1 hari (mestinya keluar hari yang sama).
     - BSJP   : force sell kalau sudah lewat 2 hari (mestinya keluar besok pagi).
-    
+
     Args:
-        price_lookup: Dict {kode_saham: harga_sekarang}
-    
+        price_lookup: Dict {kode_saham: harga_sekarang (Close)} - tetap dipakai sbg exit
+            price utk FORCE SELL, dan fallback kalau hl_lookup tidak tersedia utk saham itu.
+        hl_lookup: Dict {kode_saham: (High_hari_ini, Low_hari_ini)}, opsional. TANPA ini,
+            TP/SL dicek cuma dari 1 titik harga (Close) - bisa MELEWATKAN TP/SL yang
+            sebenarnya tersentuh intraday lalu harga balik lagi sebelum sempat dicek (gap
+            nyata vs backtest yang mengasumsikan tersentuh High/Low bar - lihat README).
+            DENGAN hl_lookup, TP dicek dari High hari itu & SL dari Low hari itu - jauh
+            lebih dekat ke metodologi backtest yang sudah divalidasi.
+
     Returns:
         List string format "KODE (ALASAN)" untuk posisi yang ditutup
     """
@@ -236,15 +264,38 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
         return []
 
     open_df = df[df["Status"] == "OPEN"]
+    needed = open_df["Saham"].unique()
 
-    # Lengkapi price_lookup dgn saham yg posisinya OPEN tapi TIDAK masuk batch yang baru
-    # dipindai dashboard (mis. di luar window alfabetis "Jumlah saham dipindai" default) -
-    # tanpa ini, posisi itu di-skip via `continue` di bawah dan TIDAK PERNAH bisa dicek
-    # TP/SL/force-sell SELAMANYA, walau sudah jauh lewat batas waktunya. Bug nyata yang
-    # ditemukan dari laporan user - 9 dari 14 posisi OPEN saat itu di luar window scan
-    # default (400), makanya "Cek TP/SL & Force-Sell" tidak bisa menutup apa-apa baik
-    # manual maupun otomatis (dua-duanya pakai price_lookup yang sama, terbatas ke scan).
-    price_lookup = enrich_price_lookup(price_lookup, open_df["Saham"].unique())
+    # Lengkapi price_lookup (DAN High/Low kalau tersedia di respons yang SAMA) dgn saham
+    # yg posisinya OPEN tapi TIDAK masuk batch yang baru dipindai dashboard (mis. di luar
+    # window alfabetis "Jumlah saham dipindai" default) - tanpa ini, posisi itu di-skip via
+    # `continue` di bawah dan TIDAK PERNAH bisa dicek TP/SL/force-sell SELAMANYA, walau
+    # sudah jauh lewat batas waktunya. Bug nyata yang ditemukan dari laporan user - 9 dari
+    # 14 posisi OPEN saat itu di luar window scan default (400).
+    #
+    # SATU fetch saja utk saham yang kurang dari price_lookup (bukan panggil
+    # enrich_price_lookup() lalu enrich_hl_lookup() terpisah - itu akan memanggil
+    # fetch_price_history() 2x utk ticker yang SAMA, buang kuota Yahoo Finance tanpa guna).
+    # Saham yang SUDAH ada di price_lookup (dlm window scan) tapi kebetulan tidak ada di
+    # hl_lookup (mis. caller lama yang belum kasih hl_lookup sama sekali) TIDAK memicu
+    # fetch baru - fallback diam2 ke Close-only utk saham itu di bagian bawah (perilaku
+    # lama, tetap benar walau kurang presisi drpd yang ada High/Low-nya).
+    price_lookup = dict(price_lookup)
+    hl_lookup = dict(hl_lookup or {})
+    missing = [k for k in needed if k not in price_lookup]
+    if missing:
+        from screener import fetch_price_history
+        try:
+            fetched = fetch_price_history(missing, period="5d")
+            for kode, df_price in fetched.items():
+                if df_price.empty:
+                    continue
+                if "Close" in df_price.columns:
+                    price_lookup[kode] = float(df_price["Close"].iloc[-1])
+                if "High" in df_price.columns and "Low" in df_price.columns and kode not in hl_lookup:
+                    hl_lookup[kode] = (float(df_price["High"].iloc[-1]), float(df_price["Low"].iloc[-1]))
+        except Exception:
+            pass  # fetch tambahan gagal (mis. rate-limit) - lanjut dgn apa yang sudah ada
 
     FORCE_SELL_HARI = {"SWING": 15, "BPJS": 1, "BSJP": 2}
     closed = []
@@ -256,10 +307,10 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
         try:
             kode = row["Saham"]
             harga_live = price_lookup.get(kode)
-            
+
             if harga_live is None:
                 continue
-                
+
             # Parse data dari row
             tp = float(row["TP"]) if pd.notna(row["TP"]) else None
             sl = float(row["SL"]) if pd.notna(row["SL"]) else None
@@ -271,51 +322,66 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
             # dibandingkan (bukan dibandingkan dgn UTC polos yg 7 jam lebih awal).
             hari = (datetime.now(WIB).replace(tzinfo=None) - tgl_open).days
             tipe = str(row.get("Tipe", "")).strip().upper()
-            
+
             # Validasi dan auto-swap TP/SL jika terbalik (untuk posisi LONG)
             if tp is not None and sl is not None:
                 if tp <= harga_beli and sl >= harga_beli:
                     print(f"⚠️ {kode}: TP/SL terbalik, auto-swap")
                     tp, sl = sl, tp
-            
+
+            # High/Low HARI INI kalau ada (dari hl_lookup) - fallback ke harga_live (titik
+            # tunggal) kalau tidak tersedia, SAMA seperti perilaku LAMA (sebelum hl_lookup ada).
+            hl = hl_lookup.get(kode)
+            today_high, today_low = hl if hl is not None else (harga_live, harga_live)
+
             status_baru = None
-            
-            # Logika close untuk LONG position
-            if tp is not None and harga_live >= tp:
-                status_baru = "WIN (TP)"
-            elif sl is not None and harga_live <= sl:
+            exit_price = harga_live
+
+            # SL dicek LEBIH DULU (asumsi konservatif kalau High & Low hari yang sama
+            # menyentuh TP dan SL sekaligus) - SAMA PERSIS urutannya dgn
+            # backtest.py::_simulate_realistic_trades_single(), supaya hasil live tidak
+            # sistematis lebih optimis drpd yang sudah dibuktikan backtest. Exit price
+            # dicatat TEPAT di level TP/SL (bukan di High/Low ekstrem hari itu, dan bukan di
+            # harga_live/Close) - juga sama dgn asumsi backtest, supaya P&L live sebanding
+            # dgn P&L yang diklaim hasil backtest, bukan angka yang beda metodologi.
+            if sl is not None and today_low <= sl:
                 status_baru = "LOSS (SL)"
+                exit_price = sl
+            elif tp is not None and today_high >= tp:
+                status_baru = "WIN (TP)"
+                exit_price = tp
             elif hari >= FORCE_SELL_HARI.get(tipe, 15):
                 status_baru = f"FORCE SELL ({hari} hari)"
-            
+                exit_price = harga_live
+
             if status_baru:
                 # Cari nomor baris yang AKURAT di Google Sheet
                 sheet_row = _find_row_number(ws, kode, "OPEN")
-                
+
                 if sheet_row:
                     # Hitung P&L dengan memperhitungkan Lot (1 lot = 100 lembar) DAN fee
                     # round-trip - tanpa ini, P&L simulasi selalu lebih bagus dari yang bisa
                     # dicapai transaksi riil (lihat FEE_PCT_ROUNDTRIP di atas).
                     modal_rp = harga_beli * 100 * lot
                     fee_rp = modal_rp * (FEE_PCT_ROUNDTRIP / 100)
-                    pnl_rp = (harga_live - harga_beli) * 100 * lot - fee_rp
+                    pnl_rp = (exit_price - harga_beli) * 100 * lot - fee_rp
                     pnl_pct = (pnl_rp / modal_rp) * 100 if modal_rp > 0 else 0.0
-                    
+
                     # Update kolom H sampai M (Tanggal Close, Harga Jual, P&L Rp, P&L %, Status, Hari)
                     ws.update(f"H{sheet_row}:M{sheet_row}", [[
                         datetime.now(WIB).strftime("%Y-%m-%d %H:%M"),  # H: Tanggal Close
-                        float(harga_live),                          # I: Harga Jual
+                        float(exit_price),                          # I: Harga Jual
                         round(pnl_rp, 2),                           # J: P&L (Rp)
                         round(pnl_pct, 2),                          # K: P&L (%)
                         status_baru,                                # L: Status
                         int(hari),                                  # M: Hari
                     ]])
-                    
+
                     closed.append(f"{kode} ({status_baru})")
-                    print(f"✅ Tutup posisi: {kode} @ Rp{harga_live:,.0f} - {status_baru}, P&L: Rp{pnl_rp:,.0f}")
+                    print(f"✅ Tutup posisi: {kode} @ Rp{exit_price:,.0f} - {status_baru}, P&L: Rp{pnl_rp:,.0f}")
                 else:
                     print(f"❌ Tidak menemukan baris {kode} dengan status OPEN di sheet")
-                    
+
         except Exception as e:
             print(f"❌ Error proses posisi {row.get('Saham', 'UNKNOWN')}: {e}")
             import traceback
@@ -325,7 +391,7 @@ def auto_close_positions(price_lookup: dict) -> list[str]:
     # Clear cache karena data berubah
     if closed:
         load_positions.clear()
-        
+
     return closed
 
 

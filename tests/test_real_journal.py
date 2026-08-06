@@ -8,9 +8,12 @@ sekarang ada versi otomatisnya di sini juga supaya regresi ketahuan dari CI, buk
 kalau Bro kebetulan buka tab itu dan klik expander-nya.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pandas as pd
 import pytest
 
+import real_journal as rj
 from real_journal import _calculate_trade_result, open_positions_risk, portfolio_risk_summary
 
 
@@ -83,6 +86,53 @@ class TestPortfolioRisk:
         summary = portfolio_risk_summary(empty, total_equity=1_000_000)
         assert summary["total_risk_rp"] == 0
         assert summary["n_open"] == 0
+
+
+class TestOpenTradeNumbering:
+    """Bug nyata: open_trade() dulu pakai No=len(existing)+1 (jumlah baris, bukan No
+    tertinggi). Kalau ada trade yang pernah DIHAPUS (delete_trade() betul2 delete_rows di
+    sheet), No baru bisa COLLIDE dgn No yang masih ada -> close_trade()/edit_trade() yang
+    cari baris via `trades["No"]==no` match 2 baris & diam2 selalu ambil yang pertama -
+    salah trade yang ke-edit/ketutup tanpa pesan error apa pun."""
+
+    def _existing(self, rows):
+        return pd.DataFrame(rows, columns=rj.TRADES_HEADERS)
+
+    def test_sheet_kosong_no_mulai_dari_1(self):
+        ws = MagicMock()
+        with patch.object(rj, "_get_trades_ws", return_value=ws), \
+             patch.object(rj, "load_trades", return_value=self._existing([])):
+            no = rj.open_trade("2026-08-06", "Broker1", "AAAA", "Swing", 100, 90, 120, 10)
+        assert no == 1
+
+    def test_normal_tanpa_penghapusan_no_lanjut_dari_jumlah_baris(self):
+        existing = self._existing([
+            [1, "2026-08-01", "Broker1", "AAAA", "Swing", 100, 90, 120, 10,
+             "", "", "", "", "", "OPEN", ""],
+            [2, "2026-08-02", "Broker1", "BBBB", "Swing", 200, 180, 240, 10,
+             "", "", "", "", "", "OPEN", ""],
+        ])
+        ws = MagicMock()
+        with patch.object(rj, "_get_trades_ws", return_value=ws), \
+             patch.object(rj, "load_trades", return_value=existing):
+            no = rj.open_trade("2026-08-06", "Broker1", "CCCC", "Swing", 300, 270, 360, 10)
+        assert no == 3
+
+    def test_setelah_hapus_trade_tengah_no_baru_tidak_collide(self):
+        # No 1 dan 3 masih ada (No 2 sudah dihapus via delete_trade()) - cuma 2 baris tersisa.
+        # No baru HARUS 4 (max+1), BUKAN 3 (len+1) - kalau 3, akan collide dgn No 3 yang ada.
+        existing = self._existing([
+            [1, "2026-08-01", "Broker1", "AAAA", "Swing", 100, 90, 120, 10,
+             "", "", "", "", "", "OPEN", ""],
+            [3, "2026-08-03", "Broker1", "CCCC", "Swing", 300, 270, 360, 10,
+             "", "", "", "", "", "OPEN", ""],
+        ])
+        ws = MagicMock()
+        with patch.object(rj, "_get_trades_ws", return_value=ws), \
+             patch.object(rj, "load_trades", return_value=existing):
+            no = rj.open_trade("2026-08-06", "Broker1", "DDDD", "Swing", 400, 360, 480, 10)
+        assert no == 4
+        assert no != len(existing) + 1  # jaminan eksplisit: BUKAN lagi len+1
 
 
 if __name__ == "__main__":
