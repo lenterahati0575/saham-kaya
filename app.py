@@ -733,10 +733,6 @@ with t_kandidat:
         st.info("🚦 Kandidat BUY disembunyikan sementara karena IHSG Bearish.")
         picks = picks.iloc[0:0]
     if not picks.empty:
-        sektor_pilih_1 = st.multiselect("🏷️ Filter Sektor", options=sorted(picks["Sektor"].dropna().unique().tolist()), key="sektor_tab1")
-        if sektor_pilih_1:
-            picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
-    if not picks.empty:
         # Entry/SL/Target/RR pakai build_trade_candidates() yg divalidasi backtest -
         # kandidat yg tidak lolos RR/regime otomatis tidak muncul di sini.
         if not cands_swing_all.empty:
@@ -754,14 +750,18 @@ with t_kandidat:
 <div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:0.3px;">🌊 SWING TRADE TERVALIDASI</div>
 <div style="font-size:12px;color:#dbeafe;margin-top:3px;">RR / Entry / Target / Stop Loss = harga mati. <b>Disiplin kunci sukses trading.</b></div>
 </div>""", unsafe_allow_html=True)
-        fcol1, fcol2 = st.columns(2)
+        fcol1, fcol2, fcol3 = st.columns(3)
         with fcol1:
+            sektor_pilih_1 = st.multiselect("🏷️ Sektor", options=sorted(picks["Sektor"].dropna().unique().tolist()), key="sektor_tab1")
+            if sektor_pilih_1:
+                picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
+        with fcol2:
             if "Rekomendasi" in picks.columns:
                 available_r = sorted(picks["Rekomendasi"].dropna().unique().tolist())
                 r_filter = st.multiselect("Rekomendasi", options=available_r, default=available_r)
                 if r_filter:
                     picks = picks[picks["Rekomendasi"].isin(r_filter)]
-        with fcol2:
+        with fcol3:
             if "Quality" in picks.columns:
                 available_q = sorted(picks["Quality"].dropna().unique().tolist())
                 q_filter = st.multiselect("Quality Rating", options=available_q, default=available_q)
