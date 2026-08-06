@@ -811,6 +811,44 @@ ada tab Backtest/Top 10, section "Buka Posisi Otomatis" muncul benar di tab Kand
 caption & warning yang sesuai (Google Sheets belum terhubung → warning yang benar tampil),
 tanpa exception maupun error di console.
 
+## Bug: Kandidat Day Trading Hilang Total dari Tabel Gabungan (Kalah Dedup vs Swing)
+
+Efek samping dari konsolidasi di atas: user lihat live, tabel Kandidat gabungan **SEMUA
+"SWING TRADE"**, 0 baris "DAY TRADE" - padahal kolom "Rekomendasi" (sinyal eksploratif
+terpisah) sering bilang "DAY TRADE" utk saham yang sama. Awalnya saya cuma MENEBAK
+sebabnya (dedup `drop_duplicates(subset="Saham", keep RR tertinggi)` pas gabung
+cands_day_all+cands_swing_all) dan langsung ubah kode TANPA verifikasi - user tegur:
+**"kesalahan kita [berdua] tadi langsung melakukan perubahan tanpa backtest"** - perubahan
+langsung dibatalkan (`git checkout`) sebelum di-commit.
+
+**Dicek ulang pakai data riil** (615 saham x 5 tahun, snapshot terakhir cache, replikasi
+persis parameter default: lookback Day=10, Swing=20, min_rr Day=2.0, Swing=1.5) - bukan
+backtest profitabilitas (ini bukan soal "mana lebih untung"), tapi cek langsung apakah
+dedup memang menyembunyikan kandidat valid:
+
+- Dari 14 saham Signal STRONG BUY/BUY yang punya RR terhitung utk KEDUA lookback: **Swing
+  RR > Day RR di 13/14 (93%)**, Day RR TIDAK PERNAH lebih tinggi (0/14).
+- Ini **struktural**, bukan kebetulan: MA20 & cap 10% (2 dari 3 kandidat SL) identik utk Day
+  maupun Swing pada saham yang sama - cuma Donchian Low yang beda. Tapi lookback Swing (20D)
+  selalu mencakup lookback Day (10D) sbg subset, jadi Donchian **High** Swing hampir selalu
+  ≥ Donchian High Day (Target lebih jauh), sementara Risk sering SAMA (dua-duanya kena MA20
+  yang identik) → RR Swing hampir selalu menang di perbandingan dedup.
+- Contoh konkret: GPSO, MDIA, GZCO, KOTA, BWPT, ASHA **valid & lolos ambang RR Day (≥2.0)**
+  di `cands_day_all`, tapi 100% hilang dari tabel Kandidat karena dedup selalu pilih versi
+  Swing-nya.
+
+**Fix**: dedup `drop_duplicates(subset="Saham")` dihapus - 1 saham sekarang BISA muncul
+2 baris (Day & Swing) kalau lolos kriteria kedua-nya, sama seperti tab "Top 10" lama (2
+tabel terpisah, tanpa filter silang). Dropdown "Pilih Saham" (Kirim ke Jurnal Real & Chart
+TradingView) di-dedup terpisah (`drop_duplicates()` cuma di list opsi, bukan di tabel) supaya
+tidak muncul nama saham dobel di dropdown. Caption jumlah "saham tidak lolos" diubah dari
+`len(picks)` (jumlah BARIS, bisa >1 per saham sekarang) jadi `picks["Kode"].nunique()`
+(jumlah saham UNIK) supaya hitungannya tidak jadi negatif/salah kalau ada saham dobel.
+
+Diverifikasi: 93/93 pytest lolos, dicoba live - filter "1️⃣ Tipe" sekarang menampilkan
+KEDUA opsi ("⚡ DAY TRADE" dan "🌊 SWING TRADE") sebagai bukti baris Day Trade sudah muncul
+lagi (sebelum fix, cuma opsi Swing yang ada di filter krn tidak ada baris Day sama sekali).
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

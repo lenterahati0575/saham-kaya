@@ -766,14 +766,25 @@ with t_kandidat:
             c = cands_day_all.copy(); c["Tipe"] = f"⚡ DAY TRADE ({day_tipe})"; cands_tipe.append(c)
         if cands_tipe:
             cands_valid = pd.concat(cands_tipe, ignore_index=True)
-            # Kalau satu saham lolos Swing DAN Day, tampilkan yg RR-nya lebih tinggi saja
-            # (bukan duplikat baris) - pilihan mana yg lebih menarik dari 2 setup valid.
-            cands_valid = cands_valid.sort_values("RR", ascending=False).drop_duplicates(subset="Saham", keep="first")
+            # DULU (versi awal tab ini) di-dedup per saham - kalau 1 saham lolos Swing DAN
+            # Day, cuma baris RR TERTINGGI yg ditampilkan. Dicek empiris pakai data 615 saham
+            # (bukan tebakan): Swing RR > Day RR di 93% kasus overlap (13/14 saham), Day RR
+            # tidak PERNAH lebih tinggi (0/14) - ini STRUKTURAL bukan kebetulan, krn lookback
+            # Swing (20D) selalu mencakup lookback Day (10D) sbg subset, jadi Donchian High
+            # Swing hampir selalu >= Donchian High Day (Target lebih jauh) sementara Risk
+            # (SL) sering SAMA (dua2nya kena MA20 yg identik). Akibatnya dedup-by-RR HAMPIR
+            # SELALU pilih Swing, menyembunyikan Day Trade yg SEBENARNYA valid & lolos
+            # kriteria (contoh nyata: GPSO/MDIA/GZCO/KOTA/BWPT/ASHA lolos min_rr Day tapi
+            # hilang total dari tabel krn selalu dikalahkan versi Swing-nya). Fix: JANGAN
+            # dedup - 1 saham BISA muncul 2 baris (Day & Swing) kalau lolos kriteria
+            # kedua-nya, sama seperti tab "Top 10" lama (2 tabel terpisah, tanpa filter
+            # silang). User yg pilih mana yg mau diambil.
+            cands_valid = cands_valid.sort_values("RR", ascending=False)
             cands_valid = cands_valid.rename(columns={"Saham": "Kode"})
             cands_valid["Risiko %"] = ((cands_valid["Entry"] - cands_valid["Stop Loss"]) / cands_valid["Entry"] * 100).round(1)
             n_sebelum = len(picks)
             picks = picks.merge(cands_valid[["Kode", "Tipe", "RR", "Entry", "Target", "Stop Loss", "Risiko %"]], on="Kode", how="inner")
-            n_gugur = n_sebelum - len(picks)
+            n_gugur = n_sebelum - picks["Kode"].nunique()
             if n_gugur > 0:
                 st.caption(f"ℹ️ {n_gugur} saham dgn Signal STRONG BUY/BUY tidak muncul di bawah - "
                            "tidak lolos RR minimum atau regime IHSG (kriteria yg SAMA dgn yg dipakai "
@@ -1022,7 +1033,7 @@ with t_kandidat:
     st.caption("Pilih saham dari tabel di atas, lalu data akan otomatis terisi di tab Jurnal Real")
     cat1, cat2, cat3 = st.columns([2, 1, 1])
     with cat1:
-        pilih_catat = st.selectbox("Pilih Saham:", options=["-- Pilih Saham --"] + (show["Kode"].tolist() if not picks.empty else []), key="pilih_catat_kandidat")
+        pilih_catat = st.selectbox("Pilih Saham:", options=["-- Pilih Saham --"] + (show["Kode"].drop_duplicates().tolist() if not picks.empty else []), key="pilih_catat_kandidat")
     with cat2:
         lot_catat = st.number_input("Lot", min_value=1, value=10, step=1, key="lot_catat_kandidat")
     with cat3:
@@ -1056,7 +1067,7 @@ with t_kandidat:
             st.info(f"📊 Entry: Rp{st.session_state['auto_fill_trade']['entry']:,.0f} | SL: Rp{st.session_state['auto_fill_trade']['stop_loss']:,.0f} | Target: Rp{st.session_state['auto_fill_trade']['target']:,.0f}")
     st.divider()
     st.markdown("### 📈 Chart TradingView")
-    chart_kode = st.selectbox("Pilih saham untuk melihat chart:", options=["-- Pilih Saham --"] + (show["Kode"].tolist() if not picks.empty else []), key="chart_selector")
+    chart_kode = st.selectbox("Pilih saham untuk melihat chart:", options=["-- Pilih Saham --"] + (show["Kode"].drop_duplicates().tolist() if not picks.empty else []), key="chart_selector")
     if chart_kode and chart_kode != "-- Pilih Saham --":
         embed_tradingview_chart(chart_kode, height=500)
 
