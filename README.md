@@ -957,6 +957,63 @@ PERTAMA yang cocok). Risiko rendah utk pemakaian 1 user, butuh migrasi ke databa
 sungguhan (bukan Google Sheets) utk benar-benar dihilangkan - di luar scope perbaikan saat
 ini, didokumentasikan di sini supaya user tahu risikonya.
 
+## Day Trading Terbukti TIDAK Konsisten - Auto-Open Dimatikan
+
+User bertanya: **"apakah hasil audit terkait saham yang ditangkap screener sudah optimal
+untuk cuan?"** - jawaban jujurnya waktu itu: Swing (lookback 20D + regime IHSG>MA50 +
+capped SL) sudah punya bukti backtest konsisten, tapi **Day Trading (lookback 10D) belum
+PERNAH dibuktikan profitable sendiri** - selama ini cuma "menumpang" validasi Swing padahal
+formulanya beda. User lalu minta: pertahankan yang sudah baik, optimalkan/benahi yang belum.
+
+**Diuji independen** (615 saham x 5 tahun, force-sell PERSIS meniru aturan live: BPJS=1
+hari, BSJP=2 hari - bukan 15 hari seperti Swing):
+
+| Skenario | Total Return Bersih | Win Rate |
+|---|---|---|
+| BPJS, TANPA regime (= live sebelumnya) | **-4569.1%** | 34.9% |
+| BSJP, TANPA regime (= live sebelumnya) | **-902.5%** | 36.8% |
+| BPJS, DENGAN regime IHSG>MA50 | **-1005.3%** | 35.7% |
+| BSJP, DENGAN regime IHSG>MA50 | **+2322.7%** | 37.8% |
+
+Kelihatan BSJP+regime positif - TAPI dicek split-half (standar yang dipakai sepanjang
+proyek ini, sama seperti yang menggugurkan klaim "Juli selalu hijau" di bagian Efek
+Musiman): **GAGAL konsisten**.
+
+| Skenario | Paruh 1 (2021-2024) | Paruh 2 (2024-2026) |
+|---|---|---|
+| BPJS + regime | -1072.0% | +66.7% (nyaris impas) |
+| BSJP + regime | -74.9% (nyaris impas) | **+2397.6%** |
+
+BPJS tetap rugi di kedua paruh (walau paruh 2 mendekati impas). BSJP totalnya positif
+TAPI 100% ditarik oleh ~2 tahun terakhir - paruh pertama (2.5 tahun) nyaris impas. Ini
+BUKAN pola stabil sepanjang waktu seperti Swing (yang net profit konsisten di KEDUA
+paruh) - persis pola "efek yang ditarik periode terakhir" yang sudah gugur di bagian Efek
+Musiman IHSG.
+
+**Kesimpulan jujur**: Day Trading (BPJS maupun BSJP) TIDAK memenuhi standar konsistensi
+yang dipakai untuk memvalidasi Swing. Bukan berarti pasti tidak akan pernah profitable -
+tapi dengan bukti yang ada SEKARANG, tidak bisa disebut tervalidasi.
+
+**Fix diterapkan** (sesuai arahan user - benahi yang belum baik, jangan dipertahankan
+seolah sudah tervalidasi):
+1. `cands_day_all` (screener.py, dipanggil dari app.py) sekarang JUGA digate filter regime
+   IHSG>MA50 - sama seperti Swing. Ini mengurangi rugi terburuk (BPJS -4569%→-1005%, BSJP
+   -902%→+2322%) tapi TIDAK membuatnya "tervalidasi" (masih gagal split-half).
+2. **Tombol "Buka Posisi Day Trading" otomatis DIHAPUS** dari tab Kandidat - sistem tidak
+   lagi bisa membuka posisi (baik ke Jurnal Backtest simulasi maupun potensial diteruskan
+   manual ke Jurnal Real) untuk sesuatu yang terbukti tidak konsisten. Tombol "Buka Posisi
+   Swing Trading" & "Cek TP/SL & Force-Sell" tetap ada (cuma 2 tombol, bukan 3).
+3. Label "Tipe" utk Day Trade diubah jadi `⚠️ DAY TRADE (BPJS/BSJP) - belum konsisten`
+   (warna oranye/warning, bukan hijau) - beda jelas dari `🌊 SWING TRADE` (biru, tervalidasi).
+   Filter "1️⃣ Tipe" & banner "Panduan Cuan Konsisten" diupdate menjelaskan perbedaan status
+   validasi ini secara eksplisit.
+4. Day Trade TETAP ditampilkan di tabel Kandidat (bukan disembunyikan total) - transparansi
+   tetap dijaga, RR/regime tetap difilter sama ketatnya, cuma tidak bisa di-auto-open dan
+   labelnya jujur soal statusnya.
+
+Diverifikasi: py_compile OK, 111/111 pytest lolos, dicoba live - label & warning baru
+tampil benar di tab Kandidat.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

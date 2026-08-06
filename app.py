@@ -656,7 +656,20 @@ if gj.is_configured():
         total_equity_now = None
 
 day_tipe = classify_daytrading_tipe()  # dipakai bareng oleh tab Kandidat & Backtest
+# Day Trading DIUJI independen (615 saham x 5 tahun, force-sell 1 hari/BPJS & 2 hari/BSJP,
+# metodologi SAMA dgn Swing) setelah audit "screener terbaik" - hasilnya JAUH lebih buruk
+# drpd yang diasumsikan (Day cuma "menumpang" validasi Swing, tidak pernah diuji sendiri):
+# tanpa filter regime, BPJS Total Return Bersih -4569.1%, BSJP -902.5% (DUA-DUANYA RUGI).
+# Dengan filter regime (SAMA seperti Swing): BPJS masih rugi -1005.3% (split-half TIDAK
+# konsisten: paruh 1 -1072%, paruh 2 +66.7%). BSJP jadi +2322.7% TAPI split-half juga
+# TIDAK konsisten (paruh 1 -74.9%, paruh 2 +2397.6% - untungnya 100% ditarik 2 tahun
+# terakhir, persis pola "Juli hijau" yang gugur di README > Efek Musiman). Standar yang
+# dipakai sepanjang sesi ini (Swing WAJIB konsisten di kedua paruh) TIDAK terpenuhi Day
+# Trading di kedua mode - jadi filter regime ditambahkan (mengurangi rugi terburuk) TAPI
+# TIDAK dianggap "tervalidasi" seperti Swing. Auto-open Day Trading dimatikan (lihat
+# "Buka Posisi Otomatis" di bawah) - lihat README > "Day Trading Terbukti TIDAK Konsisten".
 cands_day_all = build_trade_candidates(table, price_data, int(donchian_lb_day), min_rr_day, top_n=10,
+                                        require_bullish_regime=filter_market, regime_status=regime["status"],
                                         total_equity=total_equity_now, risk_pct=risk_pct_per_trade)
 cands_swing_all = build_trade_candidates(table, price_data, int(donchian_lb), min_rr_swing, top_n=10,
                                           require_bullish_regime=filter_market, regime_status=regime["status"],
@@ -763,7 +776,11 @@ with t_kandidat:
         if not cands_swing_all.empty:
             c = cands_swing_all.copy(); c["Tipe"] = "🌊 SWING TRADE"; cands_tipe.append(c)
         if not cands_day_all.empty:
-            c = cands_day_all.copy(); c["Tipe"] = f"⚡ DAY TRADE ({day_tipe})"; cands_tipe.append(c)
+            # "⚠️" (bukan "⚡" polos) - Day Trading TERBUKTI TIDAK konsisten split-half
+            # (lihat README > "Day Trading Terbukti TIDAK Konsisten"), beda status validasi
+            # dari Swing. Tetap ditampilkan sbg info (RR/regime sudah difilter), TAPI jangan
+            # dikira setara Swing - makanya labelnya beda & tidak bisa di-auto-open.
+            c = cands_day_all.copy(); c["Tipe"] = f"⚠️ DAY TRADE ({day_tipe}) - belum konsisten"; cands_tipe.append(c)
         if cands_tipe:
             cands_valid = pd.concat(cands_tipe, ignore_index=True)
             # DULU (versi awal tab ini) di-dedup per saham - kalau 1 saham lolos Swing DAN
@@ -798,10 +815,12 @@ with t_kandidat:
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             available_tipe = sorted(picks["Tipe"].dropna().unique().tolist())
-            tipe_filter = st.multiselect("1️⃣ Tipe (SUDAH divalidasi backtest)", options=available_tipe,
-                                          default=available_tipe, help="SWING/DAY TRADE - RR & regime "
-                                          "sudah difilter sesuai kriteria yg divalidasi, ini cuma pilih "
-                                          "mana yg ingin dilihat.")
+            tipe_filter = st.multiselect("1️⃣ Tipe (Swing tervalidasi konsisten, Day BELUM)", options=available_tipe,
+                                          default=available_tipe, help="SWING sudah lolos uji konsistensi "
+                                          "split-half (2 paruh histori 5 tahun sama arah). DAY TRADE (BPJS/"
+                                          "BSJP) GAGAL lolos uji yang sama (untung/rugi tidak konsisten "
+                                          "antar periode) - RR/regime tetap difilter, tapi jangan anggap "
+                                          "setara Swing. Detail: README > 'Day Trading Terbukti TIDAK Konsisten'.")
             if tipe_filter:
                 picks = picks[picks["Tipe"].isin(tipe_filter)]
         with col_f2:
@@ -816,9 +835,10 @@ with t_kandidat:
         st.markdown("""
         <div style="background: #1f2937; padding: 12px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #16a34a;">
             <b>💡 Panduan Cuan Konsisten:</b><br>
-            1. Kolom <b>Tipe</b>, <b>RR</b>, <b>Entry</b>, <b>Stop Loss</b>, <b>Target</b> di bawah SUDAH divalidasi lewat backtest realistis + out-of-sample (kriteria yg sama dipakai "Buka Posisi Otomatis" di bawah) - <b>JANGAN DILANGGAR</b> angka SL/Target-nya.<br>
-            2. Kolom <b>Rekomendasi/Quality/Trend/Smart Money/Momentum</b> itu sinyal EKSPLORATIF terpisah (belum dibacktest) - anggap info tambahan, bukan dasar keputusan utama.<br>
-            3. Semakin tinggi RR, semakin baik rasio untung:rugi - tapi tetap gunakan Stop Loss, tidak ada yang 100% pasti.
+            1. Baris <b>🌊 SWING TRADE</b>: kolom RR/Entry/Stop Loss/Target SUDAH divalidasi lewat backtest realistis + out-of-sample, konsisten di 2 paruh histori 5 tahun - <b>JANGAN DILANGGAR</b> angka SL/Target-nya.<br>
+            2. Baris <b>⚠️ DAY TRADE</b>: RR/regime tetap difilter, TAPI hasilnya TIDAK konsisten antar periode (gagal uji split-half yang sama dgn Swing) - anggap eksperimental, JANGAN auto-trade, kalau dipakai manual sadari risikonya belum terbukti.<br>
+            3. Kolom <b>Rekomendasi/Quality/Trend/Smart Money/Momentum</b> itu sinyal EKSPLORATIF terpisah (belum dibacktest) - anggap info tambahan, bukan dasar keputusan utama.<br>
+            4. Semakin tinggi RR, semakin baik rasio untung:rugi - tapi tetap gunakan Stop Loss, tidak ada yang 100% pasti.
         </div>
         """, unsafe_allow_html=True)
     if not picks.empty and "RR" in picks.columns:
@@ -851,7 +871,10 @@ with t_kandidat:
         kolom_tampil = [col for col in kolom_tampil if col in show.columns]
         def color_rec(val):
             val = str(val)
-            if "DAY TRADE" in val: return "background-color: #16a34a; color: white; font-weight: bold;"
+            # DAY TRADE dikasih warna WARNING (oranye), bukan hijau - terbukti TIDAK
+            # konsisten split-half (lihat README), beda status dari SWING TRADE yang biru
+            # (tervalidasi konsisten).
+            if "DAY TRADE" in val: return "background-color: #ea580c; color: white; font-weight: bold;"
             if "SWING TRADE" in val: return "background-color: #2563eb; color: white; font-weight: bold;"
             if "AVOID" in val: return "background-color: #dc2626; color: white; font-weight: bold;"
             if "WAIT" in val: return "background-color: #eab308; color: black; font-weight: bold;"
@@ -917,37 +940,23 @@ with t_kandidat:
                 import traceback
                 st.code(traceback.format_exc())
             st.caption(f"Waktu sekarang WIB terdeteksi sebagai tipe **{day_tipe}** untuk Day Trading ({'Beli Pagi, rencana Jual Sore' if day_tipe=='BPJS' else 'Beli Sore, rencana Jual besok Pagi'}).")
-            st.write(f" **Kandidat Day Trading tersedia:** {len(cands_day_all)}")
+            st.warning(f"⚠️ **Buka Posisi Day Trading OTOMATIS dimatikan** ({len(cands_day_all)} kandidat "
+                       "tersedia, cuma info - tidak bisa dibuka lewat tombol di sini). Diuji independen "
+                       "(615 saham x 5 tahun, metodologi sama dgn Swing): BPJS & BSJP DUA-DUANYA gagal "
+                       "lolos standar konsistensi split-half yang dipakai sepanjang sesi ini (beda dari "
+                       "Swing yang konsisten di kedua paruh). Detail lengkap di README > 'Day Trading "
+                       "Terbukti TIDAK Konsisten'. Kalau tetap mau trading manual, pakai tombol **Kirim "
+                       "ke Jurnal Real** di bawah dengan kesadaran risiko ini BELUM tervalidasi.")
             st.write(f" **Kandidat Swing Trading tersedia:** {len(cands_swing_all)}")
-            # Deteksi klik tombol di dalam kolom (biar 3 tombol tetap berjejer rapi), tapi
+            # Deteksi klik tombol di dalam kolom (biar 2 tombol tetap berjejer rapi), tapi
             # PROSES & TAMPILKAN hasilnya di LUAR kolom (lebar penuh halaman) - dulu hasilnya
             # (termasuk tabel debug "Posisi yang dicek") kejepit di 1/3 lebar halaman krn
             # dirender di dalam blok kolom yang sama dgn tombolnya.
-            colb1, colb2, colb3 = st.columns(3)
-            with colb1:
-                klik_open_day = st.button(f"🟢 Buka Posisi Day Trading ({day_tipe})", use_container_width=True, key="btn_open_day")
+            colb2, colb3 = st.columns(2)
             with colb2:
                 klik_open_swing = st.button("🟢 Buka Posisi Swing Trading", use_container_width=True, key="btn_open_swing")
             with colb3:
                 klik_check_close = st.button("🔴 Cek TP/SL & Force-Sell", use_container_width=True, key="btn_check_close")
-
-            if klik_open_day:
-                try:
-                    with st.spinner("Membuka posisi Day Trading..."):
-                        if cands_day_all.empty:
-                            st.warning("⚠️ Tidak ada kandidat Day Trading - mungkin belum ada yang lolos filter")
-                        else:
-                            opened = gj.open_positions_from_candidates(cands_day_all, day_tipe)
-                            if opened:
-                                st.success(f"✅ Berhasil dibuka: {', '.join(opened)}")
-                                st.balloons()
-                                st.rerun()
-                            else:
-                                st.warning("⚠️ Tidak ada posisi baru dibuka (semua sudah ada)")
-                except Exception as e:
-                    st.error(f"❌ Error buka Day Trading: {str(e)}")
-                    import traceback
-                    st.code(traceback.format_exc())
 
             if klik_open_swing:
                 try:
