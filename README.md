@@ -1078,6 +1078,30 @@ sinyal baru` (bukan lagi "belum konsisten" yang menyiratkan cuma butuh tuning le
 lanjut) - supaya user tidak menunggu update parameter yang tidak akan pernah datang,
 dan tahu persis kenapa.
 
+### Riset lanjutan & keputusan akhir: Day Trading dihapus total
+
+Setelah label di atas, user minta lanjut cari sistem yang genuinely profit (bukan cuma
+matikan) - dicoba 5 pendekatan lagi pakai data intraday (5 menit & 60 menit, difetch
+khusus utk riset ini): ORB dgn jendela benar (15 menit + volume + VWAP, bukan 1 jam),
+gap-fade (mean-reversion overnight, data harian - PERNAH profit 2021-2024 tapi RUNTUH
+2025-2026), OHOL/Shaven Bottom (Open=Low breakout, tanpa & dengan hold 2 hari, blue-chip
+& saham volatile). **Semuanya konsisten rugi**, kecuali gap-fade yang sudah mati.
+
+Sistem "Shaven Bottom" versi lengkap (dari referensi praktisi user) secara eksplisit
+mensyaratkan konfirmasi order book real-time ("Makan Kanan") sbg salah satu dari 3 syarat
+wajib - data itu TIDAK tersedia di Yahoo Finance atau sumber gratis manapun, jadi versi
+yang bisa diuji (OHLCV saja) kemungkinan besar ikut membeli "shaven bottom palsu"
+(jebakan bandar) yang seharusnya disaring lewat tape reading. Ini bukan bukti sistemnya
+salah kalau dieksekusi manual dgn order book asli - cuma bukti tidak bisa divalidasi
+lewat backtest data historis gratis.
+
+**Keputusan akhir**: Day Trading (kolom Tipe, filter, tombol Buka Posisi, semua sisa
+kode terkait) **dihapus total** dari app.py - bukan cuma dimatikan/dilabeli. Tab Kandidat
+sekarang cuma menampilkan Swing (satu-satunya yang tervalidasi konsisten). Pola Open=Low
+tetap punya nilai sbg sinyal EKSPLORATIF manual (user tetap bisa pantau & putuskan sendiri
+dgn order book riil di broker masing-masing) - lihat bagian screener terpisah kalau
+ditambahkan di masa depan.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

@@ -12,7 +12,7 @@ import numpy as np
 from scipy import stats
 from scipy.stats import norm
 from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_with_report, build_screener_table,
-                      build_trade_candidates, classify_daytrading_tipe, fetch_ihsg_history, market_regime,
+                      build_trade_candidates, fetch_ihsg_history, market_regime,
                       _donchian_levels, fetch_index_snapshot, ihsg_seasonality)
 from telegram_notify import send_telegram_message, format_watchlist_message
 import gsheet_journal as gj
@@ -534,12 +534,9 @@ with st.sidebar:
     min_vt = st.number_input("Min. Value Traded (Rp miliar/hari)", min_value=0.0, value=3.0, step=0.5)
     crash_veto = st.slider("Ambang Crash Veto (%)", min_value=-15, max_value=-1, value=-5) / 100
     donchian_lb = st.number_input("Donchian Lookback - Swing (hari bursa)", min_value=5, max_value=60, value=20)
-    donchian_lb_day = st.number_input("Donchian Lookback - Day Trading (hari bursa)", min_value=3, max_value=30, value=10)
     min_rr_swing = st.number_input("Minimum Risk:Reward (RR) - Swing", min_value=1.0, value=1.5, step=0.1,
                                     help="Default 1.5, divalidasi lewat backtest realistis + out-of-sample "
                                          "(lihat README > Backtest Historis).")
-    min_rr_day = st.number_input("Minimum Risk:Reward (RR) - Day Trading", min_value=1.0, value=2.0, step=0.1,
-                                  help="Belum divalidasi ulang seperti Swing - default lama dipertahankan.")
     risk_pct_per_trade = st.number_input("Risiko per Trade (%)", min_value=0.1, max_value=10.0, value=1.0, step=0.1,
                                           help="Lot Auto-BUY di Jurnal Backtest dihitung dari % ini terhadap Total "
                                                "Equity Bro (tab Equity), bukan lagi angka tetap 10 lot untuk semua "
@@ -556,7 +553,7 @@ with st.sidebar:
                                help="Default 400 (bukan 200) - sejak universe diperluas ke 962 saham resmi "
                                     "BEI, proporsi saham tidak likuid (SKIP ILIKUID) ikut naik, jadi sample "
                                     "200 saham alfabetis pertama kadang terlalu kecil utk konsisten dapat "
-                                    "kandidat Day/Swing Trade. 962 = seluruh saham tercatat di IDX. Makin "
+                                    "kandidat Swing Trade. 962 = seluruh saham tercatat di IDX. Makin "
                                     "banyak saham dipindai, makin banyak request ke Yahoo Finance - bisa "
                                     "lebih lambat/rawan rate-limit.")
     universe_filter = st.selectbox("Universe Saham", ["Semua", "Syariah (ISSI)", "Konvensional"], index=1,
@@ -569,8 +566,7 @@ with st.sidebar:
     filter_market = st.checkbox("Sembunyikan kandidat Swing saat IHSG Bearish", value=True,
                                  help="Default AKTIF - divalidasi lewat backtest: sistem breakout Swing ini "
                                       "net rugi di pasar sideways/bearish, net profit konsisten kalau cuma "
-                                      "aktif saat IHSG di atas MA50. Cuma memengaruhi kandidat Swing, bukan "
-                                      "Day Trading (belum divalidasi serupa).")
+                                      "aktif saat IHSG di atas MA50.")
     st.divider()
     st.subheader("🔮 IHSG Gann + Time Cycle")
     st.caption("Sudah diuji historis (10 tahun IHSG) - hit rate-nya SETARA hari acak, bukan lebih akurat. "
@@ -635,9 +631,6 @@ if idx_snapshot:
     idx_cols = st.columns(len(idx_snapshot))
     for i, (label, d) in enumerate(idx_snapshot.items()):
         idx_cols[i].metric(label, f"{d['close']:,.0f}", f"{d['change_pct'] * 100:+.2f}%")
-# market_ok cuma dipakai utk kandidat Swing & tab "Kandidat" - Day Trading TIDAK digate
-# regime (belum divalidasi lewat backtest, beda dgn Swing yg sudah divalidasi lewat
-# backtest realistis + out-of-sample, lihat README > Backtest Historis).
 market_ok = not (filter_market and regime["status"] == "BEARISH")
 
 # Total Equity terbaru (kalau ada snapshot) - dipakai utk hitung Lot Auto-BUY berbasis risiko
@@ -655,27 +648,8 @@ if gj.is_configured():
     except Exception:
         total_equity_now = None
 
-day_tipe = classify_daytrading_tipe()  # dipakai bareng oleh tab Kandidat & Backtest
-# Day Trading DIUJI independen (615 saham x 5 tahun, force-sell 1 hari/BPJS & 2 hari/BSJP,
-# metodologi SAMA dgn Swing) setelah audit "screener terbaik" - hasilnya JAUH lebih buruk
-# drpd yang diasumsikan (Day cuma "menumpang" validasi Swing, tidak pernah diuji sendiri):
-# tanpa filter regime, BPJS Total Return Bersih -4569.1%, BSJP -902.5% (DUA-DUANYA RUGI).
-# Dengan filter regime (SAMA seperti Swing): BPJS masih rugi -1005.3% (split-half TIDAK
-# konsisten: paruh 1 -1072%, paruh 2 +66.7%). BSJP jadi +2322.7% TAPI split-half juga
-# TIDAK konsisten (paruh 1 -74.9%, paruh 2 +2397.6% - untungnya 100% ditarik 2 tahun
-# terakhir, persis pola "Juli hijau" yang gugur di README > Efek Musiman). Standar yang
-# dipakai sepanjang sesi ini (Swing WAJIB konsisten di kedua paruh) TIDAK terpenuhi Day
-# Trading di kedua mode - jadi filter regime ditambahkan (mengurangi rugi terburuk) TAPI
-# TIDAK dianggap "tervalidasi" seperti Swing. Grid search lanjutan (27+ kombinasi
-# lookback 5-20D x hold 1-10 hari) membuktikan ini BUKAN soal parameter yang salah -
-# breakout Donchian struktural butuh waktu berhari-hari utk capai target, jadi TIDAK ADA
-# hold pendek yang konsisten split-half; baru konsisten begitu hold ~10+ hari (= sudah
-# jadi Swing versi cepat, bukan Day Trading lagi). Auto-open Day Trading dimatikan (lihat
-# "Buka Posisi Otomatis" di bawah) - lihat README > "Day Trading: Bukan Soal Parameter,
-# Tapi Desain Sinyal".
-cands_day_all = build_trade_candidates(table, price_data, int(donchian_lb_day), min_rr_day, top_n=10,
-                                        require_bullish_regime=filter_market, regime_status=regime["status"],
-                                        total_equity=total_equity_now, risk_pct=risk_pct_per_trade)
+# Day Trading dihapus - tidak ada parameter/sinyal yang terbukti konsisten profit
+# (lihat README > "Day Trading: Bukan Soal Parameter, Tapi Desain Sinyal").
 cands_swing_all = build_trade_candidates(table, price_data, int(donchian_lb), min_rr_swing, top_n=10,
                                           require_bullish_regime=filter_market, regime_status=regime["status"],
                                           total_equity=total_equity_now, risk_pct=risk_pct_per_trade)
@@ -747,11 +721,8 @@ t_kandidat, t_semua, t_grafik, t_real, t_equity, t_perf, t_kalk, t_fundamental, 
     "🏆 Kandidat", "📋 Semua", "📉 Grafik", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
     "🧮 Kalkulator", "📊 Fundamental", "🏛️ Value Invest", "📊 IHSG Analysis", "🔗 Correlation", "🌙 Astronacci", "📰 Sentiment", "🤖 ML Signal", "📉 Options", "🏦 Broker", "📚 Tutorial"
 ])
-# Tab "📒 Backtest" & "🎯 Top 10" DIHAPUS (gabung ke sini) - keduanya bersumber dari data
-# yg SAMA (cands_day_all/cands_swing_all), jadi 3 tab utk 1 sumber data = duplikasi.
-# Aksi "Buka Posisi Otomatis" (dulu di tab Backtest) sekarang ada di tab Kandidat, di
-# bawah tabel kandidat. Tab Top 10 dihapus total krn cuma tampilkan ulang tabel yg sama
-# tanpa filter tambahan.
+# Tab "Backtest" & "Top 10" digabung ke tab Kandidat - aksi "Buka Posisi Otomatis" ada
+# di bawah tabel kandidat.
 
 # ============================================================================
 # TAB 1: KANDIDAT TERBAIK
@@ -766,47 +737,11 @@ with t_kandidat:
         if sektor_pilih_1:
             picks = picks[picks["Sektor"].isin(sektor_pilih_1)]
     if not picks.empty:
-        # DULU tab ini hitung Entry/SL/Target/RR SENDIRI dgn formula SL berbeda (max dari
-        # Donchian Low/MA20/10% cap, mana yg paling ketat) DAN tanpa filter RR minimum -
-        # menyimpang dari build_trade_candidates() yg BENAR-BENAR divalidasi backtest 5
-        # tahun + out-of-sample (SL = Donchian Low murni, difilter RR>=min_rr, Swing
-        # digate regime IHSG). Akibatnya angka yg ditampilkan di sini TIDAK PERNAH terbukti
-        # menghasilkan hasil sama seperti backtest - user tanya langsung "apakah sudah
-        # pernah dibacktest?", dan jawabannya waktu itu TIDAK utk versi lama ini.
-        # Fix: reuse cands_day_all/cands_swing_all (SUDAH dihitung di atas, fungsi SAMA
-        # persis dgn yg dipakai tombol "Buka Posisi Otomatis" di bawah - satu sumber data,
-        # bukan hitung ulang formula berbeda. Kandidat yg TIDAK lolos RR/regime otomatis
-        # TIDAK muncul di sini lagi (dulu tetap ditampilkan tanpa filter).
-        cands_tipe = []
+        # Entry/SL/Target/RR pakai build_trade_candidates() yg divalidasi backtest -
+        # kandidat yg tidak lolos RR/regime otomatis tidak muncul di sini.
         if not cands_swing_all.empty:
-            c = cands_swing_all.copy(); c["Tipe"] = "🌊 SWING TRADE"; cands_tipe.append(c)
-        if not cands_day_all.empty:
-            # "⚠️" (bukan "⚡" polos) - grid search 27+ kombinasi (lookback 5-20D x hold
-            # 1-10 hari, termasuk sinyal dihitung ulang per lookback - lihat README > "Day
-            # Trading: Bukan Soal Parameter, Tapi Desain Sinyal") membuktikan TIDAK ADA
-            # kombinasi hold PENDEK (1-3 hari) yang konsisten split-half - polanya monoton
-            # membaik seiring hold diperpanjang, cuma jadi konsisten begitu hold ~10+ hari
-            # (= sudah jadi Swing versi cepat, bukan Day Trading lagi). Ini bukan "belum
-            # ketemu parameter yang pas" - breakout Donchian butuh waktu berhari-hari utk
-            # capai target, jadi struktural tidak cocok utk horizon pendek. Tetap ditampilkan
-            # sbg info, TAPI jangan dikira setara Swing - makanya labelnya beda & tidak bisa
-            # di-auto-open.
-            c = cands_day_all.copy(); c["Tipe"] = f"⚠️ DAY TRADE ({day_tipe}) - perlu desain sinyal baru"; cands_tipe.append(c)
-        if cands_tipe:
-            cands_valid = pd.concat(cands_tipe, ignore_index=True)
-            # DULU (versi awal tab ini) di-dedup per saham - kalau 1 saham lolos Swing DAN
-            # Day, cuma baris RR TERTINGGI yg ditampilkan. Dicek empiris pakai data 615 saham
-            # (bukan tebakan): Swing RR > Day RR di 93% kasus overlap (13/14 saham), Day RR
-            # tidak PERNAH lebih tinggi (0/14) - ini STRUKTURAL bukan kebetulan, krn lookback
-            # Swing (20D) selalu mencakup lookback Day (10D) sbg subset, jadi Donchian High
-            # Swing hampir selalu >= Donchian High Day (Target lebih jauh) sementara Risk
-            # (SL) sering SAMA (dua2nya kena MA20 yg identik). Akibatnya dedup-by-RR HAMPIR
-            # SELALU pilih Swing, menyembunyikan Day Trade yg SEBENARNYA valid & lolos
-            # kriteria (contoh nyata: GPSO/MDIA/GZCO/KOTA/BWPT/ASHA lolos min_rr Day tapi
-            # hilang total dari tabel krn selalu dikalahkan versi Swing-nya). Fix: JANGAN
-            # dedup - 1 saham BISA muncul 2 baris (Day & Swing) kalau lolos kriteria
-            # kedua-nya, sama seperti tab "Top 10" lama (2 tabel terpisah, tanpa filter
-            # silang). User yg pilih mana yg mau diambil.
+            cands_valid = cands_swing_all.copy()
+            cands_valid["Tipe"] = "🌊 SWING TRADE"
             cands_valid = cands_valid.sort_values("RR", ascending=False)
             cands_valid = cands_valid.rename(columns={"Saham": "Kode"})
             cands_valid["Risiko %"] = ((cands_valid["Entry"] - cands_valid["Stop Loss"]) / cands_valid["Entry"] * 100).round(1)
@@ -826,15 +761,10 @@ with t_kandidat:
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             available_tipe = sorted(picks["Tipe"].dropna().unique().tolist())
-            tipe_filter = st.multiselect("1️⃣ Tipe (Swing tervalidasi konsisten, Day perlu desain baru)", options=available_tipe,
-                                          default=available_tipe, help="SWING sudah lolos uji konsistensi "
-                                          "split-half (2 paruh histori 5 tahun sama arah). DAY TRADE (BPJS/"
-                                          "BSJP) - diuji 27+ kombinasi parameter (lookback & hold berbeda-"
-                                          "beda), TIDAK ADA hold pendek yang konsisten; breakout Donchian "
-                                          "struktural butuh waktu lebih lama drpd horizon Day Trading. RR/"
-                                          "regime tetap difilter, tapi ini bukan soal parameter yang belum "
-                                          "pas - butuh desain sinyal berbeda. Detail: README > 'Day Trading: "
-                                          "Bukan Soal Parameter, Tapi Desain Sinyal'.")
+            tipe_filter = st.multiselect("1️⃣ Tipe", options=available_tipe,
+                                          default=available_tipe, help="SWING TRADE sudah lolos uji "
+                                          "konsistensi split-half (2 paruh histori 5 tahun sama arah) - "
+                                          "RR/Entry/SL/Target di bawah sudah divalidasi.")
             if tipe_filter:
                 picks = picks[picks["Tipe"].isin(tipe_filter)]
         with col_f2:
@@ -848,11 +778,10 @@ with t_kandidat:
                     picks = picks[picks["Quality"].isin(q_filter)]
         st.markdown("""
         <div style="background: #1f2937; padding: 12px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #16a34a;">
-            <b>💡 Panduan Cuan Konsisten:</b><br>
-            1. Baris <b>🌊 SWING TRADE</b>: kolom RR/Entry/Stop Loss/Target SUDAH divalidasi lewat backtest realistis + out-of-sample, konsisten di 2 paruh histori 5 tahun - <b>JANGAN DILANGGAR</b> angka SL/Target-nya.<br>
-            2. Baris <b>⚠️ DAY TRADE</b>: sudah diuji 27+ kombinasi parameter (bukan cuma 1 setting) - TIDAK ADA yang konsisten split-half utk hold pendek, breakout Donchian butuh waktu lebih lama drpd horizon Day Trading. Bukan soal "belum ketemu parameter yang pas" - anggap eksperimental, JANGAN auto-trade.<br>
-            3. Kolom <b>Rekomendasi/Quality/Trend/Smart Money/Momentum</b> itu sinyal EKSPLORATIF terpisah (belum dibacktest) - anggap info tambahan, bukan dasar keputusan utama.<br>
-            4. Semakin tinggi RR, semakin baik rasio untung:rugi - tapi tetap gunakan Stop Loss, tidak ada yang 100% pasti.
+            <b>💡 PANDUAN CUAN KONSISTEN</b><br>
+            1. <b>RR / Entry / Stop Loss / Target</b> = SUDAH DIVALIDASI - <b>JANGAN DILANGGAR</b>.<br>
+            2. <b>Rekomendasi / Quality / Trend / Smart Money / Momentum</b> = EKSPLORATIF, info tambahan saja.<br>
+            3. RR makin tinggi makin baik - tapi tetap pakai Stop Loss.
         </div>
         """, unsafe_allow_html=True)
     if not picks.empty and "RR" in picks.columns:
@@ -922,7 +851,7 @@ with t_kandidat:
     st.divider()
     st.markdown("### 🤖 Buka Posisi Otomatis (Jurnal Backtest Sistem)")
     st.caption("BEDA dari 'Kirim ke Jurnal Real' di bawah: tombol ini membuka posisi OTOMATIS "
-               "utk SEMUA kandidat Day/Swing di tabel atas (bukan pilih manual 1 saham), tercatat "
+               "utk SEMUA kandidat Swing di tabel atas (bukan pilih manual 1 saham), tercatat "
                "di sheet POSISI (Google Sheets) terpisah dari Jurnal Real - dipakai utk mengukur "
                "performa sistem screener sendiri secara objektif (lihat tab Performance & Equity).")
     if not gj.is_configured():
@@ -953,19 +882,6 @@ with t_kandidat:
                 st.error(f"❌ Error auto-close otomatis: {str(e)}")
                 import traceback
                 st.code(traceback.format_exc())
-            st.caption(f"Waktu sekarang WIB terdeteksi sebagai tipe **{day_tipe}** untuk Day Trading ({'Beli Pagi, rencana Jual Sore' if day_tipe=='BPJS' else 'Beli Sore, rencana Jual besok Pagi'}).")
-            st.warning(f"⚠️ **Buka Posisi Day Trading OTOMATIS dimatikan** ({len(cands_day_all)} kandidat "
-                       "tersedia, cuma info - tidak bisa dibuka lewat tombol di sini). Grid search 27+ "
-                       "kombinasi (lookback 5-20 hari x hold 1-10 hari, sinyal dihitung ulang per lookback) "
-                       "membuktikan ini BUKAN soal parameter yang salah - breakout Donchian struktural "
-                       "butuh waktu berhari-hari utk capai target, jadi TIDAK ADA hold pendek (1-3 hari) "
-                       "yang konsisten split-half, berapapun lookback-nya. Baru konsisten begitu hold "
-                       "diperpanjang ~10+ hari - di titik itu sudah jadi Swing versi cepat, bukan Day "
-                       "Trading lagi. Detail lengkap di README > 'Day Trading: Bukan Soal Parameter, "
-                       "Tapi Desain Sinyal'. Day Trading beneran (butuh sinyal berbeda total dari "
-                       "breakout multi-hari, mis. momentum intraday) di luar scope data harian gratis "
-                       "yang dipakai sistem ini. Kalau tetap mau trading manual, pakai tombol **Kirim "
-                       "ke Jurnal Real** di bawah dengan kesadaran risiko ini BELUM tervalidasi.")
             st.write(f" **Kandidat Swing Trading tersedia:** {len(cands_swing_all)}")
             # Deteksi klik tombol di dalam kolom (biar 2 tombol tetap berjejer rapi), tapi
             # PROSES & TAMPILKAN hasilnya di LUAR kolom (lebar penuh halaman) - dulu hasilnya
