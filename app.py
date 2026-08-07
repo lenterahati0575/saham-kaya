@@ -944,43 +944,46 @@ with t_openlow:
                "sendiri kondisi order book & konteksnya.")
 
 # ============================================================================
-# TAB: GAP UP/DOWN - proxy dari data EOD (Gap%, Volume Ratio, konfirmasi Close), BUKAN
+# TAB: GAP UP/DOWN - proxy dari data EOD (Gap%, konfirmasi Close, susunan MA), BUKAN
 # sistem intraday (opening range/VWAP) yg butuh data real-time yang tidak tersedia
-# gratis. SUDAH dibacktest (14.628 event, 615 saham/5 tahun, README > "Backtest Gap
-# Up/Down") - "Konfirmasi" terbukti bermakna utk Gap Up & Gap Down-lanjut-turun (avg
-# return next-day konsisten di 2 paruh waktu), TAPI klaim "Gap Down tanpa konfirmasi =
-# rebound" (dari materi umum yg dibagikan user) TIDAK terbukti - arah berbalik antar
-# paruh waktu, sama seperti confidence-55 SWING TRADE yg sudah didowngrade sebelumnya.
+# gratis. SUDAH dibacktest (615 saham/5 tahun, README > "Backtest Gap Up/Down"):
+# - Volume Ratio DIUJI 2x (single-day & rata-rata 5 hari) sbg filter tambahan - KEDUANYA
+#   TERBUKTI MELEMAHKAN sinyal, jadi TIDAK dipakai (kebalikan dari saran umum "volume
+#   tinggi = kualitas lebih baik").
+# - "Gap Trend Aligned" (Harga>MA20>MA50>MA200, no lookahead) TERBUKTI kuat & konsisten
+#   utk Gap Up (avg +2,82%/hari berikutnya vs +1,42% tanpa filter tren) - jadi Gap Up
+#   DIFILTER KERAS (bukan cuma info) dgn syarat ini, atas permintaan user ("hanya sedikit
+#   yang boleh masuk screener"). Versi simetris (bearish) utk Gap Down TIDAK terbukti,
+#   jadi Gap Down TETAP tanpa filter tren (informasional saja).
 # ============================================================================
 with t_gap:
-    st.caption("📊 **GAP UP/DOWN** - Gap% = selisih Open hari ini vs Close kemarin (beda dari "
-               "'Perubahan %' yg bandingkan Close vs Close). Ambang minimal **3%** (dinaikkan dari "
-               "2% - backtest 615 saham/5 tahun menunjukkan ambang lebih tinggi MEMPERKUAT sinyal, "
-               "bukan cuma kurangi jumlah). 'Konfirmasi' = Close tidak membalik penuh ke arah lawan "
-               "gap. Gap Up + Konfirmasi avg **+1,42%/hari berikutnya** (vs baseline pasar +0,09%, "
-               "konsisten 2 periode) - Gap Down + Konfirmasi (lanjut turun) avg **-2,02%** (konsisten). "
-               "Sudah disaring likuiditas (kriteria SAMA dgn Kandidat). Masih info tambahan, BUKAN "
-               "sinyal auto-trade.")
+    st.caption("📊 **GAP UP/DOWN** - Gap% = selisih Open hari ini vs Close kemarin. Ambang minimal "
+               "**3%**. Gap Up disaring KETAT: Konfirmasi (Close tidak membalik) + susunan MA penuh "
+               "bullish (Harga>MA20>MA50>MA200, dihitung dari kemarin - no lookahead) - avg "
+               "**+2,82%/hari berikutnya** (vs baseline pasar +0,09%, konsisten 2 periode: +2,91%/"
+               "+2,74%). Filter Volume Ratio DIUJI 2x, TERBUKTI melemahkan sinyal - TIDAK dipakai. "
+               "Disaring likuiditas juga. Masih info tambahan, BUKAN sinyal auto-trade.")
     gcol_a, gcol_b = st.columns(2)
     with gcol_a:
-        st.markdown("**🟢 Gap Up**")
-        gap_up = (table[(table["Gap Type"] == "GAP UP") & (table["Layak Likuiditas"] == True)].copy()
+        st.markdown("**🟢 Gap Up** (Konfirmasi + Trend Aligned - filter ketat)")
+        gap_up = (table[(table["Gap Type"] == "GAP UP") & (table["Layak Likuiditas"] == True)
+                        & (table["Gap Konfirmasi"] == True) & (table["Gap Trend Aligned"] == True)].copy()
                   if "Gap Type" in table.columns else pd.DataFrame())
         if gap_up.empty:
-            st.caption("Tidak ada saat ini.")
+            st.caption("Tidak ada saat ini (kriteria ketat: Konfirmasi + Harga>MA20>MA50>MA200).")
         else:
             gap_up = gap_up.sort_values("Gap %", ascending=False)
             gap_up["Harga"] = gap_up["Harga"].map(lambda x: f"Rp{x:,.0f}")
             gap_up["Gap %"] = gap_up["Gap %"].map(lambda x: f"+{x:.2f}%")
             gap_up["Volume Ratio"] = gap_up["Volume Ratio"].map(lambda x: f"{x:.1f}x")
-            gap_up["Konfirmasi"] = gap_up["Gap Konfirmasi"].map(lambda x: "✅ Ya" if x else "❌ Tidak")
             gap_up["Breakout"] = gap_up["Gap Breakout"].map(lambda x: "✅ Ya" if x else "-")
-            st.dataframe(gap_up[["Kode", "Nama", "Harga", "Gap %", "Volume Ratio", "Konfirmasi", "Breakout"]],
+            st.dataframe(gap_up[["Kode", "Nama", "Harga", "Gap %", "Volume Ratio", "Breakout"]],
                          use_container_width=True, hide_index=True, height=350)
     with gcol_b:
         st.markdown("**🔴 Gap Down**")
-        st.caption("Konfirmasi=Ya (lanjut turun) = momentum turun beneran (avg -1,39% hari berikutnya). "
-                   "Konfirmasi=Tidak BUKAN sinyal rebound valid - backtest tidak konsisten (berbalik arah antar periode).")
+        st.caption("Konfirmasi=Ya (lanjut turun) = momentum turun beneran (avg -2,02% hari berikutnya). "
+                   "Konfirmasi=Tidak BUKAN sinyal rebound valid - backtest tidak konsisten (berbalik arah antar periode). "
+                   "Filter tren MA TIDAK berlaku di sisi ini (diuji, tidak terbukti) - tidak difilter ketat spt Gap Up.")
         gap_down = (table[(table["Gap Type"] == "GAP DOWN") & (table["Layak Likuiditas"] == True)].copy()
                     if "Gap Type" in table.columns else pd.DataFrame())
         if gap_down.empty:

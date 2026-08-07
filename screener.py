@@ -479,30 +479,45 @@ def get_trade_recommendation(quality: dict) -> dict:
 
 
 def classify_gap(open_: float, prev_close: float, close: float, vol_ratio: float,
-                  breakout_status: str, gap_min_pct: float = 2.0) -> dict:
+                  breakout_status: str, gap_min_pct: float = 3.0,
+                  ma20_prev: float | None = None, ma50_prev: float | None = None,
+                  ma200_prev: float | None = None) -> dict:
     """
-    Deteksi Gap Up/Gap Down EKSPLORATIF - BELUM DIBACKTEST. Beda dari materi trading gap
-    yang umum (Opening Range 5-15 menit, VWAP, reaksi harga menit-per-menit) - itu semua
-    butuh data INTRADAY REAL-TIME yang TIDAK tersedia gratis (lihat README > "Day Trading:
-    Bukan Soal Parameter, Tapi Desain Sinyal" - Yahoo Finance cuma py 60 hari terakhir utk
-    5m/15m, TIDAK REAL-TIME). Fungsi ini pakai proxy dari data EOD (harian) SAJA:
+    Deteksi Gap Up/Gap Down - proxy dari data EOD (harian) SAJA, beda dari materi trading
+    gap yang umum (Opening Range 5-15 menit, VWAP, reaksi harga menit-per-menit) yang butuh
+    data INTRADAY REAL-TIME yang TIDAK tersedia gratis (lihat README > "Day Trading: Bukan
+    Soal Parameter, Tapi Desain Sinyal"). SUDAH dibacktest (615 saham/5 tahun, README >
+    "Backtest Gap Up/Down") - lihat detail per komponen di bawah.
 
     - Gap % = (Open - Prev Close) / Prev Close * 100 - selisih harga BUKA hari ini vs
       TUTUP kemarin (beda dari "Perubahan %" yang bandingkan Close vs Prev Close).
-    - "confirmed": apakah Close hari itu TIDAK membalik penuh ke arah berlawanan gap
-      (Gap Up: Close >= Open: gap tidak "dimakan habis" dlm 1 hari; Gap Down: Close <=
-      Open) - proxy kasar utk "Gap and Go" vs "Gap Fill" krn kita tidak tahu KAPAN
-      persisnya harga berbalik intraday, cuma tahu di mana dia berakhir di Close.
+    - "confirmed": apakah Close hari itu TIDAK membalik penuh ke arah berlawanan gap.
+      Dibacktest: Gap Up+confirmed avg +1,42%/hari berikutnya (ambang 3%), Gap Down+
+      confirmed (lanjut turun) avg -2,02% - keduanya konsisten di split-half.
     - "breakout_confirmed": Gap Up yg JUGA breakout Donchian High + volume di atas
-      rata-rata (mirip semangat "Breakaway Gap" - gap yg ditopang breakout struktural,
-      bukan cuma noise pembukaan).
+      rata-rata. Filter Volume Ratio TERBUKTI melemahkan sinyal (diuji, lihat README) -
+      TIDAK dipakai sbg filter utama, cuma info tambahan di field ini.
+    - "trend_aligned": susunan MA penuh bullish - Close kemarin (prev_close) > MA20 > MA50
+      > MA200 SEMUA URUT (ma20_prev/ma50_prev/ma200_prev dihitung dari histori SEBELUM
+      hari ini - no lookahead). Threshold ini datang dari permintaan user ("yang paling
+      baik diatas MA200, diatas MA50, diatas MA20... MA20>MA50>MA200") - DIUJI dulu
+      sebelum diterapkan (bertahap): harga di atas MA20 saja -> avg +2,36%; di atas
+      MA20+MA50+MA200 (urutan MA bebas) -> +2,55%; MA50>MA200 juga -> +2,82%; susunan
+      PENUH MA20>MA50>MA200 -> **+2,82%** (N=674, konsisten split-half +2,91%/+2,74%) -
+      jauh di atas Gap Up+confirmed tanpa filter tren (+1,42%). SEBALIKNYA kalau
+      trend_aligned=False, avg cuma +0,29% - nyaris tidak ada edge. HANYA berlaku utk
+      Gap Up - versi simetris utk Gap Down (susunan penuh bearish) DIUJI TAPI TIDAK
+      terbukti - malah lebih lemah & tidak konsisten (-2,77% lalu -0,17% antar paruh) -
+      makanya "trend_aligned" SELALU False utk Gap Down, jangan dipakai sbg filter
+      ketat di sisi itu. Dipakai sbg FILTER KERAS (bukan cuma info) di tab Gap Up/Down
+      atas permintaan user ("hanya sedikit yang boleh masuk screener").
 
-    TIDAK dipakai di Score/Signal/Rekomendasi tervalidasi - info tambahan saja di tabel
-    Semua Saham, SAMA seperti pola Open=Low (Shaven Bottom). Backtest gap-fill vs
-    gap-and-go di universe IDX ini BELUM dilakukan - jangan anggap validated dulu.
+    TIDAK dipakai di Score/Signal/Rekomendasi tervalidasi - info tambahan di tabel Gap
+    Up/Down, SAMA seperti pola Open=Low (Shaven Bottom).
     """
     if prev_close <= 0 or open_ <= 0:
-        return {"type": "NONE", "pct": 0.0, "confirmed": False, "breakout_confirmed": False}
+        return {"type": "NONE", "pct": 0.0, "confirmed": False, "breakout_confirmed": False,
+                "trend_aligned": False}
 
     gap_pct = (open_ - prev_close) / prev_close * 100
 
@@ -510,20 +525,25 @@ def classify_gap(open_: float, prev_close: float, close: float, vol_ratio: float
         tipe = "GAP UP"
         confirmed = close >= open_
         breakout_confirmed = confirmed and breakout_status == "BREAKOUT" and vol_ratio > 1.5
+        trend_aligned = (ma20_prev is not None and ma50_prev is not None and ma200_prev is not None
+                          and prev_close > ma20_prev and ma20_prev > ma50_prev and ma50_prev > ma200_prev)
     elif gap_pct <= -gap_min_pct:
         tipe = "GAP DOWN"
         confirmed = close <= open_
         breakout_confirmed = False  # "breakaway" ke bawah tidak relevan utk rebound-hunting
+        trend_aligned = False  # versi bearish DIUJI, tidak terbukti - lihat docstring
     else:
         tipe = "NONE"
         confirmed = False
         breakout_confirmed = False
+        trend_aligned = False
 
     return {
         "type": tipe,
         "pct": round(gap_pct, 2),
         "confirmed": confirmed,
         "breakout_confirmed": breakout_confirmed,
+        "trend_aligned": trend_aligned,
     }
 
 # ============================================================================
@@ -625,9 +645,13 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         return None
 
     last = df.iloc[-1]
-    prev_close = df.iloc[-2]["Close"]
+    if pd.isna(df.iloc[-2]["Close"]):
+        return None
+    prev_close = float(df.iloc[-2]["Close"])  # float() eksplisit - tanpa ini numpy.float64
+    # bikin hasil perbandingan (dipakai classify_gap()'s trend_aligned) jadi numpy.bool_,
+    # bukan bool Python murni, ketahuan lewat test yg assert `is True/False`.
     close = float(last["Close"])
-    if prev_close == 0 or pd.isna(prev_close):
+    if prev_close == 0:
         return None
 
     change_pct = (close - prev_close) / prev_close
@@ -664,8 +688,14 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
     # "aman" menurut referensi user, TAPI TETAP eksploratif tanpa order book.
     setup_a_breakout = is_shaven_bottom and breakout_status == "BREAKOUT" and vol_ratio > 1.5
 
+    # MA20/50/200 dihitung dari Close SEBELUM hari ini (tidak termasuk baris terakhir) -
+    # no lookahead, dipakai classify_gap() utk "trend_aligned" (susunan MA penuh bullish).
+    close_hist = df["Close"].iloc[:-1]
+    ma20_prev = float(close_hist.tail(20).mean()) if len(close_hist) >= 20 else None
+    ma50_prev = float(close_hist.tail(50).mean()) if len(close_hist) >= 50 else None
+    ma200_prev = float(close_hist.tail(200).mean()) if len(close_hist) >= 200 else None
     gap = classify_gap(open_, prev_close, close, vol_ratio, breakout_status,
-                        params.get("gap_min_pct", 2.0))
+                        params.get("gap_min_pct", 3.0), ma20_prev, ma50_prev, ma200_prev)
 
     is_crash = change_pct < params["crash_veto"]
 
@@ -724,6 +754,7 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         "Gap Type": gap["type"],
         "Gap Konfirmasi": gap["confirmed"],
         "Gap Breakout": gap["breakout_confirmed"],
+        "Gap Trend Aligned": gap["trend_aligned"],
     }
 
 
@@ -803,7 +834,7 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
         "Rekomendasi", "Confidence", "Alasan",
         "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
         "Open=Low", "Setup A Breakout",
-        "Gap %", "Gap Type", "Gap Konfirmasi", "Gap Breakout",
+        "Gap %", "Gap Type", "Gap Konfirmasi", "Gap Breakout", "Gap Trend Aligned",
         "Donchian High", "Donchian Low", "Avg Volume 20D", "Volume"
     ]
     

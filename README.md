@@ -1493,6 +1493,57 @@ lagi tapi sample makin kecil - 3% dipilih sbg titik seimbang.
 Test di `TestGapUpDown` disesuaikan pakai gap ±4% (bukan persis di garis ambang lama
 3%) supaya tidak rapuh kalau ambang diubah lagi ke depan. 125/125 pytest lolos.
 
+### "Gap Trend Aligned" (Harga>MA20>MA50>MA200) - filter terkuat, DIUJI bertahap
+
+User lanjut: "yang paling baik diatas MA200, diatas MA50, diatas MA20... MA50 diatas
+MA200... MA20>MA50>MA200" - lalu juga tanya "apakah sudah memperhitungkan momentum?"
+dan "apakah filter sudah memperhitungkan volume?". Setiap usulan DIUJI SATU PER SATU
+sebelum diterapkan (disiplin sesi ini - jangan tambah aturan tanpa bukti), bertahap dari
+sinyal paling sederhana ke paling ketat, semua dgn Gap Up + Konfirmasi sbg basis (avg
++1,42% di ambang 3%):
+
+| Filter tambahan | N | Avg Return Next-Day | Split-half konsisten? |
+|---|---|---|---|
+| (tanpa filter tren) | - | +1,42% | Ya |
+| Harga > MA20 saja | 1.101 | +2,36% | Ya (+1,76% / +2,60%) |
+| Harga > MA20 & MA50 & MA200 (urutan bebas) | 853 | +2,55% | Ya |
+| + MA50 > MA200 juga | 758 | +2,82% | Ya |
+| **Susunan PENUH: Harga>MA20>MA50>MA200** | **674** | **+2,82%** | **Ya (+2,91% / +2,74%)** |
+| + Volume Ratio>1,5x (di atas filter penuh) | 320 | +1,27% (LEBIH LEMAH) | - |
+| + Volume 5hr naik konsisten (di atas filter penuh) | 455 | +2,68% (tidak lebih baik) | Ya, tapi tidak unggul |
+
+Kesimpulan: **susunan MA penuh (Harga>MA20>MA50>MA200)** adalah filter paling kuat &
+konsisten yang ditemukan - dari +1,42% (tanpa filter) jadi **+2,82%** (dgn filter),
+sample tersaring dari 1.567 jadi 674 (~43%, sesuai keinginan user "hanya sedikit yang
+boleh masuk"). **Volume (baik rasio 1 hari maupun tren rata-rata 5 hari) DIUJI DUA KALI
+di atas filter ini juga - KEDUANYA TETAP melemahkan/tidak menambah nilai** - konsisten
+dgn temuan sebelumnya (filter Volume Ratio polos), makanya TIDAK dipakai sama sekali di
+kriteria final Gap Up, walau disarankan user & materi umum.
+
+**Asimetri penting**: versi bearish simetris (Harga<MA20<MA50<MA200) utk Gap Down
+DIUJI TAPI TIDAK terbukti - malah LEBIH LEMAH & tidak konsisten (-2,77% lalu -0,17%
+antar paruh, vs -1,97% tanpa filter). Jadi "Gap Trend Aligned" di `classify_gap()`
+([screener.py](screener.py)) SELALU `False` utk Gap Down - field ini HANYA valid utk
+Gap Up.
+
+**Fix**: `classify_gap()` diperluas menerima `ma20_prev/ma50_prev/ma200_prev` (dihitung
+`compute_metrics()` dari Close SEBELUM hari ini, no lookahead), mengembalikan field baru
+`trend_aligned`. Tab "Gap Up" ([app.py](app.py)) sekarang **DIFILTER KERAS** (bukan cuma
+kolom info) - hanya tampilkan `Gap Konfirmasi=True AND Gap Trend Aligned=True`. Kolom
+"Konfirmasi" dihapus dari tampilan (selalu True stlh difilter, redundan - sama alasan
+dgn penghapusan kolom "Harga"=Entry sebelumnya). Tab "Gap Down" TIDAK diberi filter tren
+(tidak terbukti), tetap informasional seperti sebelumnya.
+
+Bug kecil ikut ditemukan & diperbaiki saat menulis test: `prev_close` di
+`compute_metrics()` tidak pernah di-`float()`-kan (beda dari `close`/`open_` yang
+sudah) - bikin hasil perbandingan `numpy.bool_` bukan `bool` Python murni (ketahuan
+lewat test yang assert `is True/False`, gagal walau nilainya benar). Diperbaiki
+sekalian.
+
+4 test baru (`test_trend_aligned_*`, `TestGapUpDown`) - pakai helper baru
+`_uptrend_ohlcv()` (histori naik linear 250+ hari, `_flat_ohlcv` tidak cukup krn perlu
+MA200 & harga benar-benar uptrend). 129/129 pytest lolos (125+4).
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

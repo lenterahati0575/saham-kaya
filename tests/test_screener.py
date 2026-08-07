@@ -21,6 +21,18 @@ def _flat_ohlcv(n: int, price: float = 1000.0, volume: float = 2_000_000.0) -> p
     }, index=idx)
 
 
+def _uptrend_ohlcv(n: int, start_price: float = 1000.0, step: float = 2.0,
+                    volume: float = 10_000_000.0) -> pd.DataFrame:
+    """DataFrame OHLCV naik LINEAR sepanjang n hari - dipakai khusus utk uji "Gap Trend
+    Aligned" (susunan MA20>MA50>MA200 butuh histori panjang & benar-benar uptrend,
+    _flat_ohlcv tidak cukup krn harga datar bikin semua MA sama)."""
+    idx = pd.date_range("2023-01-01", periods=n, freq="B")
+    prices = [start_price + i * step for i in range(n)]
+    return pd.DataFrame({
+        "Open": prices, "High": prices, "Low": prices, "Close": prices, "Volume": volume,
+    }, index=idx)
+
+
 def _params(**overrides):
     p = dict(DEFAULT_PARAMS)
     p.update(overrides)
@@ -221,6 +233,67 @@ class TestGapUpDown:
         df.iloc[-1, df.columns.get_loc("Close")] = 1050.0
         m = compute_metrics(df, _params(min_value_traded=3_000_000_000, gap_min_pct=6.0))
         assert m["Gap Type"] == "NONE"
+
+    def test_trend_aligned_true_saat_susunan_ma_bullish_penuh(self):
+        # Susunan MA20>MA50>MA200 (uptrend panjang, 250 hari) + Gap Up + Konfirmasi.
+        # Dibacktest (615 saham/5 tahun): kombinasi ini avg +2,82%/hari berikutnya,
+        # konsisten split-half (+2,91%/+2,74%) - jauh di atas Gap Up+Konfirmasi tanpa
+        # filter tren (+1,42%). Atas permintaan user: "diatas MA20 diatas MA50 dan MA200,
+        # MA50 diatas MA200... MA20>MA50>MA200".
+        df = _uptrend_ohlcv(251, start_price=1000.0, step=2.0)
+        prev_close = float(df["Close"].iloc[-2])
+        gap_open = prev_close * 1.04
+        df.iloc[-1, df.columns.get_loc("Open")] = gap_open
+        df.iloc[-1, df.columns.get_loc("Low")] = gap_open * 0.995
+        df.iloc[-1, df.columns.get_loc("Close")] = gap_open * 1.01   # >= Open -> konfirmasi
+        df.iloc[-1, df.columns.get_loc("High")] = gap_open * 1.02
+        m = compute_metrics(df, _params(min_value_traded=3_000_000_000))
+        assert m["Gap Type"] == "GAP UP"
+        assert m["Gap Konfirmasi"] is True
+        assert m["Gap Trend Aligned"] is True
+
+    def test_trend_aligned_false_kalau_histori_flat_walau_gap_up_konfirmasi(self):
+        # Histori PANJANG (250 hari, cukup utk MA200) tapi FLAT (bukan uptrend) - harga
+        # kemarin TIDAK di atas MA20/50/200 (semua sama), jadi trend_aligned harus False
+        # walau Gap Up-nya sendiri terdeteksi & confirmed.
+        df = _flat_ohlcv(251, price=1000.0, volume=10_000_000)
+        df.iloc[-1, df.columns.get_loc("Open")] = 1040.0
+        df.iloc[-1, df.columns.get_loc("Low")] = 1030.0
+        df.iloc[-1, df.columns.get_loc("Close")] = 1050.0
+        df.iloc[-1, df.columns.get_loc("High")] = 1060.0
+        m = compute_metrics(df, _params(min_value_traded=3_000_000_000))
+        assert m["Gap Type"] == "GAP UP"
+        assert m["Gap Konfirmasi"] is True
+        assert m["Gap Trend Aligned"] is False
+
+    def test_trend_aligned_selalu_false_untuk_gap_down_walau_uptrend(self):
+        # Versi simetris (susunan bearish penuh) utk Gap Down DIUJI TAPI TIDAK terbukti
+        # (README > "Backtest Gap Up/Down") - trend_aligned SELALU False utk Gap Down,
+        # brapa pun susunan MA-nya, supaya tidak jadi filter ketat yang keliru di sisi itu.
+        df = _uptrend_ohlcv(251, start_price=1000.0, step=2.0)
+        prev_close = float(df["Close"].iloc[-2])
+        gap_open = prev_close * 0.96  # -4% gap down
+        df.iloc[-1, df.columns.get_loc("Open")] = gap_open
+        df.iloc[-1, df.columns.get_loc("High")] = gap_open * 1.005
+        df.iloc[-1, df.columns.get_loc("Close")] = gap_open * 0.99   # <= Open -> lanjut turun
+        df.iloc[-1, df.columns.get_loc("Low")] = gap_open * 0.98
+        m = compute_metrics(df, _params(min_value_traded=3_000_000_000))
+        assert m["Gap Type"] == "GAP DOWN"
+        assert m["Gap Trend Aligned"] is False
+
+    def test_trend_aligned_false_kalau_histori_kurang_dari_200_hari(self):
+        # Uptrend tapi histori cuma 25 hari (kurang dari 200) - ma200_prev None ->
+        # trend_aligned harus False, bukan error.
+        df = _uptrend_ohlcv(26, start_price=1000.0, step=2.0)
+        prev_close = float(df["Close"].iloc[-2])
+        gap_open = prev_close * 1.04
+        df.iloc[-1, df.columns.get_loc("Open")] = gap_open
+        df.iloc[-1, df.columns.get_loc("Low")] = gap_open * 0.995
+        df.iloc[-1, df.columns.get_loc("Close")] = gap_open * 1.01
+        df.iloc[-1, df.columns.get_loc("High")] = gap_open * 1.02
+        m = compute_metrics(df, _params(min_value_traded=3_000_000_000))
+        assert m["Gap Type"] == "GAP UP"
+        assert m["Gap Trend Aligned"] is False
 
 
 class TestMarketRegime:
