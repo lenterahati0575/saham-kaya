@@ -358,6 +358,7 @@ def _fetch_rss_news(max_items: int = 10) -> list[dict]:
                     "sentiment": _classify_sentiment(title_lower),
                     "source": source_name,
                     "time": "recent",
+                    "link": (item.findtext("link") or "").strip(),
                 })
         except Exception:
             continue  # feed ini gagal - lanjut ke feed lain, JANGAN gagalkan semuanya
@@ -397,7 +398,8 @@ def fetch_sentiment_news():
                         if not any(kw in title_lower for kw in _NEWS_RELEVANCE_KEYWORDS):
                             continue
                         news_items.append({"headline": title, "sentiment": _classify_sentiment(title_lower),
-                                            "source": a.get("source", {}).get("name", "News"), "time": "recent"})
+                                            "source": a.get("source", {}).get("name", "News"), "time": "recent",
+                                            "link": a.get("url", "")})
         except Exception:
             pass
     # is_fallback=True: RSS KOSONG (semua feed gagal) DAN (NEWSAPI_KEY belum diisi ATAU
@@ -2714,7 +2716,13 @@ with t_sentiment:
     for item in sentiment["items"]:
         color = "#16a34a" if item["sentiment"] == "positive" else ("#dc2626" if item["sentiment"] == "negative" else "#6b7280")
         icon = "🟢" if item["sentiment"] == "positive" else ("🔴" if item["sentiment"] == "negative" else "⚪")
-        st.markdown(f"""<div style="background:#1e293b;border-radius:8px;padding:10px;margin-bottom:6px;border-left:3px solid {color};"><div style="font-size:12px;color:#e2e8f0;">{icon} {item['headline']}</div><div style="font-size:10px;color:#94a3b8;margin-top:4px;">{item['source']} · {item['time']}</div></div>""", unsafe_allow_html=True)
+        link = item.get("link", "")
+        # Headline jadi <a> yang bisa diklik kalau ada link (RSS/NewsAPI) - target="_blank"
+        # (tab baru, tidak keluar dari dashboard). Fallback statis TIDAK punya link sungguhan
+        # (headline-nya sendiri contoh, bukan artikel nyata) - tampil sbg teks polos spt sblmnya.
+        headline_html = (f'<a href="{link}" target="_blank" style="color:#e2e8f0;text-decoration:none;">{item["headline"]} 🔗</a>'
+                          if link else item["headline"])
+        st.markdown(f"""<div style="background:#1e293b;border-radius:8px;padding:10px;margin-bottom:6px;border-left:3px solid {color};"><div style="font-size:12px;color:#e2e8f0;">{icon} {headline_html}</div><div style="font-size:10px;color:#94a3b8;margin-top:4px;">{item['source']} · {item['time']}</div></div>""", unsafe_allow_html=True)
     st.divider()
     st.caption("💡 **Tips:** Sentimen negatif yang berlebihan bisa jadi sinyal contrarian (beli saat panic). Sentimen positif ekstrem bisa jadi sinyal distribusi (jual saat euphoria).")
 
