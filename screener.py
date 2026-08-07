@@ -655,6 +655,15 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         return None
 
     change_pct = (close - prev_close) / prev_close
+    # MA20/50/200 dihitung dari Close SEBELUM hari ini (tidak termasuk baris terakhir) -
+    # no lookahead. Dipakai classify_gap() ("trend_aligned") DAN "Open=Low Trend Aligned"
+    # di bawah - dihitung sekali di sini, dipakai keduanya.
+    close_hist = df["Close"].iloc[:-1]
+    ma20_prev = float(close_hist.tail(20).mean()) if len(close_hist) >= 20 else None
+    ma50_prev = float(close_hist.tail(50).mean()) if len(close_hist) >= 50 else None
+    ma200_prev = float(close_hist.tail(200).mean()) if len(close_hist) >= 200 else None
+    trend_aligned_bullish = (ma20_prev is not None and ma50_prev is not None and ma200_prev is not None
+                              and prev_close > ma20_prev and ma20_prev > ma50_prev and ma50_prev > ma200_prev)
     volume = float(last["Volume"])
     avg_volume20 = float(df["Volume"].tail(20).mean())
     value_traded = close * avg_volume20
@@ -676,24 +685,28 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         breakout_status = "NETRAL"
 
     # Pola "Open=Low" (Shaven Bottom/Bullish Marubozu) - candle tanpa ekor bawah, artinya
-    # penjual TIDAK PERNAH menekan harga di bawah Open sepanjang hari. EKSPLORATIF - BELUM
-    # divalidasi backtest (butuh konfirmasi order book real-time "Makan Kanan" yang tidak
-    # tersedia di data historis manapun, lihat README > "Day Trading: Bukan Soal Parameter,
-    # Tapi Desain Sinyal"). Ditampilkan sbg info tambahan SAJA, user verifikasi order book
-    # sendiri sebelum entry - BUKAN sinyal auto-trade seperti Score/Signal di atas.
+    # penjual TIDAK PERNAH menekan harga di bawah Open sepanjang hari. EKSPLORATIF - konfirmasi
+    # order book real-time "Makan Kanan" TIDAK bisa dibacktest (tidak ada di data historis),
+    # TAPI arah return hari berikutnya SUDAH dibacktest (615 saham/5 tahun, sama metodologi
+    # dgn Gap Up/Down, README > "Backtest Open=Low"): Setup A avg gross +0,26%/hari,
+    # Setup B+Trend Aligned avg +0,30% - KEDUANYA konsisten arah di split-half TAPI lebih
+    # kecil dari fee round-trip (0,4%) - net-nya NEGATIF kalau exit dipaksa 1 hari. Jauh
+    # lebih lemah dari Gap Up (+2,82%). TETAP eksploratif - BUKAN sinyal auto-trade, user
+    # verifikasi order book & RR/exit sendiri sebelum entry.
     open_ = float(last["Open"])
     is_shaven_bottom = open_ > 0 and float(last["Low"]) >= open_ * (1 - 0.15 / 100)
     # "Setup A: Breakout Driver" dari sistem user - shaven bottom YANG JUGA breakout
     # resistance (Donchian High) dengan volume di atas rata-rata. Kombinasi paling
     # "aman" menurut referensi user, TAPI TETAP eksploratif tanpa order book.
     setup_a_breakout = is_shaven_bottom and breakout_status == "BREAKOUT" and vol_ratio > 1.5
+    # "Open=Low Trend Aligned" - susunan MA penuh bullish (SAMA persis dgn "Gap Trend
+    # Aligned"), khusus dites di Setup B (tanpa breakout): avg naik dari -0,05% (tanpa
+    # filter, nyaris tidak ada edge) jadi +0,30% (dgn filter). Info tambahan saja, BUKAN
+    # filter keras spt di Gap Up - magnitude-nya masih di bawah fee.
+    open_low_trend_aligned = is_shaven_bottom and trend_aligned_bullish
 
     # MA20/50/200 dihitung dari Close SEBELUM hari ini (tidak termasuk baris terakhir) -
     # no lookahead, dipakai classify_gap() utk "trend_aligned" (susunan MA penuh bullish).
-    close_hist = df["Close"].iloc[:-1]
-    ma20_prev = float(close_hist.tail(20).mean()) if len(close_hist) >= 20 else None
-    ma50_prev = float(close_hist.tail(50).mean()) if len(close_hist) >= 50 else None
-    ma200_prev = float(close_hist.tail(200).mean()) if len(close_hist) >= 200 else None
     gap = classify_gap(open_, prev_close, close, vol_ratio, breakout_status,
                         params.get("gap_min_pct", 3.0), ma20_prev, ma50_prev, ma200_prev)
 
@@ -750,6 +763,7 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         "Signal": signal,
         "Open=Low": is_shaven_bottom,
         "Setup A Breakout": setup_a_breakout,
+        "Open=Low Trend Aligned": open_low_trend_aligned,
         "Gap %": gap["pct"],
         "Gap Type": gap["type"],
         "Gap Konfirmasi": gap["confirmed"],
@@ -833,7 +847,7 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
         "Status Breakout", "Chart", "Layak Likuiditas", "Score", "Signal",
         "Rekomendasi", "Confidence", "Alasan",
         "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
-        "Open=Low", "Setup A Breakout",
+        "Open=Low", "Setup A Breakout", "Open=Low Trend Aligned",
         "Gap %", "Gap Type", "Gap Konfirmasi", "Gap Breakout", "Gap Trend Aligned",
         "Donchian High", "Donchian Low", "Avg Volume 20D", "Volume"
     ]

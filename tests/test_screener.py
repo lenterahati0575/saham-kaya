@@ -164,6 +164,31 @@ class TestOpenLowPattern:
         assert m["Status Breakout"] == "BREAKOUT"
         assert m["Setup A Breakout"] is False
 
+    def test_open_low_trend_aligned_true_saat_susunan_ma_bullish_penuh(self):
+        # SAMA persis konsep dgn "Gap Trend Aligned" (Harga>MA20>MA50>MA200, no lookahead).
+        # Dibacktest (README > "Backtest Open=Low"): Setup B (tanpa breakout) + Trend
+        # Aligned avg +0,30%/hari (vs -0,05% tanpa filter) - info tambahan, BUKAN filter
+        # keras (magnitude masih di bawah fee 0,4%, beda dari Gap Up yg +2,82%).
+        df = _uptrend_ohlcv(251, start_price=1000.0, step=2.0)
+        prev_close = float(df["Close"].iloc[-2])
+        df.iloc[-1, df.columns.get_loc("Open")] = prev_close
+        df.iloc[-1, df.columns.get_loc("Low")] = prev_close  # Low == Open -> shaven bottom
+        df.iloc[-1, df.columns.get_loc("Close")] = prev_close * 1.01
+        df.iloc[-1, df.columns.get_loc("High")] = prev_close * 1.01
+        m = compute_metrics(df, _params(min_value_traded=3_000_000_000))
+        assert m["Open=Low"] is True
+        assert m["Open=Low Trend Aligned"] is True
+
+    def test_open_low_trend_aligned_false_kalau_histori_flat(self):
+        df = _flat_ohlcv(251, price=1000.0, volume=10_000_000)
+        df.iloc[-1, df.columns.get_loc("Open")] = 1000.0
+        df.iloc[-1, df.columns.get_loc("Low")] = 1000.0
+        df.iloc[-1, df.columns.get_loc("Close")] = 1010.0
+        df.iloc[-1, df.columns.get_loc("High")] = 1010.0
+        m = compute_metrics(df, _params(min_value_traded=3_000_000_000))
+        assert m["Open=Low"] is True
+        assert m["Open=Low Trend Aligned"] is False
+
 
 class TestGapUpDown:
     """classify_gap() - EKSPLORATIF, proxy dari data EOD (Open vs Prev Close), belum

@@ -1544,6 +1544,37 @@ sekalian.
 `_uptrend_ohlcv()` (histori naik linear 250+ hari, `_flat_ohlcv` tidak cukup krn perlu
 MA200 & harga benar-benar uptrend). 129/129 pytest lolos (125+4).
 
+### Backtest Open=Low - edge NYATA tapi lebih kecil dari fee, TIDAK divalidasi seperti Gap
+
+User share materi umum "cara trading Open=Low (Shaven Bottom)" (sama gaya dgn materi
+Gap sebelumnya) dan minta dipelajari "untuk pengembangan Open=Low... sudah sering pakai
+ini cukup bagus, cuma resiko harus dipantau". Klaim lama di kode ("TIDAK bisa
+dibacktest, butuh order book real-time") ternyata cuma benar utk KONFIRMASI order book-
+nya - ARAH RETURN setelah pola ini muncul tetap bisa diuji EOD, metodologi SAMA dgn Gap
+(walk-forward Close[t]->Close[t+1], disaring likuiditas, 615 saham/5 tahun).
+
+| Kombinasi | N | Avg Return Gross | Split-half | Setelah fee 0,4% |
+|---|---|---|---|---|
+| Setup A (breakout+volume>1.5x) | 1.211 | +0,26% | Konsisten (+0,04%/+0,48%) | **-0,14% (negatif)** |
+| Setup B + Trend Aligned (Harga>MA20>MA50>MA200) | 3.847 | +0,30% | Konsisten (+0,10%/+0,50%) | **-0,10% (negatif)** |
+| Setup B tanpa filter (baseline) | 17.738 | +0,02% | TIDAK konsisten (-0,06%/+0,10%) | - |
+
+Temuan: pola Open=Low PUNYA edge nyata & konsisten arah (bukan nol/random), TAPI
+magnitude-nya (~0,26-0,30%/hari) **lebih kecil dari fee round-trip** (0,15%+0,25%) kalau
+exit dipaksa 1 hari - net-nya negatif. Ini **jauh lebih lemah** dari Gap Up (+2,82%
+setelah filter tren yang sama). Kemungkinan edge sesungguhnya (yang bikin pengalaman
+user "cukup bagus") ada di 2 hal yang TIDAK bisa diuji dgn data historis EOD: (1)
+konfirmasi order book real-time "Makan Kanan" saat entry, (2) exit RR/trailing-stop
+multi-hari (bukan exit paksa Close hari berikutnya seperti metodologi uji ini).
+
+**Fix**: TIDAK diberi status "sudah divalidasi" atau filter keras seperti Gap Up -
+tetap eksploratif. Ditambahkan field "Open=Low Trend Aligned" (`screener.py`, reuse
+persis logika `ma20_prev/ma50_prev/ma200_prev` yg sudah dihitung utk `classify_gap()`,
+dipindah ke lebih awal di `compute_metrics()` supaya bisa dipakai dua-duanya tanpa
+hitung ulang) - ditampilkan sbg kolom info tambahan di Setup B, BUKAN filter keras
+(caption di [app.py](app.py) menjelaskan magnitude-nya masih di bawah fee). 2 test baru
+(`test_open_low_trend_aligned_*`). 131/131 pytest lolos (129+2).
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

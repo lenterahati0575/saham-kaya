@@ -901,16 +901,20 @@ with t_kandidat:
         embed_tradingview_chart(chart_kode, height=500)
 
 # ============================================================================
-# TAB: OPEN=LOW (Shaven Bottom) - EKSPLORATIF MURNI, TIDAK backtested (butuh konfirmasi
-# order book "Makan Kanan" yg tidak ada di data historis manapun). Diberi status tab
-# SETARA dgn Kandidat atas permintaan user - BUKAN berarti sudah tervalidasi setara.
+# TAB: OPEN=LOW (Shaven Bottom) - EKSPLORATIF. Konfirmasi order book "Makan Kanan"
+# TIDAK bisa dibacktest (tidak ada di data historis), TAPI arah return next-day SUDAH
+# dibacktest (README > "Backtest Open=Low") - edge-nya JAUH lebih kecil dari Gap Up
+# (+0,26-0,30% gross vs +2,82%) dan TIDAK menutup fee round-trip (0,4%) kalau exit
+# dipaksa 1 hari - makanya TIDAK diberi filter keras seperti Gap Up, tetap eksploratif.
 # ============================================================================
 with t_openlow:
     st.caption("🕯️ **Pola Open=Low (Shaven Bottom)** - EKSPLORATIF, VERIFIKASI ORDER BOOK SENDIRI. "
-               "Candle Open=Low (tanpa ekor bawah) = penjual TIDAK PERNAH menekan harga di bawah Open - "
-               "psikologi sangat bullish. TAPI di IDX bisa jebakan bandar. TIDAK bisa dibacktest (butuh "
-               "order book real-time, tidak ada di data historis) - WAJIB cek sendiri: volume asli "
-               "(bukan mark-up), tidak di pucuk rally, jarak ke ARA masih cukup (min 3-5%).")
+               "Dibacktest (615 saham/5 tahun): Setup A avg gross **+0,26%**/hari, Setup B+Trend "
+               "Aligned avg **+0,30%** - konsisten arah di 2 periode TAPI lebih kecil dari fee "
+               "round-trip (0,4%) kalau exit 1 hari saja - net-nya NEGATIF. Jauh lebih lemah dari "
+               "Gap Up (+2,82%), kemungkinan edge sesungguhnya ada di konfirmasi order book "
+               "real-time & exit multi-hari yang tidak bisa diuji dgn data historis. WAJIB cek "
+               "sendiri: volume asli, tidak di pucuk rally, jarak ke ARA masih cukup (min 3-5%).")
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown("**✅ Setup A: Breakout + Volume Tinggi**")
@@ -928,7 +932,9 @@ with t_openlow:
                          use_container_width=True, hide_index=True, height=350)
     with col_b:
         st.markdown("**🕯️ Open=Low (tanpa breakout)**")
-        st.caption("Shaven bottom tapi belum breakout - konteksnya (Setup B: pantul VWAP/EMA, atau exhaustion) harus dinilai manual. Sudah disaring likuiditas.")
+        st.caption("Shaven bottom tapi belum breakout. 'Trend Aligned' (Harga>MA20>MA50>MA200) = "
+                   "avg return naik dari -0,05% (tanpa filter) jadi +0,30% (dgn filter) - info "
+                   "tambahan saja, BUKAN sinyal beli (masih di bawah fee). Sudah disaring likuiditas.")
         open_low_only = (table[(table["Open=Low"] == True) & (table["Setup A Breakout"] == False) & (table["Layak Likuiditas"] == True)].copy()
                           if "Open=Low" in table.columns else pd.DataFrame())
         if open_low_only.empty:
@@ -937,7 +943,8 @@ with t_openlow:
             open_low_only["Harga"] = open_low_only["Harga"].map(lambda x: f"Rp{x:,.0f}")
             open_low_only["Volume Ratio"] = open_low_only["Volume Ratio"].map(lambda x: f"{x:.1f}x")
             open_low_only["Value Traded (Rp)"] = open_low_only["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
-            st.dataframe(open_low_only[["Kode", "Nama", "Harga", "Volume Ratio", "Value Traded (Rp)"]],
+            open_low_only["Trend Aligned"] = open_low_only["Open=Low Trend Aligned"].map(lambda x: "✅ Ya" if x else "-")
+            st.dataframe(open_low_only[["Kode", "Nama", "Harga", "Volume Ratio", "Value Traded (Rp)", "Trend Aligned"]],
                          use_container_width=True, hide_index=True, height=350)
     st.caption("⚠️ BUKAN sinyal auto-trade. Tidak bisa dikirim otomatis ke Jurnal Backtest - "
                "kalau mau eksekusi, catat manual lewat tab Jurnal Real setelah Anda verifikasi "
