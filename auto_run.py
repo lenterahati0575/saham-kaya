@@ -8,6 +8,9 @@ PENTING: script ini memanggil fungsi yang PERSIS SAMA dengan yang dipakai app.py
 auto-buy/auto-sell di sini selalu konsisten dengan yang akan terjadi kalau tombol di
 dashboard diklik manual.
 
+BUY vs SELL beda jadwal (lihat main()): BUY cuma jalan SORE (>=12:00 WIB), SELL jalan
+tiap kali dipanggil (pagi & sore) - lihat komentar di main() utk alasan lengkapnya.
+
 Cara jalan: lihat .github/workflows/auto_backtest.yml (dipicu terjadwal oleh GitHub, gratis).
 """
 
@@ -45,6 +48,39 @@ def main():
     if not gj.is_configured():
         log("❌ Google Sheets belum terkonfigurasi (secrets tidak ditemukan). Berhenti.")
         sys.exit(1)
+
+    # BUY hanya dijalankan SORE/mendekati penutupan (>=12:00 WIB), BUKAN pagi. Alasan:
+    # SELURUH sistem yang sudah divalidasi sepanjang sesi ini (Score/Signal, Gap Up/Down,
+    # Open=Low) dibacktest dgn asumsi data 1 HARI PENUH/settled (Volume Ratio vs rata-rata
+    # 20 hari, breakout, dst.). Kalau scan BUY dijalankan pagi (09:15 WIB, baru 15 menit
+    # bursa buka), Volume Ratio & komponen Score lain baru mencerminkan sebagian KECIL hari
+    # itu - TIDAK representatif, di luar asumsi backtest. Diskusi dgn user: "kita berfikir
+    # sejenak... sekarang disepakati apakah swing membeli pagi hari atau sore hari" ->
+    # disepakati SORE. Cek JUAL (SL/TP posisi yg SUDAH OPEN) aman kapan saja - cuma
+    # membandingkan harga terkini vs level yg sudah ditetapkan, TIDAK butuh data 1 hari
+    # penuh - jadi TETAP jalan tiap kali script ini dipanggil (pagi maupun sore).
+    is_sore = datetime.now(WIB).hour >= 12
+    log(f"Jam sekarang: {datetime.now(WIB).strftime('%H:%M')} WIB -> mode: {'SORE (scan BUY + cek JUAL)' if is_sore else 'PAGI (cek JUAL saja, skip scan BUY)'}")
+
+    if not is_sore:
+        # Mode PAGI: skip scan 962 saham sepenuhnya (tidak dipakai utk BUY, buang2 kuota
+        # Yahoo Finance kalau tetap di-fetch) - auto_close_positions({}, {}) SENDIRI sudah
+        # bisa fetch harga (Close+High+Low) khusus saham yg statusnya OPEN saja (lihat
+        # "missing" di gsheet_journal.py), jauh lebih ringan & cepat.
+        closed = gj.auto_close_positions({}, {})
+        log(f"Auto-SELL (mode pagi): {closed if closed else 'tidak ada posisi yang perlu ditutup'}")
+
+        bot_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
+        chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "")
+        if bot_token and chat_id:
+            waktu = datetime.now(WIB).strftime("%d %b %Y, %H:%M WIB")
+            msg = f"<b>🤖 Cek Pagi ({waktu})</b>\n\n🔴 Auto-SELL: " + (", ".join(closed) if closed else "tidak ada")
+            ok, info = send_telegram_message(bot_token, chat_id, msg)
+            log(f"Telegram: {'terkirim' if ok else 'GAGAL - ' + info}")
+        else:
+            log("ℹ️ TELEGRAM_BOT_TOKEN/CHAT_ID belum diisi - lewati notifikasi Telegram.")
+        log("✅ Selesai (mode pagi).")
+        return
 
     log("Memuat daftar saham...")
     universe = load_ticker_universe()
@@ -86,7 +122,8 @@ def main():
     # yang tercatat semuanya BPJS - bukan Swing.
     #
     # ---- Auto-BUY: Swing Trading (digate regime IHSG - divalidasi lewat backtest realistis
-    # + out-of-sample: net rugi kalau dipaksa aktif di pasar bearish, lihat README) ----
+    # + out-of-sample: net rugi kalau dipaksa aktif di pasar bearish, lihat README). Filter
+    # anti-kejar-harga (Naik dari Open % > 10%) sudah otomatis ikut di build_trade_candidates(). ----
     ihsg_hist = fetch_ihsg_history()
     regime = market_regime(ihsg_hist)
     log(f"Regime IHSG: {regime['status']}")

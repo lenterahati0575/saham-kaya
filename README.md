@@ -1619,6 +1619,45 @@ saat mau klik beli.
 di dalam ambang tetap lolos, ambang bisa diatur manual, dan tabel tanpa kolom ini
 (caller lama) tetap jalan tanpa crash. 135/135 pytest lolos (131+4).
 
+## BUY vs SELL Beda Jadwal - auto_run.py cuma scan BUY sore, cek JUAL kapan saja
+
+User tanya "apakah tidak bisa otomatis ditentukan jam kapan beli, kapan sell" - jawabannya
+SUDAH otomatis (2x/hari via `auto_run.py` + GitHub Actions, sejak fix "Bug KRITIS #2"),
+TAPI diskusi lanjutan ("kita berfikir sejenak... sekarang disepakati apakah swing membeli
+pagi hari atau sore hari") menemukan bug desain: BUY dan SELL dijalankan di JAM YANG SAMA
+(09:15 & 14:45 WIB) padahal KEBUTUHAN DATANYA BEDA.
+
+**Kerangka yang disepakati** (user): beli saat ada kandidat BUY, tutup kalau kena SL,
+kalau batas hari tercapai tapi TP belum kena, atau kalau TP tercapai - ini SUDAH tepat
+sesuai implementasi (SL dicek dulu, baru TP, force-sell 15 hari). Yang didiskusikan
+adalah JAM-nya.
+
+**Analisis**: SELURUH sistem yang sudah divalidasi sepanjang sesi ini (Score/Signal, Gap
+Up/Down, Open=Low) dibacktest dgn asumsi data **1 HARI PENUH/settled** - Volume Ratio vs
+rata-rata 20 hari, breakout status, Perubahan %, semuanya perlu data yang representatif
+utk hari itu. Kalau scan BUY dijalankan **pagi** (09:15 WIB, 15 menit setelah bursa buka):
+Volume Ratio baru mencerminkan sebagian KECIL hari itu (tidak representatif dibanding
+rata-rata 20 hari PENUH), breakout/Perubahan % juga belum matang - Score/Signal yang
+dihitung DI LUAR asumsi backtest-nya sendiri. Kalau dijalankan **sore** (14:45 WIB,
+mendekati penutupan sesi II ~15:49-16:00 WIB): data hampir 1 hari penuh, jauh lebih
+representatif & konsisten dgn metodologi backtest.
+
+Sebaliknya, cek **JUAL** (SL/TP posisi yang SUDAH OPEN) tidak punya masalah ini - cuma
+membandingkan harga terkini vs level SL/TP yang SUDAH ditetapkan saat entry, tidak butuh
+data "1 hari penuh" - aman dicek kapan saja, termasuk pagi.
+
+**Fix**: `auto_run.py` (`main()`) sekarang cek jam (`datetime.now(WIB).hour >= 12`):
+- **Pagi** (<12:00 WIB, run 09:15): SKIP scan 962 saham & BUY sepenuhnya (buang2 kuota
+  Yahoo Finance kalau tetap discan tapi tidak dipakai) - cuma jalankan
+  `gj.auto_close_positions({}, {})` (self-fetch harga khusus saham yg statusnya OPEN,
+  jauh lebih ringan) utk cek SL/TP/force-sell.
+- **Sore** (>=12:00 WIB, run 14:45): scan penuh 962 saham + BUY (dgn regime filter & filter
+  anti-kejar-harga yg sudah ada) + cek JUAL seperti sebelumnya.
+
+Komentar `.github/workflows/auto_backtest.yml` diperbarui menjelaskan pembagian jadwal
+ini. Tidak ada perubahan pada `build_trade_candidates()`/`gsheet_journal.py` - murni
+`auto_run.py` yang dipecah alur eksekusinya berdasarkan jam.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

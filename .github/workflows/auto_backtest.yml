@@ -3,9 +3,12 @@ name: Auto Backtest IDX Screener
 # CATATAN: file ini yang dijelaskan panjang lebar di README ("Auto-Backtest TANPA Buka
 # Dashboard") ternyata belum pernah ter-commit ke repo - jadi sebelum file ini ada,
 # auto_run.py TIDAK PERNAH terjadwal jalan otomatis walau instruksi setup-nya sudah ditulis
-# lengkap. Sekarang jadwalnya aktif sesuai yang dijanjikan README:
-#   09:15 WIB (02:15 UTC) hari kerja - buka posisi Swing baru, cek TP/SL/force-sell
-#   14:45 WIB (07:45 UTC) hari kerja - buka posisi Swing baru, cek TP/SL/force-sell
+# lengkap. Sekarang jadwalnya aktif:
+#   09:15 WIB (02:15 UTC) hari kerja - CEK JUAL SAJA (skip scan/BUY - lihat auto_run.py:
+#     data pagi baru sebagian kecil hari itu, TIDAK representatif utk Score/Signal yg
+#     dibacktest asumsi 1 hari penuh. Disepakati dgn user: "kita berfikir sejenak...
+#     disepakati sore" - README > "BUY vs SELL Beda Jadwal".)
+#   14:45 WIB (07:45 UTC) hari kerja - scan BUY (data hampir 1 hari penuh) + cek JUAL
 # (Day Trading BPJS/BSJP DIHAPUS dari sini - lihat auto_run.py & README, terbukti tidak
 # konsisten profit, sudah dihapus dari dashboard tapi ketinggalan di script terjadwal ini.)
 
