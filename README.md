@@ -1575,6 +1575,50 @@ hitung ulang) - ditampilkan sbg kolom info tambahan di Setup B, BUKAN filter ker
 (caption di [app.py](app.py) menjelaskan magnitude-nya masih di bawah fee). 2 test baru
 (`test_open_low_trend_aligned_*`). 131/131 pytest lolos (129+2).
 
+## Filter Anti-Kejar Harga - build_trade_candidates() menolak entry yang sudah lari jauh dari Open
+
+User lapor kejadian nyata: klik "Buka Posisi Swing Trading" di waktu sembarang (bukan
+pas market baru buka), akibatnya beli saham yang SUDAH naik 14% dari harga pembukaan
+hari itu - koreksi kecil setelahnya langsung kena Stop Loss (kasus nyata di sheet
+POSISI: **SLIS** beli Rp88, LOSS SL di Rp79, **-10,63%**).
+
+**Akar masalah**: `build_trade_candidates()` pakai `entry = float(r["Harga"])` - harga
+SEKARANG, apa adanya, tanpa peduli apakah harga itu sudah jauh dari Open hari itu atau
+belum. SL dihitung dari Donchian Low/MA20 (level struktural, TIDAK menyesuaikan diri
+kalau entry-nya sendiri sudah "kemahalan" krn rally intraday) - jadi kalau beli di
+puncak rally lalu ada retracement wajar sedikit saja, SL (yang jaraknya dihitung dari
+level lama) lebih mudah tersentuh.
+
+**Backtest** (615 saham/5 tahun, walk-forward, simulasi realistis Entry/SL/Target/RR
+SAMA persis dgn `build_trade_candidates()`, dipecah per seberapa jauh Entry sudah naik
+dari Open hari itu):
+
+| Naik dari Open saat Entry | N | SL Rate | Avg Net Return | Split-half |
+|---|---|---|---|---|
+| ≤0% | 1.107 | 60,3% | +3,55% | +1,22% / +5,89% |
+| 0-3% | 4.178 | 55,6% | +0,48% | +0,17% / +0,78% |
+| 3-6% | 5.016 | 60,2% | +0,15% | -0,07% / +0,37% (tidak konsisten) |
+| 6-10% | 3.293 | 65,0% | +0,53% | -0,00% / +1,06% (tidak konsisten) |
+| **>10%** | **2.706** | **69,9%** | **-0,19%** | **-0,18% / -0,20% (KONSISTEN NEGATIF)** |
+
+Bucket `>10%` adalah SATU-SATUNYA yang konsisten negatif di kedua paruh waktu (hampir
+identik magnitude-nya, -0,18% vs -0,20%) - bucket lain (3-6%, 6-10%) malah tidak
+konsisten arahnya, jadi ambang `>10%` dipilih sbg titik potong yang jelas & robust,
+bukan cuma yang "kelihatan buruk" di rata-rata gabungan.
+
+**Fix**: `build_trade_candidates()` (`screener.py`) dapat parameter baru
+`max_naik_dari_open_pct` (default **10.0**) - kandidat yang "Naik dari Open %"-nya
+(kolom baru, `compute_metrics()`: `(Harga - Open) / Open * 100`, BEDA dari "Perubahan %"
+yang bandingkan ke Close KEMARIN bukan Open HARI INI) sudah lebih dari ambang ini
+otomatis dilewati - berlaku baik utk klik manual di dashboard MAUPUN jadwal otomatis
+`auto_run.py` (satu fungsi, dua caller). Kolom "Naik dari Open %" ditambahkan ke tabel
+Kandidat ([app.py](app.py)) supaya user bisa lihat langsung seberapa "segar" sinyalnya
+saat mau klik beli.
+
+4 test baru (`TestFilterAntiKejarHarga`) - kandidat yg melebihi ambang dilewati, yang
+di dalam ambang tetap lolos, ambang bisa diatur manual, dan tabel tanpa kolom ini
+(caller lama) tetap jalan tanpa crash. 135/135 pytest lolos (131+4).
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

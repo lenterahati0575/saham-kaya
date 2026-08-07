@@ -790,6 +790,8 @@ with t_kandidat:
         show = picks.copy()
         show["Harga"] = show["Harga"].map(lambda x: f"Rp{x:,.0f}")
         show["Perubahan %"] = (picks["Perubahan %"] * 100).map(lambda x: f"{x:+.2f}%")
+        if "Naik dari Open %" in show.columns:
+            show["Naik dari Open %"] = picks["Naik dari Open %"].map(lambda x: f"{x:+.2f}%")
         show["Value Traded (Rp)"] = picks["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
         show["Volume Ratio"] = picks["Volume Ratio"].map(lambda x: f"{x:.1f}x")
         if "Quality Score" in show.columns:
@@ -807,7 +809,7 @@ with t_kandidat:
             "Kode", "Nama", "Signal", "Score",
             "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss",
             "Rekomendasi", "Confidence", "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
-            "Perubahan %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
+            "Perubahan %", "Naik dari Open %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
         ]
         kolom_tampil.insert(2, "Sektor")
         kolom_tampil = [col for col in kolom_tampil if col in show.columns]

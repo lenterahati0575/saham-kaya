@@ -415,6 +415,51 @@ class TestBuildTradeCandidates:
         assert out.empty
 
 
+class TestFilterAntiKejarHarga:
+    """Bug nyata dari laporan user: klik 'Buka Posisi Swing Trading' di waktu sembarang
+    (bukan pas market baru buka) bisa membeli saham yg SUDAH naik jauh dari Open hari itu,
+    lalu koreksi kecil langsung kena SL (kasus nyata: SLIS beli 88, LOSS SL di 79, -10.63%).
+    Dibacktest (615 saham/5 tahun): naik dari Open >10% saat entry -> avg net return NEGATIF
+    konsisten di 2 periode. `max_naik_dari_open_pct` (default 10.0) memfilter ini di
+    build_trade_candidates() - lihat README > 'Filter Anti-Kejar Harga'."""
+
+    def _fixture(self, naik_dari_open_pct):
+        # Entry=910, Donchian Low=900, Donchian High=1000 -> RR memenuhi min_rr=1.5 (sama
+        # fixture dgn test regime/lot di atas).
+        table = pd.DataFrame([{"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 910.0,
+                                "Value Traded (Rp)": 5e9, "Naik dari Open %": naik_dari_open_pct}])
+        price_data = {"AAA": _flat_ohlcv(25, price=1000).assign(
+            **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)})}
+        return table, price_data
+
+    def test_naik_dari_open_melebihi_ambang_default_dilewati(self):
+        table, price_data = self._fixture(naik_dari_open_pct=15.0)  # > ambang default 10%
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
+        assert out.empty
+
+    def test_naik_dari_open_dalam_ambang_tetap_lolos(self):
+        table, price_data = self._fixture(naik_dari_open_pct=5.0)  # <= ambang default 10%
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
+        assert not out.empty
+
+    def test_ambang_bisa_diatur_manual(self):
+        table, price_data = self._fixture(naik_dari_open_pct=15.0)
+        out_default = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
+        assert out_default.empty
+        out_longgar = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10,
+                                              max_naik_dari_open_pct=20.0)
+        assert not out_longgar.empty
+
+    def test_kolom_tidak_ada_tetap_jalan_seperti_dulu(self):
+        # Tabel TANPA kolom "Naik dari Open %" sama sekali (mis. dari caller lama/test lain) -
+        # tidak boleh crash, default ke 0 (tidak difilter).
+        table = pd.DataFrame([{"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 910.0, "Value Traded (Rp)": 5e9}])
+        price_data = {"AAA": _flat_ohlcv(25, price=1000).assign(
+            **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)})}
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
+        assert not out.empty
+
+
 class TestIhsgSeasonality:
     """ihsg_seasonality() - fitur Efek Musiman, diminta user setelah nonton klaim 'Juli
     selalu hijau' di YouTube. Diuji dgn data sintetis 3 tahun yang Januari-nya SENGAJA

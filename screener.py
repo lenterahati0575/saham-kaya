@@ -705,8 +705,16 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
     # filter keras spt di Gap Up - magnitude-nya masih di bawah fee.
     open_low_trend_aligned = is_shaven_bottom and trend_aligned_bullish
 
-    # MA20/50/200 dihitung dari Close SEBELUM hari ini (tidak termasuk baris terakhir) -
-    # no lookahead, dipakai classify_gap() utk "trend_aligned" (susunan MA penuh bullish).
+    # "Naik dari Open %" - seberapa jauh harga SEKARANG sudah lari dari Open HARI INI
+    # (beda dari "Perubahan %" yg bandingkan ke Close KEMARIN). Bug nyata dari laporan
+    # user: klik "Buka Posisi Swing Trading" di waktu sembarang (bukan pas market baru
+    # buka) bisa membeli saham yg SUDAH naik >10% dari Open-nya hari itu - kasus nyata
+    # SLIS (beli 88, LOSS SL di 79, -10.63%). Dibacktest (615 saham/5 tahun, walk-forward,
+    # README > "Filter Anti-Kejar Harga"): SL Rate naik terus (60%->70%) & avg net return
+    # jadi NEGATIF konsisten di 2 periode (-0.18%/-0.20%) begitu naik dari Open > 10% saat
+    # entry - dipakai `build_trade_candidates()` sbg filter (`max_naik_dari_open_pct`).
+    naik_dari_open_pct = ((close - open_) / open_ * 100) if open_ > 0 else 0.0
+
     gap = classify_gap(open_, prev_close, close, vol_ratio, breakout_status,
                         params.get("gap_min_pct", 3.0), ma20_prev, ma50_prev, ma200_prev)
 
@@ -750,6 +758,7 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         # Ditampilkan di UI supaya user tidak mengira ini selalu harga live hari ini.
         "Tanggal Harga": last.name.strftime("%d %b") if hasattr(last.name, "strftime") else "-",
         "Perubahan %": change_pct,
+        "Naik dari Open %": round(naik_dari_open_pct, 2),
         "Range %": range_pct,
         "Volume": volume,
         "Avg Volume 20D": avg_volume20,
@@ -843,7 +852,7 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
     out["Chart"] = out["Kode"].map(tradingview_url)
     
     cols = [
-        "Kode", "Nama", "Harga", "Tanggal Harga", "Perubahan %", "Range %", "Volume Ratio", "Value Traded (Rp)",
+        "Kode", "Nama", "Harga", "Tanggal Harga", "Perubahan %", "Naik dari Open %", "Range %", "Volume Ratio", "Value Traded (Rp)",
         "Status Breakout", "Chart", "Layak Likuiditas", "Score", "Signal",
         "Rekomendasi", "Confidence", "Alasan",
         "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
@@ -883,7 +892,8 @@ def _donchian_levels(df: pd.DataFrame, lookback: int):
 def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int, min_rr: float = 2.0,
                             top_n: int = 10, signal_filter=("STRONG BUY", "BUY"),
                             require_bullish_regime: bool = False, regime_status: str | None = None,
-                            total_equity: float | None = None, risk_pct: float = 1.0) -> pd.DataFrame:
+                            total_equity: float | None = None, risk_pct: float = 1.0,
+                            max_naik_dari_open_pct: float = 10.0) -> pd.DataFrame:
     """
     Entry = harga sekarang. Stop Loss = Donchian Low (lookback) - stop struktural, bukan persen tetap.
     Target = Donchian High + (Donchian High - Donchian Low) - proyeksi measured-move dari lebar channel.
@@ -894,6 +904,14 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
     Swing (lookback=20): breakout system ini net RUGI di pasar sideways/bearish IHSG, net
     PROFIT konsisten di kedua periode uji kalau cuma aktif saat IHSG > MA50. TIDAK divalidasi
     untuk Day Trading (lookback pendek) - jangan diaktifkan di sana tanpa bukti serupa.
+
+    max_naik_dari_open_pct: Filter ANTI-KEJAR HARGA - lewati kandidat yg "Harga" (Entry)
+    sudah lari > angka ini (%) dari Open HARI ITU. Bug nyata dari laporan user: klik "Buka
+    Posisi Swing Trading" di waktu sembarang (bukan pas market baru buka) bisa membeli saham
+    yg SUDAH naik >10% dari Open, lalu koreksi kecil langsung kena SL (kasus nyata: SLIS beli
+    88, LOSS SL di 79, -10.63%). Dibacktest (615 saham/5 tahun, walk-forward, README > "Filter
+    Anti-Kejar Harga"): SL Rate naik 60%->70% & avg net return jadi NEGATIF KONSISTEN di 2
+    periode (-0.18%/-0.20%, hampir identik) begitu naik dari Open > 10% saat entry.
 
     total_equity + risk_pct: kalau total_equity diisi (>0), kolom "Lot" dihitung otomatis dari
     risiko (risk_pct% dari total_equity dibagi jarak Entry-SL dalam Rupiah) - BUKAN lagi angka
@@ -908,6 +926,9 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
     picks = table[table["Signal"].isin(signal_filter)]
     for _, r in picks.iterrows():
         kode = r["Kode"]
+        naik_dari_open = r.get("Naik dari Open %", 0)
+        if pd.notna(naik_dari_open) and naik_dari_open > max_naik_dari_open_pct:
+            continue
         df = price_data.get(kode)
         dh, dl = _donchian_levels(df, lookback)
         if dh is None or dl is None or dl <= 0:
