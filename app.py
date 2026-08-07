@@ -301,40 +301,109 @@ _NEWS_DOMAINS = "cnbcindonesia.com,kontan.co.id,bisnis.com,investor.id,idxchanne
 _NEWS_RELEVANCE_KEYWORDS = ["ihsg", "saham", "bursa", "emiten", "rupiah", "bei", "reksadana",
                             "investor", "obligasi", "dividen", "ipo", "market cap", "kapitalisasi"]
 
+# RSS feed GRATIS, TIDAK butuh API key - sumber UTAMA berita sekarang (lihat
+# fetch_sentiment_news()). Ditemukan & diverifikasi manual (bukan asumsi) - kontan.co.id
+# & bisnis.com/rss KEDUANYA balas 403 (blokir bot) walau pakai User-Agent browser wajar,
+# TIDAK dipaksa dgn teknik bypass apa pun (di luar scope yang boleh dibantu) - jadi cuma
+# 3 sumber ini yang dipakai. CNBC Indonesia "/market/" memang topik market; IDX Channel &
+# Katadata RSS-nya UMUM (bukan khusus market) - filter _NEWS_RELEVANCE_KEYWORDS di atas
+# menyaring yang tidak relevan dari 2 sumber itu.
+_RSS_FEEDS = [
+    ("CNBC Indonesia", "https://www.cnbcindonesia.com/market/rss/"),
+    ("IDX Channel", "https://www.idxchannel.com/rss"),
+    ("Katadata", "https://katadata.co.id/rss"),
+]
+_RSS_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                               "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
+_SENTIMENT_POSITIVE_WORDS = ["naik", "rebound", "cuan", "profit", "bullish", "membeli", "net buy", "menguat", "positif", "optimis"]
+_SENTIMENT_NEGATIVE_WORDS = ["turun", "jual", "bearish", "rugi", "loss", "melemah", "net sell", "jual asing", "inflasi", "resesi"]
+
+
+def _classify_sentiment(title_lower: str) -> str:
+    """Sentimen KASAR dari kata kunci di judul saja (bukan analisis NLP sungguhan) - dipakai
+    baik utk hasil RSS maupun NewsAPI, supaya logikanya SATU tempat, tidak dobel-tulis."""
+    pos_count = sum(1 for w in _SENTIMENT_POSITIVE_WORDS if w in title_lower)
+    neg_count = sum(1 for w in _SENTIMENT_NEGATIVE_WORDS if w in title_lower)
+    if pos_count > neg_count:
+        return "positive"
+    elif neg_count > pos_count:
+        return "negative"
+    return "neutral"
+
+
+def _fetch_rss_news(max_items: int = 10) -> list[dict]:
+    """Ambil berita dari RSS feed GRATIS (lihat _RSS_FEEDS) - TIDAK butuh API key sama
+    sekali, beda dari NewsAPI yang butuh NEWSAPI_KEY (dan free-tier NewsAPI sebenarnya
+    TIDAK boleh dipakai di app publik/production per Terms of Service mereka). Tiap feed
+    dicoba independen - kalau satu gagal (timeout/403/dst), lanjut ke feed berikutnya,
+    TIDAK menggagalkan semuanya."""
+    import requests
+    import xml.etree.ElementTree as ET
+    news_items = []
+    for source_name, url in _RSS_FEEDS:
+        try:
+            resp = requests.get(url, timeout=10, headers=_RSS_HEADERS)
+            if resp.status_code != 200:
+                continue
+            root = ET.fromstring(resp.content)
+            for item in root.findall(".//item")[:max_items]:
+                title = (item.findtext("title") or "").strip()
+                if not title:
+                    continue
+                title_lower = title.lower()
+                if not any(kw in title_lower for kw in _NEWS_RELEVANCE_KEYWORDS):
+                    continue
+                news_items.append({
+                    "headline": title,
+                    "sentiment": _classify_sentiment(title_lower),
+                    "source": source_name,
+                    "time": "recent",
+                })
+        except Exception:
+            continue  # feed ini gagal - lanjut ke feed lain, JANGAN gagalkan semuanya
+    return news_items
+
 
 @st.cache_data(ttl=1800)
 def fetch_sentiment_news():
-    import requests; news_items = []
-    try:
-        api_key = st.secrets.get("NEWSAPI_KEY", "")
-        if api_key:
-            params = {
-                "q": '"IHSG" OR "bursa saham" OR "bursa efek" OR "harga saham"',
-                "domains": _NEWS_DOMAINS, "language": "id", "sortBy": "publishedAt",
-                "pageSize": 10, "apiKey": api_key,
-            }
-            resp = requests.get("https://newsapi.org/v2/everything", params=params, timeout=10)
-            data = resp.json()
-            if data.get("status") == "ok":
-                articles = data.get("articles", [])
-                positive_words = ["naik", "rebound", "cuan", "profit", "bullish", "membeli", "net buy", "menguat", "positif", "optimis"]
-                negative_words = ["turun", "jual", "bearish", "rugi", "loss", "melemah", "net sell", "jual asing", "inflasi", "resesi"]
-                for a in articles[:8]:
-                    title = a.get("title", "").lower()
-                    # Filter relevansi tambahan - kalaupun domain sudah dibatasi ke situs
-                    # finansial, artikel di situs itu bisa saja bukan soal saham (mis.
-                    # kanal properti/otomotif) - buang kalau tidak ada kata kunci pasar modal.
-                    if not any(kw in title for kw in _NEWS_RELEVANCE_KEYWORDS):
-                        continue
-                    pos_count = sum(1 for w in positive_words if w in title); neg_count = sum(1 for w in negative_words if w in title)
-                    if pos_count > neg_count: sent = "positive"
-                    elif neg_count > pos_count: sent = "negative"
-                    else: sent = "neutral"
-                    news_items.append({"headline": a.get("title", ""), "sentiment": sent, "source": a.get("source", {}).get("name", "News"), "time": "recent"})
-    except: pass
-    # is_fallback=True: NEWSAPI_KEY belum diisi ATAU panggilan API gagal - berita di bawah ini
-    # CONTOH STATIS (bukan live), harus ditandai jelas ke user supaya tidak dikira berita real
-    # hari ini (timestamp "2h ago" dkk itu teks tetap, tidak pernah berubah sungguhan).
+    """Bug nyata dari laporan user: 'berita terkini tidak pernah berubah' - sebelum ini,
+    kalau NEWSAPI_KEY belum diisi (ATAU panggilan API-nya gagal), fungsi diam2 jatuh ke 3
+    berita CONTOH yang di-hardcode (dgn timestamp palsu "2h ago" dkk yang memang tidak
+    pernah berubah) - sudah ada peringatan kuning di UI soal ini, tapi user tidak
+    menyadarinya/inginnya beneran live. Fix: sumber UTAMA sekarang RSS feed GRATIS
+    (_fetch_rss_news(), TIDAK butuh API key sama sekali) - NewsAPI jadi cadangan KEDUA
+    (kalau RSS kosong & key tersedia), baru fallback statis kalau KEDUANYA gagal."""
+    import requests
+    news_items = _fetch_rss_news()
+
+    if not news_items:
+        try:
+            api_key = st.secrets.get("NEWSAPI_KEY", "")
+            if api_key:
+                params = {
+                    "q": '"IHSG" OR "bursa saham" OR "bursa efek" OR "harga saham"',
+                    "domains": _NEWS_DOMAINS, "language": "id", "sortBy": "publishedAt",
+                    "pageSize": 10, "apiKey": api_key,
+                }
+                resp = requests.get("https://newsapi.org/v2/everything", params=params, timeout=10)
+                data = resp.json()
+                if data.get("status") == "ok":
+                    for a in data.get("articles", [])[:8]:
+                        title = a.get("title", "")
+                        title_lower = title.lower()
+                        # Filter relevansi tambahan - kalaupun domain sudah dibatasi ke situs
+                        # finansial, artikel di situs itu bisa saja bukan soal saham (mis.
+                        # kanal properti/otomotif) - buang kalau tidak ada kata kunci pasar modal.
+                        if not any(kw in title_lower for kw in _NEWS_RELEVANCE_KEYWORDS):
+                            continue
+                        news_items.append({"headline": title, "sentiment": _classify_sentiment(title_lower),
+                                            "source": a.get("source", {}).get("name", "News"), "time": "recent"})
+        except Exception:
+            pass
+    # is_fallback=True: RSS KOSONG (semua feed gagal) DAN (NEWSAPI_KEY belum diisi ATAU
+    # panggilan API-nya juga gagal) - berita di bawah ini CONTOH STATIS (bukan live), harus
+    # ditandai jelas ke user supaya tidak dikira berita real hari ini (timestamp "2h ago"
+    # dkk itu teks tetap, tidak pernah berubah sungguhan).
     is_fallback = not news_items
     if is_fallback:
         news_items = [{"headline": "IHSG Rebound 18% dari Low, Analis: Belum Konfirmasi Bull Run", "sentiment": "neutral", "source": "IDX Channel", "time": "2h ago"},

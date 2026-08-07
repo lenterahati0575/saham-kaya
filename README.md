@@ -1702,6 +1702,43 @@ ke breakeven, BELUM diuji versi bertingkat (mis. trail lagi ke +0.5R setelah +2R
 kalau belum 1R, label BREAKEVEN yang benar, dan baris lama tanpa kolom ini tetap jalan.
 139/139 pytest lolos (135+4).
 
+## Bug: "Berita Terkini" Tidak Pernah Berubah - Fallback Statis Dikira Live
+
+User lapor: "berita terkini tidak pernah berubah". Ditelusuri ke `fetch_sentiment_news()`
+([app.py](app.py), tab Sentiment): kalau `NEWSAPI_KEY` belum diisi ATAU panggilan API-nya
+gagal, fungsi diam2 jatuh ke **3 berita CONTOH yang di-hardcode** (dgn timestamp palsu
+"2h ago"/"5h ago" yang MEMANG tidak pernah berubah) - sudah ada peringatan kuning di UI
+soal ini, tapi user tidak menyadarinya/inginnya beneran live.
+
+**Kenapa NewsAPI selalu gagal**: `NEWSAPI_KEY` kemungkinan belum diisi di secrets. Bahkan
+kalau diisi, NewsAPI free tier ("Developer") per Terms of Service mereka sendiri **TIDAK
+BOLEH dipakai di app production/publik** - cuma utk pengembangan lokal. Jadi solusinya
+BUKAN sekadar "isi API key", tapi ganti sumber utama ke yang gratis & sah dipakai publik.
+
+**Solusi**: RSS feed publik (TIDAK butuh API key/subscription) - diverifikasi manual satu
+per satu (bukan asumsi):
+
+| Sumber | URL | Status |
+|---|---|---|
+| CNBC Indonesia (Market) | `cnbcindonesia.com/market/rss/` | ✅ Jalan, topik market |
+| IDX Channel | `idxchannel.com/rss` | ✅ Jalan, feed umum (disaring kata kunci) |
+| Katadata | `katadata.co.id/rss` | ✅ Jalan, feed umum (disaring kata kunci) |
+| Kontan | `kontan.co.id/feed`, `rss.kontan.co.id/...` | ❌ 403 (blokir bot) walau User-Agent browser wajar |
+| Bisnis.com | `rss.bisnis.com/`, `market.bisnis.com/rss` | ❌ 403 (blokir bot) |
+
+Kontan & Bisnis.com **TIDAK dipaksa** dgn teknik bypass deteksi bot apa pun (di luar
+scope yang boleh dibantu, berlaku umum jadi prinsip di seluruh proyek ini) - cuma 3 feed
+yang benar-benar merespons normal yang dipakai.
+
+**Fix**: `fetch_sentiment_news()` sekarang coba **RSS dulu** (`_fetch_rss_news()`, gratis,
+tanpa key) sbg sumber UTAMA - NewsAPI jadi cadangan KEDUA (kalau RSS kosong & key
+tersedia), fallback statis HANYA kalau KEDUANYA gagal. Filter relevansi
+(`_NEWS_RELEVANCE_KEYWORDS`) & klasifikasi sentimen (`_classify_sentiment()`, sekarang 1
+fungsi dipakai bersama RSS & NewsAPI, tidak lagi ditulis dobel) tetap sama seperti
+sebelumnya. Diverifikasi langsung (live network call, bukan asumsi): 5 berita ASLI &
+BERBEDA ditemukan dari CNBC Indonesia + IDX Channel dalam satu percobaan - bukan lagi 3
+contoh statis yang sama setiap kali dimuat.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah
