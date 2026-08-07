@@ -954,11 +954,13 @@ with t_openlow:
 # ============================================================================
 with t_gap:
     st.caption("📊 **GAP UP/DOWN** - Gap% = selisih Open hari ini vs Close kemarin (beda dari "
-               "'Perubahan %' yg bandingkan Close vs Close). 'Konfirmasi' = Close tidak membalik "
-               "penuh ke arah lawan gap. Dibacktest (615 saham/5 tahun): Gap Up + Konfirmasi avg "
-               "**+0,85%/hari berikutnya** (vs baseline pasar +0,09%, konsisten 2 periode) - Gap Down "
-               "+ Konfirmasi (lanjut turun) avg **-1,39%** (konsisten 2 periode). Sudah disaring "
-               "likuiditas (kriteria SAMA dgn Kandidat). Masih info tambahan, BUKAN sinyal auto-trade.")
+               "'Perubahan %' yg bandingkan Close vs Close). Ambang minimal **3%** (dinaikkan dari "
+               "2% - backtest 615 saham/5 tahun menunjukkan ambang lebih tinggi MEMPERKUAT sinyal, "
+               "bukan cuma kurangi jumlah). 'Konfirmasi' = Close tidak membalik penuh ke arah lawan "
+               "gap. Gap Up + Konfirmasi avg **+1,42%/hari berikutnya** (vs baseline pasar +0,09%, "
+               "konsisten 2 periode) - Gap Down + Konfirmasi (lanjut turun) avg **-2,02%** (konsisten). "
+               "Sudah disaring likuiditas (kriteria SAMA dgn Kandidat). Masih info tambahan, BUKAN "
+               "sinyal auto-trade.")
     gcol_a, gcol_b = st.columns(2)
     with gcol_a:
         st.markdown("**🟢 Gap Up**")

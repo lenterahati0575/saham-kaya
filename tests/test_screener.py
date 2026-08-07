@@ -161,39 +161,39 @@ class TestGapUpDown:
 
     def test_gap_up_terdeteksi_dan_dikonfirmasi(self):
         df = _flat_ohlcv(25, price=1000, volume=10_000_000)  # prev close = 1000
-        df.iloc[-1, df.columns.get_loc("Open")] = 1030.0   # +3% dari prev close -> Gap Up
-        df.iloc[-1, df.columns.get_loc("Low")] = 1020.0
-        df.iloc[-1, df.columns.get_loc("High")] = 1050.0
-        df.iloc[-1, df.columns.get_loc("Close")] = 1040.0  # Close >= Open -> konfirmasi
+        df.iloc[-1, df.columns.get_loc("Open")] = 1040.0   # +4% dari prev close -> Gap Up
+        df.iloc[-1, df.columns.get_loc("Low")] = 1030.0
+        df.iloc[-1, df.columns.get_loc("High")] = 1060.0
+        df.iloc[-1, df.columns.get_loc("Close")] = 1050.0  # Close >= Open -> konfirmasi
         m = compute_metrics(df, _params(min_value_traded=3_000_000_000))
         assert m["Gap Type"] == "GAP UP"
-        assert round(m["Gap %"], 1) == 3.0
+        assert round(m["Gap %"], 1) == 4.0
         assert m["Gap Konfirmasi"] is True
 
     def test_gap_down_terdeteksi_dan_dikonfirmasi_lanjut_turun(self):
         df = _flat_ohlcv(25, price=1000, volume=10_000_000)
-        df.iloc[-1, df.columns.get_loc("Open")] = 970.0    # -3% -> Gap Down
-        df.iloc[-1, df.columns.get_loc("Low")] = 950.0
-        df.iloc[-1, df.columns.get_loc("High")] = 975.0
-        df.iloc[-1, df.columns.get_loc("Close")] = 960.0   # Close <= Open -> lanjut turun
+        df.iloc[-1, df.columns.get_loc("Open")] = 960.0    # -4% -> Gap Down
+        df.iloc[-1, df.columns.get_loc("Low")] = 940.0
+        df.iloc[-1, df.columns.get_loc("High")] = 965.0
+        df.iloc[-1, df.columns.get_loc("Close")] = 950.0   # Close <= Open -> lanjut turun
         m = compute_metrics(df, _params(min_value_traded=3_000_000_000))
         assert m["Gap Type"] == "GAP DOWN"
-        assert round(m["Gap %"], 1) == -3.0
+        assert round(m["Gap %"], 1) == -4.0
         assert m["Gap Konfirmasi"] is True
 
-    def test_gap_down_tidak_dikonfirmasi_artinya_mulai_rebound(self):
+    def test_gap_down_tidak_dikonfirmasi_artinya_arah_tidak_jelas(self):
         df = _flat_ohlcv(25, price=1000, volume=10_000_000)
-        df.iloc[-1, df.columns.get_loc("Open")] = 970.0
-        df.iloc[-1, df.columns.get_loc("Low")] = 950.0
-        df.iloc[-1, df.columns.get_loc("High")] = 995.0
-        df.iloc[-1, df.columns.get_loc("Close")] = 990.0   # Close > Open -> gap mulai "dimakan"
+        df.iloc[-1, df.columns.get_loc("Open")] = 960.0
+        df.iloc[-1, df.columns.get_loc("Low")] = 940.0
+        df.iloc[-1, df.columns.get_loc("High")] = 985.0
+        df.iloc[-1, df.columns.get_loc("Close")] = 980.0   # Close > Open -> gap mulai "dimakan"
         m = compute_metrics(df, _params(min_value_traded=3_000_000_000))
         assert m["Gap Type"] == "GAP DOWN"
         assert m["Gap Konfirmasi"] is False
 
     def test_gap_di_bawah_ambang_tidak_dianggap_gap(self):
         df = _flat_ohlcv(25, price=1000, volume=10_000_000)
-        df.iloc[-1, df.columns.get_loc("Open")] = 1010.0   # +1%, di bawah ambang default 2%
+        df.iloc[-1, df.columns.get_loc("Open")] = 1010.0   # +1%, di bawah ambang default 3%
         df.iloc[-1, df.columns.get_loc("Low")] = 1005.0
         df.iloc[-1, df.columns.get_loc("High")] = 1020.0
         df.iloc[-1, df.columns.get_loc("Close")] = 1015.0
@@ -202,8 +202,8 @@ class TestGapUpDown:
 
     def test_gap_up_dgn_breakout_dan_volume_tinggi_terdeteksi_gap_breakout(self):
         df = _flat_ohlcv(25, price=1000, volume=10_000_000)
-        df.iloc[-1, df.columns.get_loc("Open")] = 1030.0    # gap up
-        df.iloc[-1, df.columns.get_loc("Low")] = 1020.0
+        df.iloc[-1, df.columns.get_loc("Open")] = 1040.0    # gap up
+        df.iloc[-1, df.columns.get_loc("Low")] = 1030.0
         df.iloc[-1, df.columns.get_loc("High")] = 1080.0    # > histori flat 1000 -> BREAKOUT
         df.iloc[-1, df.columns.get_loc("Close")] = 1070.0   # >= Open -> konfirmasi
         df.iloc[-1, df.columns.get_loc("Volume")] = 40_000_000  # 4x rata-rata -> volume tinggi
@@ -213,13 +213,13 @@ class TestGapUpDown:
         assert m["Gap Breakout"] is True
 
     def test_ambang_gap_bisa_diatur_lewat_params(self):
-        # gap_min_pct dinaikkan ke 5% - gap +3% seharusnya TIDAK lolos lagi.
+        # gap_min_pct dinaikkan ke 6% - gap +4% seharusnya TIDAK lolos lagi.
         df = _flat_ohlcv(25, price=1000, volume=10_000_000)
-        df.iloc[-1, df.columns.get_loc("Open")] = 1030.0
-        df.iloc[-1, df.columns.get_loc("Low")] = 1020.0
-        df.iloc[-1, df.columns.get_loc("High")] = 1050.0
-        df.iloc[-1, df.columns.get_loc("Close")] = 1040.0
-        m = compute_metrics(df, _params(min_value_traded=3_000_000_000, gap_min_pct=5.0))
+        df.iloc[-1, df.columns.get_loc("Open")] = 1040.0
+        df.iloc[-1, df.columns.get_loc("Low")] = 1030.0
+        df.iloc[-1, df.columns.get_loc("High")] = 1060.0
+        df.iloc[-1, df.columns.get_loc("Close")] = 1050.0
+        m = compute_metrics(df, _params(min_value_traded=3_000_000_000, gap_min_pct=6.0))
         assert m["Gap Type"] == "NONE"
 
 

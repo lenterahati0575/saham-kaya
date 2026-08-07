@@ -1454,6 +1454,45 @@ beli yang tidak terbukti. Caption sisi Gap Down juga diperbaiki, tidak lagi meny
 "cari kandidat rebound". **Belum diuji**: RR/Entry/SL spesifik utk gap (baru arah return
 mentahnya) - jangan jadikan sinyal auto-trade meski sudah ada bukti arah.
 
+### Memperketat filter Gap Up/Down: menaikkan ambang Gap%, BUKAN filter Volume Ratio
+
+User: "10 saham gap down yang masuk screener menurutku terlalu banyak... apa syarat
+screener yang kamu buat". Kriteria SEBELUM ini cuma 2: `|Gap%| >= 2%` + `Layak
+Likuiditas` (Rp3M/hari) - tidak ada syarat volume tambahan, makanya daftarnya panjang.
+
+Materi trading gap yang dibagikan user (dan intuisi umum) menyarankan tambah filter
+**Volume Ratio/RVOL tinggi** sbg penyaring kualitas. **Diuji dulu sebelum diterapkan**
+(disiplin sesi ini: jangan tambah aturan tanpa bukti) - hasilnya JUSTRU MENOLAK saran
+itu:
+
+| Kombinasi | Tanpa filter volume | Dgn Volume Ratio > 1.5x |
+|---|---|---|
+| GAP UP + Konfirmasi | +1,22% | **+0,45%** (lebih lemah!) |
+| GAP DOWN + Konfirmasi=Tidak | +0,10-0,18% (tidak konsisten) | -0,17% (tetap tidak konsisten) |
+
+Filter Volume Ratio > 1.5x (ambang yang sama dipakai Setup A Breakout & sistem Score)
+**MELEMAHKAN** sinyal terbaik (Gap Up+Konfirmasi) dan TIDAK memperbaiki sinyal yang
+sudah tidak konsisten (Gap Down tanpa konfirmasi) - kebalikan dari asumsi umum "volume
+tinggi = kualitas lebih baik".
+
+**Yang justru terbukti**: menaikkan ambang `gap_min_pct` (2% -> 3%) MEMPERKUAT kedua
+sinyal nyata sekaligus mengurangi jumlah kandidat - bukan cuma memfilter, tapi
+memperkuat:
+
+| Ambang | GAP UP+Konfirmasi | GAP DOWN+Konfirmasi (lanjut turun) |
+|---|---|---|
+| 2% | +0,85% | -1,39% |
+| **3% (dipakai)** | **+1,42%** | **-2,02%** |
+| 4% | +2,19% | -2,54% |
+
+Split-half di ambang 3% tetap konsisten (GAP UP+Konfirmasi: +1,10%/+1,53%; GAP
+DOWN+Konfirmasi: -2,55%/-1,49%, keduanya arah sama di 2 periode). Ambang 4% lebih kuat
+lagi tapi sample makin kecil - 3% dipilih sbg titik seimbang.
+
+**Fix**: `DEFAULT_PARAMS["gap_min_pct"]` dinaikkan dari 2.0 ke 3.0 di [screener.py](screener.py).
+Test di `TestGapUpDown` disesuaikan pakai gap ±4% (bukan persis di garis ambang lama
+3%) supaya tidak rapuh kalau ambang diubah lagi ke depan. 125/125 pytest lolos.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

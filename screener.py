@@ -30,7 +30,14 @@ DEFAULT_PARAMS = {
     "score_buy": 5,
     "score_sell": -2,
     "score_strong_sell": -4,
-    "gap_min_pct": 2.0,                  # ambang minimal Gap Up/Down (%) - lihat classify_gap()
+    # ambang minimal Gap Up/Down (%) - dinaikkan dari 2.0 ke 3.0 setelah backtest (615
+    # saham/5 tahun, README > "Backtest Gap Up/Down") menunjukkan menaikkan ambang MEMPERKUAT
+    # sinyal (bukan cuma kurangi jumlah): GAP UP+Konfirmasi avg return next-day naik dari
+    # +0,85% (ambang 2%) jadi +1,42% (ambang 3%), konsisten di 2 periode. Filter Volume Ratio
+    # (saran umum di materi trading gap) TERBUKTI TIDAK membantu - malah melemahkan sinyal
+    # terbaik (Gap Up+Konfirmasi+volume tinggi cuma +0,45% vs +1,22% tanpa filter volume) -
+    # makanya tidak dipakai, walau intuitif masuk akal.
+    "gap_min_pct": 3.0,
 }
 
 
