@@ -728,10 +728,13 @@ with exp_col2:
 <div style="font-size:10px;color:#94a3b8;margin-top:2px;">{int(r['naik'])}↑ {int(r['turun'])}↓ dari {int(r['jumlah_saham'])} saham</div>
 </div>""", unsafe_allow_html=True)
 
-t_kandidat, t_semua, t_grafik, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_broker, t_tutorial = st.tabs([
-    "🏆 Kandidat", "📋 Semua", "📉 Grafik", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
+t_kandidat, t_openlow, t_gap, t_semua, t_grafik, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_broker, t_tutorial = st.tabs([
+    "🏆 Kandidat", "🕯️ Open=Low", "📊 Gap Up/Down", "📋 Semua", "📉 Grafik", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
     "🧮 Kalkulator", "📊 Fundamental", "🏛️ Value Invest", "📊 IHSG Analysis", "🔗 Correlation", "🌙 Astronacci", "📰 Sentiment", "🤖 ML Signal", "📉 Options", "🏦 Broker", "📚 Tutorial"
 ])
+# Tab "Open=Low" & "Gap Up/Down" SETARA dgn "Kandidat" (bukan sub-menu tersembunyi di
+# dalam tab "Semua") - keduanya TETAP eksploratif/belum dibacktest, cuma diberi status
+# tampilan yang sama menonjolnya dgn Kandidat. Lihat isinya masing-masing di bawah.
 # Tab "Backtest" & "Top 10" digabung ke tab Kandidat - aksi "Buka Posisi Otomatis" ada
 # di bawah tabel kandidat.
 
@@ -898,6 +901,101 @@ with t_kandidat:
         embed_tradingview_chart(chart_kode, height=500)
 
 # ============================================================================
+# TAB: OPEN=LOW (Shaven Bottom) - EKSPLORATIF MURNI, TIDAK backtested (butuh konfirmasi
+# order book "Makan Kanan" yg tidak ada di data historis manapun). Diberi status tab
+# SETARA dgn Kandidat atas permintaan user - BUKAN berarti sudah tervalidasi setara.
+# ============================================================================
+with t_openlow:
+    st.caption("🕯️ **Pola Open=Low (Shaven Bottom)** - EKSPLORATIF, VERIFIKASI ORDER BOOK SENDIRI. "
+               "Candle Open=Low (tanpa ekor bawah) = penjual TIDAK PERNAH menekan harga di bawah Open - "
+               "psikologi sangat bullish. TAPI di IDX bisa jebakan bandar. TIDAK bisa dibacktest (butuh "
+               "order book real-time, tidak ada di data historis) - WAJIB cek sendiri: volume asli "
+               "(bukan mark-up), tidak di pucuk rally, jarak ke ARA masih cukup (min 3-5%).")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown("**✅ Setup A: Breakout + Volume Tinggi**")
+        st.caption("Open=Low + breakout Donchian + volume >1.5x rata-rata - paling 'aman' menurut referensi. "
+                   "Sudah disaring likuiditas (kriteria SAMA dgn Kandidat: min Rp3M/hari).")
+        setup_a = (table[(table["Setup A Breakout"] == True) & (table["Layak Likuiditas"] == True)].copy()
+                   if "Setup A Breakout" in table.columns else pd.DataFrame())
+        if setup_a.empty:
+            st.caption("Tidak ada saat ini.")
+        else:
+            setup_a["Harga"] = setup_a["Harga"].map(lambda x: f"Rp{x:,.0f}")
+            setup_a["Volume Ratio"] = setup_a["Volume Ratio"].map(lambda x: f"{x:.1f}x")
+            setup_a["Value Traded (Rp)"] = setup_a["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
+            st.dataframe(setup_a[["Kode", "Nama", "Harga", "Volume Ratio", "Value Traded (Rp)"]],
+                         use_container_width=True, hide_index=True, height=350)
+    with col_b:
+        st.markdown("**🕯️ Open=Low (tanpa breakout)**")
+        st.caption("Shaven bottom tapi belum breakout - konteksnya (Setup B: pantul VWAP/EMA, atau exhaustion) harus dinilai manual. Sudah disaring likuiditas.")
+        open_low_only = (table[(table["Open=Low"] == True) & (table["Setup A Breakout"] == False) & (table["Layak Likuiditas"] == True)].copy()
+                          if "Open=Low" in table.columns else pd.DataFrame())
+        if open_low_only.empty:
+            st.caption("Tidak ada saat ini.")
+        else:
+            open_low_only["Harga"] = open_low_only["Harga"].map(lambda x: f"Rp{x:,.0f}")
+            open_low_only["Volume Ratio"] = open_low_only["Volume Ratio"].map(lambda x: f"{x:.1f}x")
+            open_low_only["Value Traded (Rp)"] = open_low_only["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
+            st.dataframe(open_low_only[["Kode", "Nama", "Harga", "Volume Ratio", "Value Traded (Rp)"]],
+                         use_container_width=True, hide_index=True, height=350)
+    st.caption("⚠️ BUKAN sinyal auto-trade. Tidak bisa dikirim otomatis ke Jurnal Backtest - "
+               "kalau mau eksekusi, catat manual lewat tab Jurnal Real setelah Anda verifikasi "
+               "sendiri kondisi order book & konteksnya.")
+
+# ============================================================================
+# TAB: GAP UP/DOWN - proxy dari data EOD (Gap%, Volume Ratio, konfirmasi Close), BUKAN
+# sistem intraday (opening range/VWAP) yg butuh data real-time yang tidak tersedia
+# gratis. SUDAH dibacktest (14.628 event, 615 saham/5 tahun, README > "Backtest Gap
+# Up/Down") - "Konfirmasi" terbukti bermakna utk Gap Up & Gap Down-lanjut-turun (avg
+# return next-day konsisten di 2 paruh waktu), TAPI klaim "Gap Down tanpa konfirmasi =
+# rebound" (dari materi umum yg dibagikan user) TIDAK terbukti - arah berbalik antar
+# paruh waktu, sama seperti confidence-55 SWING TRADE yg sudah didowngrade sebelumnya.
+# ============================================================================
+with t_gap:
+    st.caption("📊 **GAP UP/DOWN** - Gap% = selisih Open hari ini vs Close kemarin (beda dari "
+               "'Perubahan %' yg bandingkan Close vs Close). 'Konfirmasi' = Close tidak membalik "
+               "penuh ke arah lawan gap. Dibacktest (615 saham/5 tahun): Gap Up + Konfirmasi avg "
+               "**+0,85%/hari berikutnya** (vs baseline pasar +0,09%, konsisten 2 periode) - Gap Down "
+               "+ Konfirmasi (lanjut turun) avg **-1,39%** (konsisten 2 periode). Sudah disaring "
+               "likuiditas (kriteria SAMA dgn Kandidat). Masih info tambahan, BUKAN sinyal auto-trade.")
+    gcol_a, gcol_b = st.columns(2)
+    with gcol_a:
+        st.markdown("**🟢 Gap Up**")
+        gap_up = (table[(table["Gap Type"] == "GAP UP") & (table["Layak Likuiditas"] == True)].copy()
+                  if "Gap Type" in table.columns else pd.DataFrame())
+        if gap_up.empty:
+            st.caption("Tidak ada saat ini.")
+        else:
+            gap_up = gap_up.sort_values("Gap %", ascending=False)
+            gap_up["Harga"] = gap_up["Harga"].map(lambda x: f"Rp{x:,.0f}")
+            gap_up["Gap %"] = gap_up["Gap %"].map(lambda x: f"+{x:.2f}%")
+            gap_up["Volume Ratio"] = gap_up["Volume Ratio"].map(lambda x: f"{x:.1f}x")
+            gap_up["Konfirmasi"] = gap_up["Gap Konfirmasi"].map(lambda x: "✅ Ya" if x else "❌ Tidak")
+            gap_up["Breakout"] = gap_up["Gap Breakout"].map(lambda x: "✅ Ya" if x else "-")
+            st.dataframe(gap_up[["Kode", "Nama", "Harga", "Gap %", "Volume Ratio", "Konfirmasi", "Breakout"]],
+                         use_container_width=True, hide_index=True, height=350)
+    with gcol_b:
+        st.markdown("**🔴 Gap Down**")
+        st.caption("Konfirmasi=Ya (lanjut turun) = momentum turun beneran (avg -1,39% hari berikutnya). "
+                   "Konfirmasi=Tidak BUKAN sinyal rebound valid - backtest tidak konsisten (berbalik arah antar periode).")
+        gap_down = (table[(table["Gap Type"] == "GAP DOWN") & (table["Layak Likuiditas"] == True)].copy()
+                    if "Gap Type" in table.columns else pd.DataFrame())
+        if gap_down.empty:
+            st.caption("Tidak ada saat ini.")
+        else:
+            gap_down = gap_down.sort_values("Gap %")
+            gap_down["Harga"] = gap_down["Harga"].map(lambda x: f"Rp{x:,.0f}")
+            gap_down["Gap %"] = gap_down["Gap %"].map(lambda x: f"{x:.2f}%")
+            gap_down["Volume Ratio"] = gap_down["Volume Ratio"].map(lambda x: f"{x:.1f}x")
+            gap_down["Konfirmasi"] = gap_down["Gap Konfirmasi"].map(lambda x: "✅ Ya (lanjut turun)" if x else "❔ Tidak (arah tidak jelas)")
+            st.dataframe(gap_down[["Kode", "Nama", "Harga", "Gap %", "Volume Ratio", "Konfirmasi"]],
+                         use_container_width=True, hide_index=True, height=350)
+    st.caption("⚠️ BUKAN sinyal auto-trade, tidak masuk Kandidat/Score/Signal tervalidasi walau "
+               "sudah dibacktest - RR/Entry/SL sendiri belum diuji utk gap (baru arah returnnya). "
+               "Detail metodologi backtest di README > 'Backtest Gap Up/Down'.")
+
+# ============================================================================
 # TAB 2: SEMUA SAHAM
 # ============================================================================
 with t_semua:
@@ -974,47 +1072,6 @@ with t_semua:
         st.caption("⚠️ Lonjakan volume BUKAN sinyal beli/jual otomatis - ini cuma penyaring awal "
                    "(saham yang lagi 'ramai'), belum divalidasi sbg strategi trading tersendiri. "
                    "Cek Score/Signal/Rekomendasi di tabel utama sebelum memutuskan.")
-
-    # ------------------------------------------------------------------------
-    # Pola Open=Low (Shaven Bottom) - ditambahkan atas permintaan user setelah berbagi
-    # sistem trading praktisi. EKSPLORATIF MURNI - TIDAK backtested (butuh konfirmasi
-    # order book "Makan Kanan" yg tidak ada di data historis manapun). User pilih sendiri
-    # mau pakai atau tidak - bukan auto-trade, bukan bagian dari Kandidat yang tervalidasi.
-    st.divider()
-    with st.expander("🕯️ Pola Open=Low (Shaven Bottom) - EKSPLORATIF, VERIFIKASI ORDER BOOK SENDIRI", expanded=False):
-        st.caption("Candle Open=Low (tanpa ekor bawah) = penjual TIDAK PERNAH menekan harga di "
-                   "bawah Open - psikologi sangat bullish. TAPI di IDX bisa jebakan bandar. "
-                   "TIDAK bisa dibacktest (butuh order book real-time, tidak ada di data historis) "
-                   "- WAJIB cek sendiri: volume asli (bukan mark-up), tidak di pucuk rally, "
-                   "jarak ke ARA masih cukup (min 3-5%).")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.markdown("**✅ Setup A: Breakout + Volume Tinggi**")
-            st.caption("Open=Low + breakout Donchian + volume >1.5x rata-rata - paling 'aman' menurut referensi.")
-            setup_a = table[table["Setup A Breakout"] == True].copy() if "Setup A Breakout" in table.columns else pd.DataFrame()
-            if setup_a.empty:
-                st.caption("Tidak ada saat ini.")
-            else:
-                setup_a["Harga"] = setup_a["Harga"].map(lambda x: f"Rp{x:,.0f}")
-                setup_a["Volume Ratio"] = setup_a["Volume Ratio"].map(lambda x: f"{x:.1f}x")
-                setup_a["Value Traded (Rp)"] = setup_a["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
-                st.dataframe(setup_a[["Kode", "Nama", "Harga", "Volume Ratio", "Value Traded (Rp)"]],
-                             use_container_width=True, hide_index=True, height=300)
-        with col_b:
-            st.markdown("**🕯️ Open=Low (tanpa breakout)**")
-            st.caption("Shaven bottom tapi belum breakout - konteksnya (Setup B: pantul VWAP/EMA, atau exhaustion) harus dinilai manual.")
-            open_low_only = table[(table["Open=Low"] == True) & (table["Setup A Breakout"] == False)].copy() if "Open=Low" in table.columns else pd.DataFrame()
-            if open_low_only.empty:
-                st.caption("Tidak ada saat ini.")
-            else:
-                open_low_only["Harga"] = open_low_only["Harga"].map(lambda x: f"Rp{x:,.0f}")
-                open_low_only["Volume Ratio"] = open_low_only["Volume Ratio"].map(lambda x: f"{x:.1f}x")
-                open_low_only["Value Traded (Rp)"] = open_low_only["Value Traded (Rp)"].map(lambda x: f"Rp{x/1e9:,.1f} M")
-                st.dataframe(open_low_only[["Kode", "Nama", "Harga", "Volume Ratio", "Value Traded (Rp)"]],
-                             use_container_width=True, hide_index=True, height=300)
-        st.caption("⚠️ BUKAN sinyal auto-trade. Tidak bisa dikirim otomatis ke Jurnal Backtest - "
-                   "kalau mau eksekusi, catat manual lewat tab Jurnal Real setelah Anda verifikasi "
-                   "sendiri kondisi order book & konteksnya.")
 
 # ============================================================================
 # TAB 3: GRAFIK SAHAM

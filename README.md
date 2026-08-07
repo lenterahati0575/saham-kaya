@@ -1370,6 +1370,90 @@ cuma yang paling terlihat (dashboard). `auto_run.py` sengaja didesain memanggil 
 yang sama dgn `app.py` (lihat docstring-nya) justru supaya konsisten - tapi itu tidak
 mencegah salah satu sisi lupa diupdate saat keputusan produk berubah.
 
+## Tab "GAP UP/DOWN" & "Open=Low" Dipromosikan Setara "Kandidat"
+
+User berbagi materi umum trading Gap Up/Gap Down (jenis gap - Common/Breakaway/Runaway/
+Exhaustion, strategi Gap Fill vs Gap and Go, scoring 0-100, alert Telegram, dashboard,
+TradingView Pine Script, Google Sheets scanner, backtest) dan minta dibuatkan sistemnya
+"agar ada pilihan terbaik nantinya, buat semua saja". **Sebagian besar materi itu TIDAK
+diterapkan apa adanya** - alasannya:
+
+- **Opening range 5-15 menit, VWAP, reaksi harga menit-per-menit** butuh data INTRADAY
+  REAL-TIME yang tidak tersedia gratis (Yahoo Finance cuma 60 hari terakhir utk 5m/15m,
+  itu pun bukan real-time - lihat README > "Day Trading: Bukan Soal Parameter, Tapi
+  Desain Sinyal", riset arc yang sama persis menyimpulkan hal ini utk seluruh Day
+  Trading). Membangun "sistem" di atas data yang tidak ada = repeat kesalahan yang sudah
+  dibuktikan gagal di Day Trading sebelumnya.
+- **Script Telegram terpisah, Google Sheets scanner, Pine Script TradingView** - di luar
+  scope: app ini SUDAH SATU sistem terpadu (dashboard + `auto_run.py` + Telegram via
+  `telegram_notify.py`, lihat "Bug KRITIS #2" di atas) - menambah 3 stack terpisah lagi
+  cuma memecah arsitektur, bertentangan dgn pelajaran "logika terduplikasi di banyak
+  tempat lupa disinkron" yang baru saja ditemukan.
+
+**Yang dibangun**: `classify_gap()` di `screener.py` - proxy Gap Up/Down dari data EOD
+SAJA (Gap% = Open vs Prev Close hari ini, BUKAN Close vs Close seperti "Perubahan %"),
++ "konfirmasi" (Close tidak membalik penuh ke arah lawan gap - proksi kasar gap-and-go
+vs gap-fill dari data harian, bukan bukti intraday sungguhan) + "Gap Breakout" (Gap Up
+yg juga breakout Donchian + volume tinggi, semangat "Breakaway Gap"). Disaring likuiditas
+sama seperti Kandidat (`Layak Likuiditas`) - sebelumnya pola "Open=Low" JUGA belum
+disaring likuiditas, ikut diperbaiki sekalian (user: "yang terpenting adalah kamu tahu
+apa kriteria saham yang boleh lolos screener").
+
+**Status tab**: user minta "buat di header karena statusnya setara dengan kandidat, begitu
+juga OPEN=LOW dipindah keheader" - keduanya (`t_gap`, `t_openlow`) dipromosikan dari
+expander tersembunyi di dalam tab "Semua" jadi TAB TOP-LEVEL sendiri, sejajar visual dgn
+"🏆 Kandidat". **Ini status TAMPILAN saja, BUKAN validasi** - keduanya TETAP eksploratif,
+BELUM dibacktest, TIDAK masuk Score/Signal/Rekomendasi tervalidasi - caption di tiap tab
+menegaskan ini secara eksplisit.
+
+6 test baru (`TestGapUpDown`, `tests/test_screener.py`) - gap up/down terdeteksi & Gap%
+dihitung benar, konfirmasi Close vs Open, ambang `gap_min_pct` bisa diatur, kombinasi
+dgn breakout+volume. 125/125 pytest lolos (119+6).
+
+### Backtest Gap Up/Down - "Konfirmasi" terbukti bermakna, TAPI bukan sesuai narasi "rebound"
+
+User tempel paket kode generik lain (config/core/notifier/app/backtest/Pine Script/Google
+Apps Script terpisah - lihat komit sebelumnya kenapa sebagian besar TIDAK diadopsi) dan
+minta "pelajari, kombain sistem yang dibuat agar lebih powerful" + "kita hanya
+membandingkan, kalau kita lebih bagus kita pertahankan". Yang diadopsi cuma SATU ide
+genuinely baru: metodologi backtest gap-fill vs gap-and-go (entry di Open, ukur return
+Close->Close besok, deteksi gap-fill hari yang sama) - dibangun ulang pakai infrastruktur
+sendiri (cache 615 saham/5 tahun, `classify_gap()` yang sudah live), BUKAN kode tempelan
+mentah (yang pakai universe 20 saham hardcoded, re-fetch Yahoo Finance sendiri, "score"
+0-100 generik yang berisiko tabrakan makna dgn kolom "Score" - persis kesalahan yg sudah
+diperbaiki berkali-kali sepanjang sesi ini). Skrip: `test_gap_backtest.py` (scratchpad).
+
+Metodologi: walk-forward, disaring `Layak Likuiditas` (SAMA dgn yg ditampilkan live),
+ukur return Close[t]->Close[t+1] (no lookahead - keputusan hipotetis di Close[t], t+1
+cuma dipakai ukur hasil). Baseline harian pasar (sample 100 saham, tanpa filter gap):
++0,086%/hari.
+
+| Kombinasi | N | Avg Return Next-Day | Split-half (paruh1 / paruh2) |
+|---|---|---|---|
+| GAP UP + Konfirmasi ✅ | 3.259 | **+0,85%** | +0,66% / +0,95% (konsisten) |
+| GAP UP + Konfirmasi ❌ | 5.047 | -0,43% | -0,30% / -0,55% (konsisten negatif) |
+| GAP DOWN + Konfirmasi ✅ (lanjut turun) | 2.865 | **-1,39%** | -1,78% / -0,99% (konsisten negatif) |
+| GAP DOWN + Konfirmasi ❌ (klaim "rebound") | 3.457 | +0,10% | **-0,07% / +0,45% (BERBALIK ARAH)** |
+
+Temuan:
+1. **"Konfirmasi" (proxy EOD gap-fill vs gap-and-go) TERBUKTI bermakna** utk Gap Up (avg
+   +0,85% vs baseline +0,09%, ~10x lipat, konsisten 2 periode) dan Gap Down-lanjut-turun
+   (-1,39%, konsisten momentum turun beneran).
+2. **Klaim umum "Gap Down tanpa konfirmasi = sinyal rebound"** (dari materi trading yang
+   dibagikan user) **TIDAK terbukti** di universe IDX ini - arahnya BERBALIK antar paruh
+   waktu (rugi tipis di paruh 1, untung di paruh 2) - sample besar (3.457 event) tapi
+   TIDAK STABIL, sama persis pola kegagalan confidence-55 SWING TRADE yang sudah
+   didowngrade sebelumnya (README > "Backtest Confidence Tier SWING TRADE").
+3. Gap Up + Breakout (subset Konfirmasi True + breakout Donchian) avg +1,23% - sedikit
+   lebih tinggi dari Konfirmasi True biasa (+0,85%), breakout menambah edge tipis.
+
+**Fix**: caption tab "Gap Up/Down" ([app.py](app.py)) diupdate dgn angka backtest di
+atas (bukan lagi "belum dibacktest"). Label kolom "Konfirmasi" utk Gap Down diubah dari
+"❌ Tidak (mulai rebound)" jadi "❔ Tidak (arah tidak jelas)" - tidak menyiratkan sinyal
+beli yang tidak terbukti. Caption sisi Gap Down juga diperbaiki, tidak lagi menyarankan
+"cari kandidat rebound". **Belum diuji**: RR/Entry/SL spesifik utk gap (baru arah return
+mentahnya) - jangan jadikan sinyal auto-trade meski sudah ada bukti arah.
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah

@@ -30,6 +30,7 @@ DEFAULT_PARAMS = {
     "score_buy": 5,
     "score_sell": -2,
     "score_strong_sell": -4,
+    "gap_min_pct": 2.0,                  # ambang minimal Gap Up/Down (%) - lihat classify_gap()
 }
 
 
@@ -469,6 +470,55 @@ def get_trade_recommendation(quality: dict) -> dict:
             "display": "❌ ERROR"
         }
 
+
+def classify_gap(open_: float, prev_close: float, close: float, vol_ratio: float,
+                  breakout_status: str, gap_min_pct: float = 2.0) -> dict:
+    """
+    Deteksi Gap Up/Gap Down EKSPLORATIF - BELUM DIBACKTEST. Beda dari materi trading gap
+    yang umum (Opening Range 5-15 menit, VWAP, reaksi harga menit-per-menit) - itu semua
+    butuh data INTRADAY REAL-TIME yang TIDAK tersedia gratis (lihat README > "Day Trading:
+    Bukan Soal Parameter, Tapi Desain Sinyal" - Yahoo Finance cuma py 60 hari terakhir utk
+    5m/15m, TIDAK REAL-TIME). Fungsi ini pakai proxy dari data EOD (harian) SAJA:
+
+    - Gap % = (Open - Prev Close) / Prev Close * 100 - selisih harga BUKA hari ini vs
+      TUTUP kemarin (beda dari "Perubahan %" yang bandingkan Close vs Prev Close).
+    - "confirmed": apakah Close hari itu TIDAK membalik penuh ke arah berlawanan gap
+      (Gap Up: Close >= Open: gap tidak "dimakan habis" dlm 1 hari; Gap Down: Close <=
+      Open) - proxy kasar utk "Gap and Go" vs "Gap Fill" krn kita tidak tahu KAPAN
+      persisnya harga berbalik intraday, cuma tahu di mana dia berakhir di Close.
+    - "breakout_confirmed": Gap Up yg JUGA breakout Donchian High + volume di atas
+      rata-rata (mirip semangat "Breakaway Gap" - gap yg ditopang breakout struktural,
+      bukan cuma noise pembukaan).
+
+    TIDAK dipakai di Score/Signal/Rekomendasi tervalidasi - info tambahan saja di tabel
+    Semua Saham, SAMA seperti pola Open=Low (Shaven Bottom). Backtest gap-fill vs
+    gap-and-go di universe IDX ini BELUM dilakukan - jangan anggap validated dulu.
+    """
+    if prev_close <= 0 or open_ <= 0:
+        return {"type": "NONE", "pct": 0.0, "confirmed": False, "breakout_confirmed": False}
+
+    gap_pct = (open_ - prev_close) / prev_close * 100
+
+    if gap_pct >= gap_min_pct:
+        tipe = "GAP UP"
+        confirmed = close >= open_
+        breakout_confirmed = confirmed and breakout_status == "BREAKOUT" and vol_ratio > 1.5
+    elif gap_pct <= -gap_min_pct:
+        tipe = "GAP DOWN"
+        confirmed = close <= open_
+        breakout_confirmed = False  # "breakaway" ke bawah tidak relevan utk rebound-hunting
+    else:
+        tipe = "NONE"
+        confirmed = False
+        breakout_confirmed = False
+
+    return {
+        "type": tipe,
+        "pct": round(gap_pct, 2),
+        "confirmed": confirmed,
+        "breakout_confirmed": breakout_confirmed,
+    }
+
 # ============================================================================
 # ORIGINAL SCREENER FUNCTIONS
 # ============================================================================
@@ -607,6 +657,9 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
     # "aman" menurut referensi user, TAPI TETAP eksploratif tanpa order book.
     setup_a_breakout = is_shaven_bottom and breakout_status == "BREAKOUT" and vol_ratio > 1.5
 
+    gap = classify_gap(open_, prev_close, close, vol_ratio, breakout_status,
+                        params.get("gap_min_pct", 2.0))
+
     is_crash = change_pct < params["crash_veto"]
 
     if not layak_likuiditas:
@@ -660,6 +713,10 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         "Signal": signal,
         "Open=Low": is_shaven_bottom,
         "Setup A Breakout": setup_a_breakout,
+        "Gap %": gap["pct"],
+        "Gap Type": gap["type"],
+        "Gap Konfirmasi": gap["confirmed"],
+        "Gap Breakout": gap["breakout_confirmed"],
     }
 
 
@@ -739,6 +796,7 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
         "Rekomendasi", "Confidence", "Alasan",
         "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
         "Open=Low", "Setup A Breakout",
+        "Gap %", "Gap Type", "Gap Konfirmasi", "Gap Breakout",
         "Donchian High", "Donchian Low", "Avg Volume 20D", "Volume"
     ]
     
