@@ -2,10 +2,17 @@
 Jurnal backtest POSISI, terhubung ke Google Sheets (sheet 'POSISI').
 Auto-BUY saat Signal = BUY/STRONG BUY, auto-SELL saat harga live menyentuh TP atau SL.
 
-STRUKTUR KOLOM (dengan Lot):
-A: Tanggal Open | B: Saham | C: Harga Beli | D: TP | E: SL | F: Tipe | 
-G: Lot | H: Tanggal Close | I: Harga Jual | J: P&L (Rp) | K: P&L (%) | 
-L: Status | M: Hari
+STRUKTUR KOLOM (dengan Lot & SL Awal):
+A: Tanggal Open | B: Saham | C: Harga Beli | D: TP | E: SL | F: Tipe |
+G: Lot | H: Tanggal Close | I: Harga Jual | J: P&L (Rp) | K: P&L (%) |
+L: Status | M: Hari | N: SL Awal
+
+N (SL Awal): SL asli saat posisi dibuka - TIDAK PERNAH diubah setelahnya, beda dari
+kolom E (SL) yang BISA di-trail naik ke breakeven setelah profit >=1R (lihat
+auto_close_positions()). Dipakai utk menghitung ulang jarak risk (Harga Beli - SL Awal)
+kapan saja tanpa peduli SL sudah ditrail atau belum. Baris LAMA (dibuka sebelum kolom
+ini ada) akan kosong - auto_close_positions() fallback ke SL saat ini sbg SL Awal utk
+baris itu (tidak bisa trailing, tapi tidak crash).
 """
 
 from datetime import datetime, date
@@ -43,12 +50,20 @@ SHEET_NAME = "POSISI"
 # dekat ke kenyataan, bukan return kotor.
 FEE_PCT_ROUNDTRIP = 0.15 + 0.25
 
-# HEADERS DENGAN KOLOM LOT (kolom G)
+# HEADERS DENGAN KOLOM LOT (kolom G) & SL Awal (kolom N)
 HEADERS = ["Tanggal Open", "Saham", "Harga Beli", "TP", "SL", "Tipe",
-           "Lot", "Tanggal Close", "Harga Jual", "P&L (Rp)", "P&L (%)", "Status", "Hari"]
+           "Lot", "Tanggal Close", "Harga Jual", "P&L (Rp)", "P&L (%)", "Status", "Hari", "SL Awal"]
 
 # Kolom numerik (non-tanggal, non-teks) - dipakai load_positions() utk parsing manual.
-NUMERIC_COLS = ["Harga Beli", "TP", "SL", "Lot", "Harga Jual", "P&L (Rp)", "P&L (%)", "Hari"]
+NUMERIC_COLS = ["Harga Beli", "TP", "SL", "Lot", "Harga Jual", "P&L (Rp)", "P&L (%)", "Hari", "SL Awal"]
+
+# Trailing stop: begitu profit floating (dari High hari itu) mencapai kelipatan risk awal
+# (Harga Beli - SL Awal) sebesar ini, SL dinaikkan SEKALI ke breakeven (Harga Beli).
+# Dibacktest (615 saham/5 tahun, walk-forward, README > "Trailing Stop ke Breakeven"):
+# avg net return naik dari +0.62% (SL/TP tetap) jadi +0.78% (trailing), konsisten di 2
+# periode (+0.12%/+0.20%). TIDAK trailing lebih jauh dari breakeven (cuma 1 langkah) -
+# belum diuji versi trailing bertingkat.
+TRAILING_TRIGGER_R = 1.0
 
 
 def is_configured() -> bool:
@@ -195,6 +210,8 @@ def open_positions_from_candidates(candidates: pd.DataFrame, tipe: str) -> list[
                 "",                                           # K: P&L (%)
                 "OPEN",                                       # L: Status
                 "",                                           # M: Hari
+                sl,                                           # N: SL Awal (SAMA dgn SL saat buka -
+                                                               # kolom E bisa ditrail nanti, ini tidak)
             ]
             
             _append_row(ws, new_row)
@@ -324,6 +341,8 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
 
     FORCE_SELL_HARI = {"SWING": 15, "BPJS": 1, "BSJP": 2}
     closed = []
+    any_trailed = False  # SL ditrail ke breakeven (posisi TETAP OPEN, bukan ditutup) -
+    # cache load_positions() tetap harus di-clear kalau ini terjadi, sama seperti `closed`.
 
     # Ambil semua data dari sheet untuk mapping nomor baris yang akurat
     all_values = ws.get_all_values()
@@ -340,6 +359,10 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
             tp = float(row["TP"]) if pd.notna(row["TP"]) else None
             sl = float(row["SL"]) if pd.notna(row["SL"]) else None
             harga_beli = float(row["Harga Beli"])
+            # SL Awal - fallback ke SL SAAT INI kalau kosong (baris lama dibuka sebelum
+            # kolom ini ada) - konsekuensinya baris lama itu tidak bisa trailing (risk
+            # awal tidak diketahui), tapi TIDAK crash, perilaku sama seperti sebelumnya.
+            sl_awal = float(row["SL Awal"]) if pd.notna(row.get("SL Awal")) else sl
             lot = int(row["Lot"]) if pd.notna(row.get("Lot")) else 10
             tgl_open = pd.to_datetime(row["Tanggal Open"])
             # "Tanggal Open" ditulis pakai jam WIB (lihat open_positions_from_candidates) -
@@ -369,8 +392,14 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
             # dicatat TEPAT di level TP/SL (bukan di High/Low ekstrem hari itu, dan bukan di
             # harga_live/Close) - juga sama dgn asumsi backtest, supaya P&L live sebanding
             # dgn P&L yang diklaim hasil backtest, bukan angka yang beda metodologi.
+            # Sudah di breakeven kalau SL sekarang == Harga Beli (ditrail di run
+            # SEBELUMNYA) - dipakai utk membedakan label "BREAKEVEN" (untung kecil/rugi
+            # tipis krn fee, TAPI TERHINDAR dari rugi lebih dalam) dari "LOSS (SL)" biasa
+            # (SL asli, belum pernah ditrail).
+            sudah_breakeven = sl is not None and abs(sl - harga_beli) < 0.01
+
             if sl is not None and today_low <= sl:
-                status_baru = "LOSS (SL)"
+                status_baru = "BREAKEVEN" if sudah_breakeven else "LOSS (SL)"
                 exit_price = sl
             elif tp is not None and today_high >= tp:
                 status_baru = "WIN (TP)"
@@ -406,6 +435,22 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
                     print(f"✅ Tutup posisi: {kode} @ Rp{exit_price:,.0f} - {status_baru}, P&L: Rp{pnl_rp:,.0f}")
                 else:
                     print(f"❌ Tidak menemukan baris {kode} dengan status OPEN di sheet")
+            elif not sudah_breakeven and sl_awal is not None and sl_awal < harga_beli:
+                # TRAILING STOP: belum exit hari ini, SL belum pernah ditrail, dan risk
+                # awal (Harga Beli - SL Awal) valid (positif) - cek apakah High hari ini
+                # sudah mencapai profit target TRAILING_TRIGGER_R x risk awal. Kalau iya,
+                # naikkan SL ke breakeven (Harga Beli) SEKALI - dibacktest (README >
+                # "Trailing Stop ke Breakeven"): avg net return naik +0.62% -> +0.78%,
+                # konsisten di 2 periode. TIDAK menutup posisi hari ini, cuma menaikkan SL
+                # utk pengecekan berikutnya.
+                risk_awal = harga_beli - sl_awal
+                trigger_price = harga_beli + TRAILING_TRIGGER_R * risk_awal
+                if today_high >= trigger_price:
+                    sheet_row = _find_row_number(ws, kode, "OPEN")
+                    if sheet_row:
+                        ws.update(f"E{sheet_row}", [[harga_beli]])
+                        any_trailed = True
+                        print(f"📈 {kode}: SL ditrail ke breakeven Rp{harga_beli:,.0f} (profit >= {TRAILING_TRIGGER_R:.0f}R tercapai)")
 
         except Exception as e:
             print(f"❌ Error proses posisi {row.get('Saham', 'UNKNOWN')}: {e}")
@@ -413,8 +458,9 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
             traceback.print_exc()
             continue
 
-    # Clear cache karena data berubah
-    if closed:
+    # Clear cache karena data berubah - baik posisi ditutup MAUPUN cuma SL ditrail
+    # (posisi tetap OPEN tapi kolom E-nya berubah di sheet).
+    if closed or any_trailed:
         load_positions.clear()
 
     return closed
@@ -447,9 +493,14 @@ def summarize(df: pd.DataFrame) -> dict:
     if "Status" in df.columns:
         status_str = df["Status"].astype(str)
         is_force_sell = status_str.str.contains("FORCE SELL", case=False, na=False)
+        # "BREAKEVEN" (SL ditrail, lihat auto_close_positions()) juga TIDAK mengandung
+        # kata WIN/LOSS - sama kelas bug dgn FORCE SELL di atas, diklasifikasi dari TANDA
+        # P&L (%) juga (biasanya rugi tipis krn fee, walau posisi terhindar dari SL asli).
+        is_breakeven = status_str.str.contains("BREAKEVEN", case=False, na=False)
         pnl_num = pd.to_numeric(df["P&L (%)"], errors="coerce") if "P&L (%)" in df.columns else pd.Series([float("nan")] * len(df), index=df.index)
-        win_mask = status_str.str.contains("WIN", case=False, na=False) | (is_force_sell & (pnl_num > 0))
-        loss_mask = status_str.str.contains("LOSS", case=False, na=False) | (is_force_sell & (pnl_num <= 0))
+        ambigu = is_force_sell | is_breakeven
+        win_mask = status_str.str.contains("WIN", case=False, na=False) | (ambigu & (pnl_num > 0))
+        loss_mask = status_str.str.contains("LOSS", case=False, na=False) | (ambigu & (pnl_num <= 0))
         win = int(win_mask.sum())
         loss = int(loss_mask.sum())
     

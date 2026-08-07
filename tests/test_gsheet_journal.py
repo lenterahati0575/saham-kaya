@@ -17,12 +17,17 @@ import gsheet_journal as gj
 
 
 def _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=110.0, sl=90.0, tipe="SWING", lot=10,
-                          tanggal_open="2026-07-20 10:00"):
-    return pd.DataFrame([{
+                          tanggal_open="2026-07-20 10:00", sl_awal=None, tanpa_kolom_sl_awal=False):
+    row = {
         "Tanggal Open": tanggal_open, "Saham": kode, "Harga Beli": harga_beli, "TP": tp,
         "SL": sl, "Tipe": tipe, "Lot": lot, "Tanggal Close": "", "Harga Jual": "",
         "P&L (Rp)": "", "P&L (%)": "", "Status": "OPEN", "Hari": "",
-    }])
+    }
+    if not tanpa_kolom_sl_awal:
+        # Default SL Awal = sl (posisi belum pernah ditrail) - SAMA dgn perilaku baris
+        # yang baru dibuka via open_positions_from_candidates().
+        row["SL Awal"] = sl_awal if sl_awal is not None else sl
+    return pd.DataFrame([row])
 
 
 def _mock_worksheet():
@@ -159,6 +164,56 @@ class TestAutoClosePositionsHighLow:
              patch("screener.fetch_price_history", return_value={}):
             closed = gj.auto_close_positions({"ZZZZ": 115.0})  # tidak kasih hl_lookup
         assert closed == ["ZZZZ (WIN (TP))"]
+
+
+class TestTrailingStopBreakeven:
+    """Trailing stop ke breakeven - dibacktest (615 saham/5 tahun, README > 'Trailing Stop
+    ke Breakeven'): avg net return naik +0.62% -> +0.78%, konsisten di 2 periode. Latar
+    belakang: user tanya 'apakah sistem yang kita bangun dapat memprediksi reversal
+    sebelum TP tercapai... ada uang real' - jawabannya TIDAK bisa memprediksi, tapi
+    trailing SL ke breakeven mengunci sebagian untung kalau memang terjadi reversal."""
+
+    def test_trailing_menaikkan_sl_ke_breakeven_saat_profit_1r_tercapai(self):
+        # risk awal = 100-90 = 10 -> trigger begitu High >= 100+10 = 110.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=130.0, sl=90.0, sl_awal=90.0, tanggal_open="2026-08-01 10:00")
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 108.0}, {"ZZZZ": (111.0, 105.0)})
+        assert closed == []  # posisi TETAP OPEN, bukan ditutup
+        ws.update.assert_called_once_with("E2", [[100.0]])
+
+    def test_trailing_tidak_trigger_kalau_profit_belum_1r(self):
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=130.0, sl=90.0, sl_awal=90.0, tanggal_open="2026-08-01 10:00")
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 105.0}, {"ZZZZ": (108.0, 103.0)})
+        assert closed == []
+        ws.update.assert_not_called()
+
+    def test_exit_setelah_ditrail_dilabel_breakeven_bukan_loss(self):
+        # SL SUDAH ditrail ke 100 (breakeven) di run sebelumnya - SL Awal tetap 90 (risk asli).
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=130.0, sl=100.0, sl_awal=90.0, tanggal_open="2026-08-01 10:00")
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 99.0}, {"ZZZZ": (105.0, 98.0)})
+        assert closed == ["ZZZZ (BREAKEVEN)"]
+        update_call = ws.update.call_args[0][1]
+        assert update_call[0][1] == 100.0  # exit price = breakeven (100), bukan SL asli (90)
+
+    def test_baris_lama_tanpa_kolom_sl_awal_tidak_crash_dan_tetap_trailing(self):
+        # Baris dibuka SEBELUM kolom "SL Awal" ada - fallback ke SL saat ini (yang utk
+        # baris belum-pernah-ditrail SAMA dgn SL asli) - TIDAK crash, trailing tetap jalan.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=130.0, sl=90.0,
+                                            tanpa_kolom_sl_awal=True, tanggal_open="2026-08-01 10:00")
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 108.0}, {"ZZZZ": (111.0, 105.0)})
+        assert closed == []
+        ws.update.assert_called_once_with("E2", [[100.0]])
 
 
 class TestAutoClosePositionsMissingTicker:

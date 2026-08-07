@@ -1658,6 +1658,50 @@ Komentar `.github/workflows/auto_backtest.yml` diperbarui menjelaskan pembagian 
 ini. Tidak ada perubahan pada `build_trade_candidates()`/`gsheet_journal.py` - murni
 `auto_run.py` yang dipecah alur eksekusinya berdasarkan jam.
 
+## Trailing Stop ke Breakeven - jawaban atas "apakah bisa memprediksi reversal sebelum TP"
+
+User tanya: "apakah sistem yang kita bangun dapat memprediksi bahwa akan terjadi
+reversal sebelum target TP tercapai... kelemahan saya disini... yang saya maksud ada
+uang real." Jawaban jujur: **TIDAK bisa memprediksi** - SL/TP di sistem ini statis,
+ditetapkan sekali saat entry, tidak pernah disesuaikan lagi. Memprediksi reversal
+dengan pasti nyaris mustahil (bahkan trader profesional tidak bisa) - yang REALISTIS
+& bisa diuji adalah **trailing stop**: menaikkan SL begitu profit tertentu tercapai,
+supaya kalau reversal memang terjadi, untung yang sudah ada terkunci sebagian, tidak
+hilang balik ke breakeven/rugi.
+
+**Backtest** (615 saham/5 tahun, walk-forward, simulasi realistis Entry/SL/Target/RR):
+dibandingkan SL/TP TETAP (baseline) vs trailing SL ke breakeven begitu profit
+(dari High hari itu) mencapai 1x risk awal (Harga Beli - SL Awal):
+
+| | Avg Net Return | Win Rate | Total | Split-half |
+|---|---|---|---|---|
+| SL/TP TETAP (sebelumnya) | +0,62% | 31,7% | +8.431% | -0,02% / +1,26% |
+| **Trailing ke breakeven (1R)** | **+0,78%** | 24,8% (turun) | **+10.579%** | **+0,10% / +1,46%** |
+
+Trailing MENANG di kedua periode uji (selisih +0,12% & +0,20% - konsisten), walau Win
+Rate turun (lebih sering exit di breakeven drpd nunggu TP) - itu wajar & memang tujuan
+trailing: menukar sebagian "kemenangan penuh" jadi "kemenangan kecil/breakeven", demi
+menghindari rugi dalam kalau reversal beneran terjadi.
+
+**Fix**: kolom baru **N: SL Awal** ditambahkan ke struktur sheet POSISI
+([gsheet_journal.py](gsheet_journal.py), `HEADERS`) - SL ASLI saat posisi dibuka, TIDAK
+PERNAH diubah, beda dari kolom E (SL) yang BISA ditrail naik. `open_positions_from_candidates()`
+menulis SL Awal = SL saat buka. `auto_close_positions()`: kalau posisi belum exit hari
+itu, cek apakah High hari ini sudah mencapai `Harga Beli + 1x(Harga Beli - SL Awal)` -
+kalau iya, SL (kolom E) dinaikkan SEKALI ke Harga Beli (breakeven) via `ws.update()`,
+posisi TETAP OPEN. Exit yang kena SL SETELAH ditrail dilabel **"BREAKEVEN"** (bukan
+"LOSS (SL)") - `summarize()` diperbaiki sekalian supaya BREAKEVEN diklasifikasi WIN/LOSS
+dari tanda P&L-nya (sama kelas bug dgn FORCE SELL yang sudah diperbaiki sebelumnya).
+Baris LAMA (dibuka sebelum kolom ini ada, kosong di sheet) fallback ke SL saat ini
+sbg SL Awal - tetap bisa trailing (krn baris yg belum pernah ditrail, SL saat ini =
+SL asli), TIDAK crash.
+
+`TRAILING_TRIGGER_R = 1.0` (konstanta, `gsheet_journal.py`) - cuma trailing 1 langkah
+ke breakeven, BELUM diuji versi bertingkat (mis. trail lagi ke +0.5R setelah +2R, dst).
+4 test baru (`TestTrailingStopBreakeven`) - trigger saat profit>=1R, tidak trigger
+kalau belum 1R, label BREAKEVEN yang benar, dan baris lama tanpa kolom ini tetap jalan.
+139/139 pytest lolos (135+4).
+
 ## Default Universe Saham: Syariah (ISSI)
 
 Atas permintaan user, dropdown "Universe Saham" di sidebar sekarang default ke **"Syariah
