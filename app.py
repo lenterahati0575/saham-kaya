@@ -1251,11 +1251,25 @@ with t_kalk:
     with kalk_col1:
         st.subheader("🧮 Kalkulator Profit Saham")
         st.caption("Hitung untung/rugi transaksi, termasuk komisi beli & jual.")
-        pilih_isi = st.selectbox("Isi harga otomatis dari saham (opsional)", options=[""] + table["Kode"].tolist(), key="kalk_profit_pilih", format_func=lambda k: "-- pilih manual --" if k == "" else k)
-        harga_acuan = float(table.loc[table["Kode"] == pilih_isi, "Harga"].values[0]) if pilih_isi else 0.0
+        # Bug nyata dari laporan user: pilih saham di dropdown TIDAK mengisi Harga Beli/Jual
+        # otomatis - `number_input(..., value=harga_acuan, key="hb")` cuma dipakai Streamlit
+        # SEKALI di render PERTAMA; render berikutnya (termasuk setelah ganti pilihan
+        # dropdown) session_state["hb"] yang lama MENANG, `value=` baru diabaikan. Fix:
+        # `on_change` di selectbox yang TULIS LANGSUNG ke session_state SEBELUM number_input
+        # dirender, dan `value=` dihapus dari number_input (session_state jadi satu-satunya
+        # sumber, tidak ada konflik dgn Streamlit).
+        def _isi_harga_profit():
+            kode = st.session_state.kalk_profit_pilih
+            if kode:
+                harga = float(table.loc[table["Kode"] == kode, "Harga"].values[0])
+                st.session_state["hb"] = harga
+                st.session_state["hj"] = round(harga * 1.05, 2)
+        pilih_isi = st.selectbox("Isi harga otomatis dari saham (opsional)", options=[""] + table["Kode"].tolist(),
+                                  key="kalk_profit_pilih", format_func=lambda k: "-- pilih manual --" if k == "" else k,
+                                  on_change=_isi_harga_profit)
         cp1, cp2 = st.columns(2)
-        harga_beli_in = cp1.number_input("Harga Beli (Rp)", min_value=0.0, value=harga_acuan, step=1.0, key="hb")
-        harga_jual_in = cp2.number_input("Harga Jual (Rp)", min_value=0.0, value=harga_acuan * 1.05 if harga_acuan else 0.0, step=1.0, key="hj")
+        harga_beli_in = cp1.number_input("Harga Beli (Rp)", min_value=0.0, step=1.0, key="hb")
+        harga_jual_in = cp2.number_input("Harga Jual (Rp)", min_value=0.0, step=1.0, key="hj")
         lot_in = st.number_input("Lot (1 lot = 100 lembar)", min_value=1, value=10, step=1, key="lot")
         cp3, cp4 = st.columns(2)
         komisi_beli_in = cp3.number_input("Komisi Beli (%)", min_value=0.0, value=0.15, step=0.01, key="kb", help="Umumnya 0.15%-0.19% tergantung broker.")
@@ -1273,13 +1287,18 @@ with t_kalk:
     with kalk_col2:
         st.subheader("🛡️ Kalkulator Manajemen Risiko")
         st.caption("Hitung ukuran posisi ideal berdasar modal & toleransi risiko.")
-        pilih_isi2 = st.selectbox("Isi harga saham otomatis (opsional)", options=[""] + table["Kode"].tolist(), key="kalk_risk_pilih", format_func=lambda k: "-- pilih manual --" if k == "" else k)
-        harga_saham_default = float(table.loc[table["Kode"] == pilih_isi2, "Harga"].values[0]) if pilih_isi2 else 0.0
+        def _isi_harga_risiko():
+            kode = st.session_state.kalk_risk_pilih
+            if kode:
+                st.session_state["hs"] = float(table.loc[table["Kode"] == kode, "Harga"].values[0])
+        pilih_isi2 = st.selectbox("Isi harga saham otomatis (opsional)", options=[""] + table["Kode"].tolist(),
+                                   key="kalk_risk_pilih", format_func=lambda k: "-- pilih manual --" if k == "" else k,
+                                   on_change=_isi_harga_risiko)
         modal_in = st.number_input("Total Modal (Rp)", min_value=0.0, value=10_000_000.0, step=500_000.0, key="modal")
         resiko_in = st.number_input("Resiko per Transaksi (%)", min_value=0.1, value=1.0, step=0.1, key="resiko", help="Berapa % dari modal yang rela hilang kalau kena Stop Loss. Umumnya 1-2%.")
         sl_in = st.number_input("Persen Stop Loss (%)", min_value=0.1, value=5.0, step=0.5, key="slpct")
         rr_in = st.number_input("Risk Reward Ratio", min_value=0.5, value=2.0, step=0.5, key="rrin")
-        harga_saham_in = st.number_input("Harga Saham (Rp) - opsional, untuk hasil dalam LOT", min_value=0.0, value=harga_saham_default, step=1.0, key="hs")
+        harga_saham_in = st.number_input("Harga Saham (Rp) - opsional, untuk hasil dalam LOT", min_value=0.0, step=1.0, key="hs")
         if st.button("Hitung Manajemen Risiko", type="primary", use_container_width=True):
             r2 = calc.risk_management_calculator(modal_in, resiko_in, sl_in, rr_in, harga_saham_in if harga_saham_in > 0 else None)
             if "error" in r2:
