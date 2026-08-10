@@ -1544,6 +1544,28 @@ sekalian.
 `_uptrend_ohlcv()` (histori naik linear 250+ hari, `_flat_ohlcv` tidak cukup krn perlu
 MA200 & harga benar-benar uptrend). 129/129 pytest lolos (125+4).
 
+### "Gap Trend Aligned" dibuat OPSIONAL - MA200 lamban saat pergantian rezim
+
+User (2026-08-10): "saya berfikir mungkin screener kita terlalu ketat karena harus
+MA20>MA50>MA200... saya saat ini ihsg dari bearing kencang menuju bullish, sehingga
+banyak saham2 bagus tidak muncul di screener". Keluhan ini valid secara teknikal, bukan
+cuma perasaan: MA200 adalah rata-rata 200 hari - LAMBAN mengikuti perubahan rezim. Saat
+IHSG baru berbalik dari bearish tajam ke bullish, saham yang harganya SUDAH uptrend bisa
+tetap gagal syarat `Harga>MA20>MA50>MA200` semata krn MA200 masih "mengingat" rezim lama
+(butuh waktu lama utk MA200 sendiri berbalik naik/didekati harga). Filter yang tervalidasi
+kuat di kondisi pasar NORMAL (+2,82% vs +1,42%, lihat tabel di atas) berisiko membuang
+kandidat early-recovery yang genuinely bagus justru di momen paling menguntungkan
+(awal tren baru).
+
+**Fix**: filter tidak dihapus (tetap tervalidasi & jadi default), tapi dibuat OPSIONAL.
+Checkbox baru "Wajib Trend Aligned (MA20>MA50>MA200)" di tab Gap Up/Down (`app.py`,
+default **ON** - mempertahankan perilaku tervalidasi). Kalau di-nonaktifkan, kriteria Gap
+Up mundur ke `Gap Konfirmasi=True` saja (avg +1,42%/hari berikutnya - masih positif &
+konsisten, tapi lebih lemah & sample lebih besar) + kolom "Trend Aligned" ditampilkan
+sbg info (bukan filter) agar user tetap bisa lihat mana yang lolos susunan MA penuh vs
+tidak. Help text checkbox menjelaskan tradeoff-nya. Tidak perlu backtest baru - ini murni
+memberi kontrol on/off ke user atas filter yg SUDAH diuji, bukan sinyal baru.
+
 ### Backtest Open=Low - edge NYATA tapi lebih kecil dari fee, TIDAK divalidasi seperti Gap
 
 User share materi umum "cara trading Open=Low (Shaven Bottom)" (sama gaya dgn materi

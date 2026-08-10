@@ -1032,33 +1032,52 @@ with t_openlow:
 #   tinggi = kualitas lebih baik").
 # - "Gap Trend Aligned" (Harga>MA20>MA50>MA200, no lookahead) TERBUKTI kuat & konsisten
 #   utk Gap Up (avg +2,82%/hari berikutnya vs +1,42% tanpa filter tren) - jadi Gap Up
-#   DIFILTER KERAS (bukan cuma info) dgn syarat ini, atas permintaan user ("hanya sedikit
-#   yang boleh masuk screener"). Versi simetris (bearish) utk Gap Down TIDAK terbukti,
+#   DIFILTER dgn syarat ini SECARA DEFAULT, atas permintaan user awal ("hanya sedikit yang
+#   boleh masuk screener"). Filter ini dibuat OPSIONAL (checkbox, default ON) atas permintaan
+#   user berikutnya: MA200 lamban mengikuti perubahan rezim, jadi saat IHSG baru berbalik dari
+#   bearish ke bullish, banyak saham yg sudah uptrend blm lolos syarat ini krn MA200 masih
+#   "mengingat" rezim lama - matikan checkbox utk lihat kandidat lbh banyak (edge lbh lemah,
+#   +1,42% blm sekonsisten +2,82%). Versi simetris (bearish) utk Gap Down TIDAK terbukti,
 #   jadi Gap Down TETAP tanpa filter tren (informasional saja).
 # ============================================================================
 with t_gap:
     st.caption("📊 **GAP UP/DOWN** - Gap% = selisih Open hari ini vs Close kemarin. Ambang minimal "
-               "**3%**. Gap Up disaring KETAT: Konfirmasi (Close tidak membalik) + susunan MA penuh "
+               "**3%**. Gap Up disaring: Konfirmasi (Close tidak membalik) wajib, + susunan MA penuh "
                "bullish (Harga>MA20>MA50>MA200, dihitung dari kemarin - no lookahead) - avg "
                "**+2,82%/hari berikutnya** (vs baseline pasar +0,09%, konsisten 2 periode: +2,91%/"
-               "+2,74%). Filter Volume Ratio DIUJI 2x, TERBUKTI melemahkan sinyal - TIDAK dipakai. "
-               "Disaring likuiditas juga. Masih info tambahan, BUKAN sinyal auto-trade.")
+               "+2,74%) kalau filter tren AKTIF. Filter Volume Ratio DIUJI 2x, TERBUKTI melemahkan "
+               "sinyal - TIDAK dipakai. Disaring likuiditas juga. Masih info tambahan, BUKAN sinyal "
+               "auto-trade.")
+    wajib_trend_aligned = st.checkbox(
+        "Wajib Trend Aligned (MA20>MA50>MA200)", value=True, key="gap_wajib_trend_aligned",
+        help="MA200 itu rata-rata 200 hari - LAMBAN mengikuti perubahan rezim. Saat IHSG baru "
+             "berbalik dari bearish ke bullish, saham yang harganya sudah uptrend bisa saja belum "
+             "lolos syarat ini karena MA200-nya masih 'mengingat' rezim lama. Matikan filter ini "
+             "saat kondisi seperti itu utk melihat kandidat lebih banyak - tapi sinyalnya lebih "
+             "lemah & belum konsisten tervalidasi (avg +1,42%/hari berikutnya tanpa filter tren, "
+             "vs +2,82% dgn filter tren aktif).")
     gcol_a, gcol_b = st.columns(2)
     with gcol_a:
-        st.markdown("**🟢 Gap Up** (Konfirmasi + Trend Aligned - filter ketat)")
-        gap_up = (table[(table["Gap Type"] == "GAP UP") & (table["Layak Likuiditas"] == True)
-                        & (table["Gap Konfirmasi"] == True) & (table["Gap Trend Aligned"] == True)].copy()
-                  if "Gap Type" in table.columns else pd.DataFrame())
+        label_filter = "Konfirmasi + Trend Aligned - filter ketat" if wajib_trend_aligned else "Konfirmasi saja - filter longgar, edge lebih lemah"
+        st.markdown(f"**🟢 Gap Up** ({label_filter})")
+        gap_mask = (table["Gap Type"] == "GAP UP") & (table["Layak Likuiditas"] == True) & (table["Gap Konfirmasi"] == True)
+        if wajib_trend_aligned:
+            gap_mask = gap_mask & (table["Gap Trend Aligned"] == True)
+        gap_up = table[gap_mask].copy() if "Gap Type" in table.columns else pd.DataFrame()
         if gap_up.empty:
-            st.caption("Tidak ada saat ini (kriteria ketat: Konfirmasi + Harga>MA20>MA50>MA200).")
+            kriteria = "Konfirmasi + Harga>MA20>MA50>MA200" if wajib_trend_aligned else "Konfirmasi saja"
+            st.caption(f"Tidak ada saat ini (kriteria: {kriteria}).")
         else:
             gap_up = gap_up.sort_values("Gap %", ascending=False)
             gap_up["Harga"] = gap_up["Harga"].map(lambda x: f"Rp{x:,.0f}")
             gap_up["Gap %"] = gap_up["Gap %"].map(lambda x: f"+{x:.2f}%")
             gap_up["Volume Ratio"] = gap_up["Volume Ratio"].map(lambda x: f"{x:.1f}x")
             gap_up["Breakout"] = gap_up["Gap Breakout"].map(lambda x: "✅ Ya" if x else "-")
-            st.dataframe(gap_up[["Kode", "Nama", "Harga", "Gap %", "Volume Ratio", "Breakout"]],
-                         use_container_width=True, hide_index=True, height=350)
+            gap_up["Trend Aligned"] = gap_up["Gap Trend Aligned"].map(lambda x: "✅ Ya" if x else "-")
+            kolom_gap_up = ["Kode", "Nama", "Harga", "Gap %", "Volume Ratio", "Breakout"]
+            if not wajib_trend_aligned:
+                kolom_gap_up.append("Trend Aligned")
+            st.dataframe(gap_up[kolom_gap_up], use_container_width=True, hide_index=True, height=350)
     with gcol_b:
         st.markdown("**🔴 Gap Down**")
         st.caption("Konfirmasi=Ya (lanjut turun) = momentum turun beneran (avg -2,02% hari berikutnya). "
