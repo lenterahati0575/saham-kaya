@@ -1680,6 +1680,41 @@ Komentar `.github/workflows/auto_backtest.yml` diperbarui menjelaskan pembagian 
 ini. Tidak ada perubahan pada `build_trade_candidates()`/`gsheet_journal.py` - murni
 `auto_run.py` yang dipecah alur eksekusinya berdasarkan jam.
 
+## Cooldown re-entry 1x/hari + gate BUY manual - lanjutan temuan dari sheet POSISI
+
+User share screenshot sheet POSISI (2026-08-10) dan bertanya "mungkin ini hanya
+kegagalan di backtest, bukan sistem/kandidat" - dicek langsung, jawabannya CAMPURAN,
+bukan salah satu semata:
+
+1. **BUKAN kegagalan tracking**: baris yang closed **BREAKEVEN** (MCAS, ESTI, SLIS
+   -0,4%) itu **trailing stop bekerja SESUAI DESAIN** (README > "Trailing Stop ke
+   Breakeven") - harga sempat kena 1R, SL ditarik ke entry, lalu berbalik & closed
+   dekat entry (rugi kecil = ongkos transaksi). Ini hasil BAIK, bukan bug.
+2. **Sebagian memang data lama (sudah diperbaiki)**: entri paling pagi (09:18 WIB,
+   2026-08-07) terjadi SEBELUM fix pemisahan jadwal BUY sore/SELL kapan saja (`cbf9fdb`,
+   dideploy 11:35 WIB HARI YANG SAMA) - jadi bukan cerminan sistem saat ini.
+3. **TAPI ditemukan 2 celah NYATA & MASIH AKTIF** (bukan soal backtest sama sekali,
+   soal *risk management* sistem hidup):
+   - **Tidak ada cooldown re-entry**: SLIS/ESTI/PTMP di sheet masing2 dibuka **2x DALAM
+     1 HARI** - kena SL pagi/siang, lalu re-entry lagi sore krn masih lolos jadi
+     kandidat. Guard lama di `open_positions_from_candidates()` (`gsheet_journal.py`)
+     cuma cek "Status == OPEN sekarang", tidak cek "sudah pernah dibuka HARI INI" -
+     begitu posisi lama ditutup (menang/rugi/breakeven apapun), sistem bebas beli lagi
+     saham yang sama hari itu juga, berpotensi ngejar saham yang baru saja gagal.
+   - **Tombol manual "Buka Posisi Swing Trading" (`app.py`, tab Performance) TIDAK
+     ikut digate jam** seperti `auto_run.py` - ini kemungkinan ROOT CAUSE komplain user
+     paling awal sesi ini ("klik mungkin waktunya, SLIS kena SL, beli diharga agak
+     tinggi") - cron GitHub Actions sudah digate (`is_sore`) tapi tombol dashboard,
+     yang bisa diklik user kapan saja, TIDAK ikut aturan yang sama.
+
+**Fix**: (a) `open_positions_from_candidates()` sekarang skip saham yg
+`Tanggal Open`-nya = hari ini, terlepas dari statusnya (OPEN/closed apapun) - cooldown
+1x buka/saham/hari. (b) Tombol "🟢 Buka Posisi Swing Trading" di-`disabled` kalau jam
+< 12:00 WIB (sama persis kondisi `is_sore` di `auto_run.py`), dgn caption penjelasan;
+"🔴 Cek TP/SL & Force-Sell" TETAP boleh kapan saja (keluar posisi tidak ada alasan
+ditunda). 2 test baru (`TestReEntryCooldown`) memverifikasi cooldown skip closed-hari-
+ini tapi tetap boleh re-entry di hari yg berbeda. 141/141 pytest lolos.
+
 ## Trailing Stop ke Breakeven - jawaban atas "apakah bisa memprediksi reversal sebelum TP"
 
 User tanya: "apakah sistem yang kita bangun dapat memprediksi bahwa akan terjadi

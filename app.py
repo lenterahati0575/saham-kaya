@@ -1426,11 +1426,23 @@ with t_perf:
             # PROSES & TAMPILKAN hasilnya di LUAR kolom (lebar penuh halaman) - dulu hasilnya
             # (termasuk tabel debug "Posisi yang dicek") kejepit di 1/3 lebar halaman krn
             # dirender di dalam blok kolom yang sama dgn tombolnya.
+            # BUY manual digate JAM YANG SAMA dgn auto_run.py (hour>=12 WIB) - root cause
+            # komplain user awal ("klik mungkin waktunya, SLIS kena SL, beli diharga agak
+            # tinggi") justru tombol MANUAL ini, bukan cron GitHub Actions - cron sudah
+            # digate lebih dulu tapi tombol dashboard ini TIDAK, jadi klik pagi tetap bisa
+            # "mengejar" harga yg belum terkoreksi. SELL/Force-Sell TETAP boleh kapan saja
+            # (soal keluar posisi tidak ada alasan ditunda).
+            buy_time_ok = datetime.now(WIB).hour >= 12
             colb2, colb3 = st.columns(2)
             with colb2:
-                klik_open_swing = st.button("🟢 Buka Posisi Swing Trading", use_container_width=True, key="btn_open_swing")
+                klik_open_swing = st.button("🟢 Buka Posisi Swing Trading", use_container_width=True,
+                                             key="btn_open_swing", disabled=not buy_time_ok)
             with colb3:
                 klik_check_close = st.button("🔴 Cek TP/SL & Force-Sell", use_container_width=True, key="btn_check_close")
+            if not buy_time_ok:
+                st.caption("⏰ BUY dinonaktifkan sampai jam 12:00 WIB - pagi hari rawan 'mengejar' "
+                           "harga yg belum terkoreksi (sama disiplin dgn jadwal otomatis). "
+                           "Cek TP/SL & Force-Sell tetap boleh kapan saja.")
 
             if klik_open_swing:
                 try:

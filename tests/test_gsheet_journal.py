@@ -69,6 +69,59 @@ class TestTimestampPakaiWIB:
         assert abs((tanggal_open_tertulis - now_wib).total_seconds()) < 120
 
 
+class TestReEntryCooldown:
+    """Bug nyata dari laporan user (screenshot sheet POSISI): SLIS/ESTI/PTMP masing2 dibuka
+    2x DALAM SATU HARI YANG SAMA - kena SL di pagi/siang, lalu re-entry lagi sore krn masih
+    lolos sbg kandidat. Guard lama di open_positions_from_candidates() cuma cek "Status ==
+    OPEN sekarang", tidak cek "sudah pernah dibuka hari ini" - jadi begitu posisi lama
+    ditutup (menang/rugi/breakeven), sistem bebas membeli lagi saham yang sama di hari yang
+    sama. Fix: cooldown 1x buka/saham/hari, terlepas dari statusnya."""
+
+    def test_saham_yang_sudah_dibuka_hari_ini_tidak_dibuka_ulang_walau_sudah_closed(self):
+        today_wib = datetime.now(gj.WIB).strftime("%Y-%m-%d")
+        existing = pd.DataFrame([{
+            "Tanggal Open": f"{today_wib} 09:18", "Saham": "SLIS", "Harga Beli": 88.0,
+            "TP": 113.0, "SL": 79.0, "Tipe": "SWING", "Lot": 376, "Tanggal Close": f"{today_wib} 09:30",
+            "Harga Jual": 79.0, "P&L (Rp)": -351635.2, "P&L (%)": -10.63, "Status": "LOSS (SL)",
+            "Hari": 0, "SL Awal": 79.0,
+        }])
+        candidates = pd.DataFrame([
+            {"Saham": "SLIS", "Entry": 79.0, "Target": 100.0, "Stop Loss": 70.0, "RR": 2.0},
+            {"Saham": "WWWW", "Entry": 100.0, "Target": 120.0, "Stop Loss": 90.0, "RR": 2.0},
+        ])
+        appended_rows = []
+        ws = MagicMock()
+        ws.append_row.side_effect = lambda row, **kw: appended_rows.append(row)
+
+        with patch.object(gj, "_get_worksheet", return_value=ws), \
+             patch.object(gj, "load_positions", return_value=existing):
+            opened = gj.open_positions_from_candidates(candidates, "SWING")
+
+        assert opened == ["WWWW"]
+        assert len(appended_rows) == 1
+        assert appended_rows[0][1] == "WWWW"
+
+    def test_saham_yang_dibuka_kemarin_dan_sudah_closed_boleh_dibuka_lagi_hari_ini(self):
+        existing = pd.DataFrame([{
+            "Tanggal Open": "2026-07-20 09:18", "Saham": "SLIS", "Harga Beli": 88.0,
+            "TP": 113.0, "SL": 79.0, "Tipe": "SWING", "Lot": 376, "Tanggal Close": "2026-07-20 09:30",
+            "Harga Jual": 79.0, "P&L (Rp)": -351635.2, "P&L (%)": -10.63, "Status": "LOSS (SL)",
+            "Hari": 0, "SL Awal": 79.0,
+        }])
+        candidates = pd.DataFrame([
+            {"Saham": "SLIS", "Entry": 79.0, "Target": 100.0, "Stop Loss": 70.0, "RR": 2.0},
+        ])
+        appended_rows = []
+        ws = MagicMock()
+        ws.append_row.side_effect = lambda row, **kw: appended_rows.append(row)
+
+        with patch.object(gj, "_get_worksheet", return_value=ws), \
+             patch.object(gj, "load_positions", return_value=existing):
+            opened = gj.open_positions_from_candidates(candidates, "SWING")
+
+        assert opened == ["SLIS"]
+
+
 class TestEnrichPriceLookup:
     """enrich_price_lookup() dipakai BARENG oleh auto_close_positions() dan tampilan debug
     tabel "Posisi yang dicek" di app.py - dulu dua tempat itu pakai sumber data yang beda

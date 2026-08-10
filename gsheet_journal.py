@@ -169,15 +169,26 @@ def open_positions_from_candidates(candidates: pd.DataFrame, tipe: str) -> list[
     ws = _get_worksheet()
     existing = load_positions()
     open_symbols = set()
+    opened_today_symbols = set()
     if not existing.empty and "Status" in existing.columns:
         open_symbols = set(existing.loc[existing["Status"] == "OPEN", "Saham"])
+    # Cooldown 1 hari/saham: cegah re-entry di HARI YANG SAMA stlh saham ini kena SL/close -
+    # ditemukan lewat laporan user (screenshot sheet POSISI): SLIS/ESTI/PTMP masing2 dibuka
+    # 2x dlm 1 hari (kena SL pagi/siang, lalu re-entry sore krn masih lolos sbg kandidat) -
+    # bukan bug backtest, tapi celah nyata: guard lama cuma cek "OPEN sekarang", bukan
+    # "sudah pernah dibuka/ditutup HARI INI". Tanpa cooldown ini, sistem bisa berulang kali
+    # ngejar saham yg baru saja gagal di hari yang sama.
+    if not existing.empty and "Tanggal Open" in existing.columns:
+        today_str = datetime.now(WIB).strftime("%Y-%m-%d")
+        tgl_open_str = existing["Tanggal Open"].astype(str).str[:10]
+        opened_today_symbols = set(existing.loc[tgl_open_str == today_str, "Saham"])
 
     opened = []
     for _, row in candidates.iterrows():
         kode = row["Saham"]
-        
-        # Skip jika sudah ada posisi open untuk saham ini
-        if kode in open_symbols:
+
+        # Skip jika sudah ada posisi open, ATAU sudah pernah dibuka hari ini (cooldown 1x/hari)
+        if kode in open_symbols or kode in opened_today_symbols:
             continue
         
         try:
