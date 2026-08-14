@@ -235,6 +235,77 @@ class TestFindTradeRowDuplicateNo:
         assert updated["vals"][0][1] == 91  # Exit (Rp) tercatat 91, bukan diblokir
 
 
+class TestCloseEditDeleteAtRow:
+    """Bug nyata lanjutan dari laporan user: setelah _find_trade_row() menolak "No" duplikat
+    dgn error yang jelas, user lapor "BWPT tidak muncul" di dropdown 'Pilih nomor trade' (tab
+    Edit/Hapus & Tutup Posisi, app.py). Root cause: dropdown itu pakai KOLOM "No" sbg VALUE
+    selectbox - kalau "No" kembar (BWPT & DOOH sama2 No=9), Streamlit tidak bisa membedakan
+    2 pilihan dgn value identik, jadi salah satu (BWPT) efektif "hilang"/tidak bisa dipilih
+    terpisah dari yang lain. Fix: dropdown diganti pakai INDEX BARIS DataFrame (dijamin unik,
+    beda dari "No") sbg value, dipasangkan dgn fungsi baru close_trade_at_row()/
+    delete_trade_at_row()/edit_trade_at_row() yang menargetkan baris LANGSUNG lewat index -
+    tidak perlu cari-cari ulang lewat "No" sama sekali, jadi aman walau "No" masih kembar."""
+
+    def _existing_dup(self):
+        rows = [
+            [9, "2026-07-30", "Broker1", "DOOH", "Day Trading", 226, 210, 236, 24,
+             "2026-08-11", 91, 1359.6, -325359.6, -59.99, "LOSS", ""],
+            [9, "2026-07-31", "Broker1", "BWPT", "Day Trading", 83, 78, 96, 101,
+             "", "", "", "", "", "OPEN", ""],
+        ]
+        return pd.DataFrame(rows, columns=rj.TRADES_HEADERS)
+
+    def test_close_trade_at_row_kena_baris_bwpt_bukan_dooh(self):
+        existing = self._existing_dup()
+        bwpt_row_index = existing[existing["Saham"] == "BWPT"].index[0]
+        ws = MagicMock()
+        updated = {}
+        ws.update.side_effect = lambda rng, vals, **kw: updated.update({"range": rng, "vals": vals})
+        with patch.object(rj, "_get_trades_ws", return_value=ws), \
+             patch.object(rj, "load_trades", return_value=existing), \
+             patch.object(rj, "load_brokers", return_value=pd.DataFrame(
+                 [["Broker1", 0.15, 0.25]], columns=rj.BROKER_HEADERS)):
+            ok, msg = rj.close_trade_at_row(bwpt_row_index, "2026-08-14", 91)
+        assert ok is True, msg
+        assert "BWPT" in msg
+        assert updated["range"] == f"J{bwpt_row_index + 2}:O{bwpt_row_index + 2}"
+        assert updated["vals"][0][1] == 91
+
+    def test_delete_trade_at_row_kena_baris_bwpt_bukan_dooh(self):
+        existing = self._existing_dup()
+        bwpt_row_index = existing[existing["Saham"] == "BWPT"].index[0]
+        ws = MagicMock()
+        with patch.object(rj, "_get_trades_ws", return_value=ws), \
+             patch.object(rj, "load_trades", return_value=existing):
+            ok, msg = rj.delete_trade_at_row(bwpt_row_index)
+        assert ok is True, msg
+        assert "BWPT" in msg
+        ws.delete_rows.assert_called_once_with(bwpt_row_index + 2)
+
+    def test_edit_trade_at_row_kena_baris_bwpt_bukan_dooh(self):
+        existing = self._existing_dup()
+        bwpt_row_index = existing[existing["Saham"] == "BWPT"].index[0]
+        ws = MagicMock()
+        updated = {}
+        ws.update.side_effect = lambda rng, vals, **kw: updated.update({"range": rng, "vals": vals})
+        with patch.object(rj, "_get_trades_ws", return_value=ws), \
+             patch.object(rj, "load_trades", return_value=existing):
+            ok, msg = rj.edit_trade_at_row(bwpt_row_index, 9, "2026-07-31", "Broker1", "BWPT",
+                                            "Day Trading", 83, 78, 96, 101, "")
+        assert ok is True, msg
+        assert updated["range"] == f"A{bwpt_row_index + 2}:P{bwpt_row_index + 2}"
+        assert updated["vals"][0][3] == "BWPT"
+
+    def test_row_index_tidak_ada_ditolak_bukan_crash(self):
+        existing = self._existing_dup()
+        ws = MagicMock()
+        with patch.object(rj, "_get_trades_ws", return_value=ws), \
+             patch.object(rj, "load_trades", return_value=existing):
+            ok, msg = rj.close_trade_at_row(999, "2026-08-14", 91)
+        assert ok is False
+        ws.update.assert_not_called()
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v"]))

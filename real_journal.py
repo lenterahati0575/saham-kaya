@@ -181,6 +181,26 @@ def _find_trade_row(trades: pd.DataFrame, no: int, require_open: bool = False):
     return match.iloc[0], match.index[0] + 2, None
 
 
+def _close_at_sheet_row(ws, r: pd.Series, sheet_row: int, tanggal_exit: str, exit_price: float,
+                          brokers: pd.DataFrame) -> tuple[bool, str]:
+    """Inti logika tutup posisi (hitung biaya/Net P/L/Return%/Status, tulis ke sheet) - dipakai
+    close_trade() (cari baris via "No", bisa ambigu -> ditolak lewat _find_trade_row()) MAUPUN
+    close_trade_at_row() (baris SUDAH PASTI dari index DataFrame, tidak perlu cari lagi)."""
+    entry = float(r["Entry (Rp)"])
+    lot = float(r["Lot"])
+    sekuritas = r["Sekuritas"]
+    fee_row = brokers[brokers["Sekuritas"] == sekuritas]
+    biaya_beli_pct = float(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
+    biaya_jual_pct = float(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
+    r_calc = _calculate_trade_result(entry, exit_price, lot, biaya_beli_pct, biaya_jual_pct)
+    ws.update(f"J{sheet_row}:O{sheet_row}", [[
+        tanggal_exit, exit_price, round(r_calc["biaya"], 2), round(r_calc["net_pl"], 2),
+        round(r_calc["return_pct"], 2), r_calc["status"],
+    ]], value_input_option="RAW")
+    load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
+    return True, f"Trade #{r['No']} ({r['Saham']}) ditutup: {r_calc['status']} ({r_calc['return_pct']:+.2f}%)"
+
+
 def close_trade(no: int, tanggal_exit: str, exit_price: float):
     """Tutup posisi: hitung biaya (sesuai fee sekuritas trade itu), Net P/L, Return%, Status."""
     ws = _get_trades_ws()
@@ -189,24 +209,24 @@ def close_trade(no: int, tanggal_exit: str, exit_price: float):
     r, sheet_row, err = _find_trade_row(trades, no, require_open=True)
     if err:
         return False, err
+    return _close_at_sheet_row(ws, r, sheet_row, tanggal_exit, exit_price, brokers)
 
-    entry = float(r["Entry (Rp)"])
-    lot = float(r["Lot"])
-    lembar = lot * 100
-    sekuritas = r["Sekuritas"]
 
-    fee_row = brokers[brokers["Sekuritas"] == sekuritas]
-    biaya_beli_pct = float(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
-    biaya_jual_pct = float(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
-
-    r_calc = _calculate_trade_result(entry, exit_price, lot, biaya_beli_pct, biaya_jual_pct)
-    biaya, net_pl, return_pct, status = r_calc["biaya"], r_calc["net_pl"], r_calc["return_pct"], r_calc["status"]
-
-    ws.update(f"J{sheet_row}:O{sheet_row}", [[
-        tanggal_exit, exit_price, round(biaya, 2), round(net_pl, 2), round(return_pct, 2), status,
-    ]], value_input_option="RAW")
-    load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
-    return True, f"Trade #{no} ditutup: {status} ({return_pct:+.2f}%)"
+def close_trade_at_row(row_index: int, tanggal_exit: str, exit_price: float) -> tuple[bool, str]:
+    """Tutup posisi lewat INDEX BARIS DataFrame yang sudah pasti unik (dari `load_trades()`
+    yang baru saja dipanggil UI, dipasangkan lewat `st.selectbox` yang value-nya index baris,
+    BUKAN "No") - dipakai tab 'Tutup Posisi'. Bug nyata dari laporan user: dropdown yang pakai
+    "No" sbg identitas pilihan bikin baris dgn "No" duplikat (mis. BWPT & DOOH sama2 No=9)
+    TIDAK BISA dibedakan/dipilih terpisah oleh Streamlit selectbox - salah satunya jadi
+    "hilang" dari pilihan. Index DataFrame TIDAK PERNAH duplikat (beda dari "No"), jadi aman
+    dipakai sbg identitas dropdown walau datanya sendiri masih ada "No" yang kembar."""
+    ws = _get_trades_ws()
+    trades = load_trades()
+    if row_index not in trades.index:
+        return False, "Baris trade tidak ditemukan - data mungkin baru berubah, refresh halaman lalu coba lagi."
+    r = trades.loc[row_index]
+    brokers = load_brokers()
+    return _close_at_sheet_row(ws, r, row_index + 2, tanggal_exit, exit_price, brokers)
 
 
 def delete_trade(no: int) -> tuple[bool, str]:
@@ -221,6 +241,20 @@ def delete_trade(no: int) -> tuple[bool, str]:
     return True, f"Trade #{no} dihapus."
 
 
+def delete_trade_at_row(row_index: int) -> tuple[bool, str]:
+    """Hapus transaksi lewat INDEX BARIS DataFrame (lihat penjelasan lengkap di
+    close_trade_at_row() - identitas dropdown "No" saja tidak cukup kalau ada duplikat)."""
+    ws = _get_trades_ws()
+    trades = load_trades()
+    if row_index not in trades.index:
+        return False, "Baris trade tidak ditemukan - data mungkin baru berubah, refresh halaman lalu coba lagi."
+    r = trades.loc[row_index]
+    sheet_row = row_index + 2
+    ws.delete_rows(sheet_row)
+    load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
+    return True, f"Trade #{r['No']} ({r['Saham']}) dihapus."
+
+
 def edit_trade(no: int, tanggal_entry: str, sekuritas: str, saham: str, setup: str,
                 entry: float, sl: float, target: float, lot: int, catatan: str,
                 tanggal_exit: str = "", exit_price: float | None = None) -> tuple[bool, str]:
@@ -232,6 +266,37 @@ def edit_trade(no: int, tanggal_entry: str, sekuritas: str, saham: str, setup: s
     _r, sheet_row, err = _find_trade_row(trades, no)
     if err:
         return False, err
+
+    is_closed = bool(tanggal_exit) and exit_price is not None and exit_price > 0
+    if is_closed:
+        brokers = load_brokers()
+        fee_row = brokers[brokers["Sekuritas"] == sekuritas]
+        biaya_beli_pct = float(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
+        biaya_jual_pct = float(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
+        r_calc = _calculate_trade_result(entry, exit_price, lot, biaya_beli_pct, biaya_jual_pct)
+        exit_row = [tanggal_exit, exit_price, round(r_calc["biaya"], 2), round(r_calc["net_pl"], 2),
+                    round(r_calc["return_pct"], 2), r_calc["status"]]
+    else:
+        exit_row = ["", "", "", "", "", "OPEN"]
+
+    full_row = [no, tanggal_entry, sekuritas, saham.upper(), setup, entry, sl, target, lot] + exit_row + [catatan]
+    ws.update(f"A{sheet_row}:P{sheet_row}", [full_row], value_input_option="RAW")
+    load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
+    return True, f"Trade #{no} berhasil diperbarui."
+
+
+def edit_trade_at_row(row_index: int, no: int, tanggal_entry: str, sekuritas: str, saham: str,
+                       setup: str, entry: float, sl: float, target: float, lot: int, catatan: str,
+                       tanggal_exit: str = "", exit_price: float | None = None) -> tuple[bool, str]:
+    """Edit transaksi lewat INDEX BARIS DataFrame (lihat penjelasan lengkap di
+    close_trade_at_row() - identitas dropdown "No" saja tidak cukup kalau ada duplikat). "No"
+    tetap diminta sbg parameter terpisah krn kolom itu ditulis balik apa adanya (form edit
+    tidak mengubah nomor trade)."""
+    ws = _get_trades_ws()
+    trades = load_trades()
+    if row_index not in trades.index:
+        return False, "Baris trade tidak ditemukan - data mungkin baru berubah, refresh halaman lalu coba lagi."
+    sheet_row = row_index + 2
 
     is_closed = bool(tanggal_exit) and exit_price is not None and exit_price > 0
     if is_closed:

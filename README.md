@@ -1873,6 +1873,37 @@ setelah itu) - jadi kasus BWPT (duplikat dgn trade lama yang SUDAH closed) kemun
 langsung tertangani otomatis tanpa user perlu beberes data manual. 5 test baru
 (`TestFindTradeRowDuplicateNo`), 146/146 pytest lolos.
 
+## Lanjutan Bug Duplikat "No": Dropdown "Hilang" & Field Edit Tidak Update
+
+Sesudah fix di atas dipasang (`_find_trade_row()`), 2 masalah LANJUTAN muncul dari kasus
+duplikat "No" (BWPT & DOOH sama-sama No=9) yang sama:
+
+1. **"nomor 9 2x muncul dengan saham yang berbeda saya mau hapus bwpt tidak bisa karena
+   tidak muncul"** - dropdown "Pilih nomor trade" (tab Tutup Posisi & Edit/Hapus, `app.py`)
+   dulu pakai KOLOM "No" sbg VALUE `st.selectbox`. Kalau "No" kembar, Streamlit tidak bisa
+   membedakan 2 pilihan dgn value yang identik - salah satu (BWPT) efektif "hilang", tidak
+   bisa dipilih terpisah dari yang lain. **Fix**: identitas dropdown diganti pakai INDEX
+   BARIS DataFrame (dijamin unik, beda dari "No" yang bisa kembar), dipasangkan dgn 3 fungsi
+   baru di `real_journal.py` - `close_trade_at_row()`, `delete_trade_at_row()`,
+   `edit_trade_at_row()` - yang menargetkan baris LANGSUNG lewat index, tidak perlu cari
+   ulang lewat "No" sama sekali (jadi aman berapa pun banyaknya "No" yang kembar di data
+   lama). 4 test baru (`TestCloseEditDeleteAtRow`).
+
+2. **"saya sudah pilih dooh tapi tidak update kolom untuk hapus/edit"** - begitu dropdown
+   sudah bisa membedakan BWPT/DOOH, muncul bug LAIN: ganti pilihan dropdown, field2 di
+   bawahnya (Tanggal Entry, Lot, Entry, SL, Target, dst.) TIDAK ikut berubah, tetap
+   menampilkan data trade SEBELUMNYA. Ini PERSIS pola bug yang SAMA dgn Kalkulator (lihat
+   "Fix: pilih saham di Kalkulator..." di atas): field2 itu pakai `value=row_edit[...]` pada
+   widget BERKUNCI (`key="e_tgl"` dkk.) - `value=` cuma berlaku di render PERTAMA widget itu,
+   ganti pilihan dropdown sesudahnya tidak memicu re-evaluasi `value=`. **Fix**: tambah
+   `on_change` di selectbox yang menulis LANGSUNG ke `st.session_state` semua field terkait
+   SEBELUM widget2 itu dibuat (fungsi `_isi_form_edit()`), `value=`/`index=` dihapus dari
+   semua field edit - konsisten dgn pola yang sudah dipakai di Kalkulator. Render pertama
+   (belum pernah ganti dropdown) tetap terisi otomatis lewat pemanggilan manual satu kali
+   (`if "e_lot" not in st.session_state: _isi_form_edit()`).
+
+150/150 pytest lolos setelah kedua fix ini.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

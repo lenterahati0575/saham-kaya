@@ -1693,14 +1693,21 @@ with t_real:
             else:
                 st.markdown("**Posisi yang masih terbuka**")
                 st.dataframe(open_trades[["No", "Tanggal Entry", "Sekuritas", "Saham", "Setup", "Entry (Rp)", "Stop Loss (Rp)", "Target (Rp)", "Lot"]], use_container_width=True, hide_index=True)
-                pilih_no = st.selectbox("Pilih nomor trade yang mau ditutup", options=open_trades["No"].tolist(), format_func=lambda n: f"#{n} - {open_trades.loc[open_trades['No']==n,'Saham'].values[0]}", key="pilih_no_rj")
+                # Identitas pilihan dropdown pakai INDEX BARIS (bukan "No") - "No" bisa
+                # kembar (data lama sblm fix penomoran, lihat real_journal.py > close_trade_at_row())
+                # dan kalau dipakai sbg value selectbox, Streamlit tidak bisa membedakan 2
+                # pilihan dgn value sama - salah satunya jadi "hilang" dari dropdown. Bug
+                # nyata dari laporan user: BWPT tidak muncul krn "No"-nya kembar dgn DOOH.
+                pilih_row = st.selectbox("Pilih trade yang mau ditutup", options=open_trades.index.tolist(),
+                                          format_func=lambda idx: f"#{open_trades.loc[idx,'No']} - {open_trades.loc[idx,'Saham']}",
+                                          key="pilih_no_rj")
                 cc1, cc2 = st.columns(2)
                 with cc1: tgl_exit_in = cc1.date_input("Tanggal Exit", value=datetime.now(), key="tgl_exit_rj")
                 with cc2: exit_price_in = cc2.number_input("Harga Exit (Rp)", min_value=0.0, step=1.0, key="exit_price_rj")
                 if st.button("🔓 Tutup Posisi Ini", type="primary", key="btn_close_rj"):
                     if exit_price_in <= 0: st.error("Harga Exit wajib diisi.")
                     else:
-                        ok, msg = rj.close_trade(pilih_no, tgl_exit_in.strftime("%Y-%m-%d"), exit_price_in)
+                        ok, msg = rj.close_trade_at_row(pilih_row, tgl_exit_in.strftime("%Y-%m-%d"), exit_price_in)
                         if ok: st.success(msg); st.rerun()
                         else: st.error(msg)
         # --- Sub 3: Performance Real ---
@@ -1926,44 +1933,76 @@ with t_real:
             trades_edit = rj.load_trades()
             if trades_edit.empty: st.info("Belum ada trade untuk diedit.")
             else:
-                pilih_edit_no = st.selectbox("Pilih nomor trade", options=trades_edit["No"].tolist(), format_func=lambda n: f"#{n} - {trades_edit.loc[trades_edit['No']==n,'Saham'].values[0]}", key="pilih_edit_no_rj")
-                row_edit = trades_edit[trades_edit["No"] == pilih_edit_no].iloc[0]
                 broker_options_edit = rj.load_brokers()["Sekuritas"].tolist()
+
+                # Bug nyata dari laporan user: "saya sudah pilih dooh tapi tidak update kolom
+                # untuk hapus/edit" - field2 di bawah (Tanggal Entry, Lot, Entry, dst.) dulu
+                # pakai `value=row_edit[...]` pada widget BERKUNCI (key="e_tgl" dkk.) - sesuai
+                # pola bug yang SAMA PERSIS dgn Kalkulator (README > "Fix: pilih saham di
+                # Kalkulator..."): `value=` cuma berlaku di render PERTAMA widget itu, ganti
+                # pilihan dropdown sesudahnya TIDAK mengupdate isi field, cuma dropdown-nya
+                # sendiri yang berubah. Fix: `on_change` di selectbox nulis LANGSUNG ke
+                # session_state semua field terkait SEBELUM widget2 itu dibuat, `value=`/
+                # `index=` dihapus dari semuanya - konsisten dgn pola yg sudah dipakai di
+                # Kalkulator.
+                def _isi_form_edit():
+                    idx = st.session_state.get("pilih_edit_no_rj")
+                    if idx is None or idx not in trades_edit.index:
+                        return
+                    row = trades_edit.loc[idx]
+                    st.session_state["e_tgl"] = str(row["Tanggal Entry"])
+                    st.session_state["e_sek"] = (row["Sekuritas"] if row["Sekuritas"] in broker_options_edit
+                                                  else (broker_options_edit[0] if broker_options_edit else ""))
+                    st.session_state["e_saham"] = str(row["Saham"])
+                    st.session_state["e_setup"] = row["Setup"] if row["Setup"] in rj.SETUP_OPTIONS else rj.SETUP_OPTIONS[0]
+                    st.session_state["e_lot"] = float(row["Lot"] or 1)
+                    st.session_state["e_entry"] = float(row["Entry (Rp)"] or 0)
+                    st.session_state["e_sl"] = float(row["Stop Loss (Rp)"] or 0)
+                    st.session_state["e_target"] = float(row["Target (Rp)"] or 0)
+                    st.session_state["e_catatan"] = str(row["Catatan"] or "")
+                    st.session_state["e_tgl_exit"] = str(row["Tanggal Exit"] or "")
+                    st.session_state["e_exit_price"] = float(row["Exit (Rp)"] or 0)
+
+                # Identitas dropdown pakai INDEX BARIS, bukan "No" - lihat komentar di tab
+                # "Tutup Posisi" (app.py) / close_trade_at_row() (real_journal.py) soal kenapa:
+                # "No" bisa kembar (data lama), bikin salah satu baris "hilang" dari dropdown.
+                pilih_edit_row = st.selectbox("Pilih trade", options=trades_edit.index.tolist(),
+                                               format_func=lambda idx: f"#{trades_edit.loc[idx,'No']} - {trades_edit.loc[idx,'Saham']}",
+                                               key="pilih_edit_no_rj", on_change=_isi_form_edit)
+                if "e_lot" not in st.session_state:
+                    _isi_form_edit()  # render PERTAMA (belum pernah ganti dropdown) - isi manual sekali
+                row_edit = trades_edit.loc[pilih_edit_row]
                 ec1, ec2, ec3 = st.columns(3)
-                with ec1: e_tgl_entry = ec1.text_input("Tanggal Entry (YYYY-MM-DD)", value=str(row_edit["Tanggal Entry"]), key="e_tgl")
-                with ec2: 
-                    idx_broker = broker_options_edit.index(row_edit["Sekuritas"]) if row_edit["Sekuritas"] in broker_options_edit else 0
-                    e_sekuritas = ec2.selectbox("Sekuritas", options=broker_options_edit, index=idx_broker, key="e_sek")
-                with ec3: e_saham = ec3.text_input("Kode Saham", value=str(row_edit["Saham"]), key="e_saham").upper()
+                with ec1: e_tgl_entry = ec1.text_input("Tanggal Entry (YYYY-MM-DD)", key="e_tgl")
+                with ec2: e_sekuritas = ec2.selectbox("Sekuritas", options=broker_options_edit, key="e_sek")
+                with ec3: e_saham = ec3.text_input("Kode Saham", key="e_saham").upper()
                 ec4, ec5 = st.columns(2)
-                with ec4: 
-                    idx_setup = rj.SETUP_OPTIONS.index(row_edit["Setup"]) if row_edit["Setup"] in rj.SETUP_OPTIONS else 0
-                    e_setup = ec4.selectbox("Setup", options=rj.SETUP_OPTIONS, index=idx_setup, key="e_setup")
-                with ec5: e_lot = ec5.number_input("Lot", min_value=1.0, value=float(row_edit["Lot"] or 1), step=1.0, key="e_lot")
+                with ec4: e_setup = ec4.selectbox("Setup", options=rj.SETUP_OPTIONS, key="e_setup")
+                with ec5: e_lot = ec5.number_input("Lot", min_value=1.0, step=1.0, key="e_lot")
                 ec6, ec7, ec8 = st.columns(3)
-                with ec6: e_entry = ec6.number_input("Entry (Rp)", min_value=0.0, value=float(row_edit["Entry (Rp)"] or 0), step=1.0, key="e_entry")
-                with ec7: e_sl = ec7.number_input("Stop Loss (Rp)", min_value=0.0, value=float(row_edit["Stop Loss (Rp)"] or 0), step=1.0, key="e_sl")
-                with ec8: e_target = ec8.number_input("Target (Rp)", min_value=0.0, value=float(row_edit["Target (Rp)"] or 0), step=1.0, key="e_target")
-                e_catatan = st.text_area("Catatan", value=str(row_edit["Catatan"] or ""), height=70, key="e_catatan")
+                with ec6: e_entry = ec6.number_input("Entry (Rp)", min_value=0.0, step=1.0, key="e_entry")
+                with ec7: e_sl = ec7.number_input("Stop Loss (Rp)", min_value=0.0, step=1.0, key="e_sl")
+                with ec8: e_target = ec8.number_input("Target (Rp)", min_value=0.0, step=1.0, key="e_target")
+                e_catatan = st.text_area("Catatan", height=70, key="e_catatan")
                 ec9, ec10 = st.columns(2)
-                with ec9: e_tgl_exit = ec9.text_input("Tanggal Exit (YYYY-MM-DD, kosongkan kalau OPEN)", value=str(row_edit["Tanggal Exit"] or ""), key="e_tgl_exit")
-                with ec10: e_exit_price = ec10.number_input("Harga Exit (Rp, 0 = OPEN)", min_value=0.0, value=float(row_edit["Exit (Rp)"] or 0), step=1.0, key="e_exit_price")
+                with ec9: e_tgl_exit = ec9.text_input("Tanggal Exit (YYYY-MM-DD, kosongkan kalau OPEN)", key="e_tgl_exit")
+                with ec10: e_exit_price = ec10.number_input("Harga Exit (Rp, 0 = OPEN)", min_value=0.0, step=1.0, key="e_exit_price")
                 bcol1, bcol2 = st.columns(2)
                 with bcol1:
                     if st.button("💾 Simpan Perubahan", type="primary", use_container_width=True, key="btn_edit_rj"):
                         if not e_saham or e_entry <= 0: st.error("Kode saham dan Entry wajib diisi.")
                         else:
-                            ok, msg = rj.edit_trade(pilih_edit_no, e_tgl_entry, e_sekuritas, e_saham, e_setup, e_entry, e_sl, e_target, e_lot, e_catatan, tanggal_exit=e_tgl_exit if e_exit_price > 0 else "", exit_price=e_exit_price if e_exit_price > 0 else None)
+                            ok, msg = rj.edit_trade_at_row(pilih_edit_row, row_edit["No"], e_tgl_entry, e_sekuritas, e_saham, e_setup, e_entry, e_sl, e_target, e_lot, e_catatan, tanggal_exit=e_tgl_exit if e_exit_price > 0 else "", exit_price=e_exit_price if e_exit_price > 0 else None)
                             if ok: st.success(msg)
                             else: st.error(msg)
                 with bcol2:
                     if st.button("🗑️ Hapus Trade Ini", use_container_width=True, key="btn_delete_rj"):
-                        st.session_state["confirm_delete_rj"] = pilih_edit_no
-                if st.session_state.get("confirm_delete_rj") == pilih_edit_no:
-                    st.warning(f"Yakin mau hapus trade #{pilih_edit_no} ({row_edit['Saham']})? Tidak bisa dibatalkan.")
+                        st.session_state["confirm_delete_rj"] = pilih_edit_row
+                if st.session_state.get("confirm_delete_rj") == pilih_edit_row:
+                    st.warning(f"Yakin mau hapus trade #{row_edit['No']} ({row_edit['Saham']})? Tidak bisa dibatalkan.")
                     yes_col, no_col = st.columns(2)
                     if yes_col.button("Ya, hapus", type="primary", key="btn_confirm_delete_rj"):
-                        ok, msg = rj.delete_trade(pilih_edit_no)
+                        ok, msg = rj.delete_trade_at_row(pilih_edit_row)
                         del st.session_state["confirm_delete_rj"]
                         if ok: st.success(msg); st.rerun()
                         else: st.error(msg)
