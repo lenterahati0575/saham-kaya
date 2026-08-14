@@ -143,16 +143,52 @@ def open_trade(tanggal_entry: str, sekuritas: str, saham: str, setup: str,
     return no
 
 
+def _find_trade_row(trades: pd.DataFrame, no: int, require_open: bool = False):
+    """Cari SATU baris yang cocok dgn nomor 'No'. Return (row, sheet_row, error_msg) -
+    row/sheet_row None kalau error.
+
+    Bug nyata dari laporan user: coba tutup posisi (mis. BWPT di harga 91, di bawah target)
+    lewat 'Jurnal Real' - TIDAK ada pesan error, TAPI datanya tidak berubah (Status tetap
+    OPEN). Root cause: close_trade()/delete_trade()/edit_trade() dulu cuma `.iloc[0]` dari
+    hasil filter "No"==no TANPA cek apakah hasilnya lebih dari 1 baris. Kalau ada 2 baris
+    dgn "No" yang sama (sisa dari bug lama SEBELUM open_trade() diperbaiki jadi
+    `No = MAX(No)+1` - baris yang KADUNG duplikat sebelum fix itu tidak otomatis
+    dibersihkan), update/hapus diam-diam mengenai baris PERTAMA yang cocok - yang bisa saja
+    itu baris LAIN (mis. trade lama yang sudah closed), BUKAN posisi yang sebenarnya
+    dimaksud user. Tidak ada exception/error krn dari sudut pandang kode, "berhasil update
+    SATU baris" - cuma salah sasaran.
+
+    require_open=True (dipakai close_trade - kita SPESIFIK mau tutup posisi yg masih OPEN):
+    kalau di antara baris yg "No"-nya duplikat ada yang Status=="OPEN", persempit ke situ
+    dulu sebelum menilai ambigu - INI kemungkinan besar memperbaiki kasus BWPT tanpa perlu
+    user membersihkan data manual, SELAMA cuma satu dari yang duplikat itu masih OPEN.
+    Kalau masih tersisa >1 kandidat setelah itu, baru dianggap benar2 ambigu & ditolak
+    dgn pesan jelas (drpd diam2 salah sasaran)."""
+    match = trades[trades["No"].astype(str) == str(no)]
+    if require_open and "Status" in trades.columns:
+        match_open = match[match["Status"] == "OPEN"]
+        if not match_open.empty:
+            match = match_open
+    if match.empty:
+        return None, None, "Nomor trade tidak ditemukan."
+    if len(match) > 1:
+        return None, None, (
+            f"Ditemukan {len(match)} baris dengan nomor #{no} yang sama (kemungkinan data "
+            "duplikat lama) - tidak bisa dipastikan baris mana yang dimaksud, jadi TIDAK "
+            "diproses (drpd salah sasaran diam-diam). Cek manual kolom 'No' di Google Sheets "
+            "(tab TRADES), pastikan tidak ada nomor yang kembar, lalu coba lagi."
+        )
+    return match.iloc[0], match.index[0] + 2, None
+
+
 def close_trade(no: int, tanggal_exit: str, exit_price: float):
     """Tutup posisi: hitung biaya (sesuai fee sekuritas trade itu), Net P/L, Return%, Status."""
     ws = _get_trades_ws()
     trades = load_trades()
     brokers = load_brokers()
-    row_match = trades[trades["No"].astype(str) == str(no)]
-    if row_match.empty:
-        return False, "Nomor trade tidak ditemukan."
-    r = row_match.iloc[0]
-    sheet_row = row_match.index[0] + 2  # +2: header + 0-based index
+    r, sheet_row, err = _find_trade_row(trades, no, require_open=True)
+    if err:
+        return False, err
 
     entry = float(r["Entry (Rp)"])
     lot = float(r["Lot"])
@@ -177,10 +213,9 @@ def delete_trade(no: int) -> tuple[bool, str]:
     """Hapus transaksi (misal salah input total, batal dicatat)."""
     ws = _get_trades_ws()
     trades = load_trades()
-    row_match = trades[trades["No"].astype(str) == str(no)]
-    if row_match.empty:
-        return False, "Nomor trade tidak ditemukan."
-    sheet_row = row_match.index[0] + 2  # +2: header + 0-based index
+    _r, sheet_row, err = _find_trade_row(trades, no)
+    if err:
+        return False, err
     ws.delete_rows(sheet_row)
     load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return True, f"Trade #{no} dihapus."
@@ -194,10 +229,9 @@ def edit_trade(no: int, tanggal_entry: str, sekuritas: str, saham: str, setup: s
     ada data 'nyangkut' dari perhitungan lama yang sudah tidak sesuai."""
     ws = _get_trades_ws()
     trades = load_trades()
-    row_match = trades[trades["No"].astype(str) == str(no)]
-    if row_match.empty:
-        return False, "Nomor trade tidak ditemukan."
-    sheet_row = row_match.index[0] + 2
+    _r, sheet_row, err = _find_trade_row(trades, no)
+    if err:
+        return False, err
 
     is_closed = bool(tanggal_exit) and exit_price is not None and exit_price > 0
     if is_closed:

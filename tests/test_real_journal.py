@@ -135,6 +135,106 @@ class TestOpenTradeNumbering:
         assert no != len(existing) + 1  # jaminan eksplisit: BUKAN lagi len+1
 
 
+class TestFindTradeRowDuplicateNo:
+    """Bug nyata dari laporan user: coba tutup posisi BWPT (target 96) di harga 91 lewat
+    'Jurnal Real' - TIDAK ada error, TAPI datanya tidak berubah (Status tetap OPEN). Root
+    cause: close_trade()/delete_trade()/edit_trade() dulu cuma `.iloc[0]` dari hasil filter
+    "No"==no TANPA cek duplikat - kalau ada 2 baris dgn "No" sama (sisa dari bug lama
+    SEBELUM open_trade() diperbaiki ke `No = MAX(No)+1`, lihat TestOpenTradeNumbering di
+    atas - baris yg KADUNG duplikat sebelum fix itu tidak otomatis dibersihkan), update
+    diam2 kena baris PERTAMA yang cocok, bukan yang dimaksud. Fix: _find_trade_row() sekarang
+    menolak tegas kalau ambigu (>1 match), dan utk close_trade() secara khusus mencoba
+    disambiguasi dulu lewat Status=="OPEN" (krn menutup posisi ITU SENDIRI menyiratkan
+    "yang masih OPEN")."""
+
+    def _row(self, no, saham, status, entry=100, sekuritas="Broker1"):
+        return [no, "2026-08-01", sekuritas, saham, "Swing", entry, 90, 120, 10,
+                "" if status == "OPEN" else "2026-08-05",
+                "" if status == "OPEN" else 105,
+                "" if status == "OPEN" else 5, "" if status == "OPEN" else 500,
+                "" if status == "OPEN" else 5.0, status, ""]
+
+    def _existing(self, rows):
+        return pd.DataFrame(rows, columns=rj.TRADES_HEADERS)
+
+    def test_close_trade_duplikat_no_disambiguasi_lewat_status_open_berhasil(self):
+        # No=5 dobel: satu sudah CLOSED lama (AAAA), satu masih OPEN (BWPT) - close_trade()
+        # harus kena baris BWPT (baris ke-3, sheet_row=4), BUKAN baris AAAA (sheet_row=2).
+        existing = self._existing([
+            self._row(5, "AAAA", "PROFIT"),
+            self._row(1, "ZZZZ", "OPEN"),
+            self._row(5, "BWPT", "OPEN", entry=88),
+        ])
+        ws = MagicMock()
+        updated = {}
+        ws.update.side_effect = lambda rng, vals, **kw: updated.update({"range": rng, "vals": vals})
+        with patch.object(rj, "_get_trades_ws", return_value=ws), \
+             patch.object(rj, "load_trades", return_value=existing), \
+             patch.object(rj, "load_brokers", return_value=pd.DataFrame(
+                 [["Broker1", 0.15, 0.25]], columns=rj.BROKER_HEADERS)):
+            ok, msg = rj.close_trade(5, "2026-08-10", 91)
+        assert ok is True, msg
+        assert updated["range"] == "J4:O4"  # baris ke-3 (index 2) + 2 = BWPT, bukan AAAA (J2:O2)
+
+    def test_close_trade_duplikat_no_sama_sama_open_ditolak_bukan_salah_sasaran(self):
+        # Kalau KEDUANYA masih OPEN, tidak bisa disambiguasi lewat status - HARUS ditolak
+        # tegas (drpd diam2 pilih salah satu).
+        existing = self._existing([
+            self._row(5, "AAAA", "OPEN"),
+            self._row(5, "BWPT", "OPEN", entry=88),
+        ])
+        ws = MagicMock()
+        with patch.object(rj, "_get_trades_ws", return_value=ws), \
+             patch.object(rj, "load_trades", return_value=existing), \
+             patch.object(rj, "load_brokers", return_value=pd.DataFrame(
+                 [["Broker1", 0.15, 0.25]], columns=rj.BROKER_HEADERS)):
+            ok, msg = rj.close_trade(5, "2026-08-10", 91)
+        assert ok is False
+        assert "duplikat" in msg.lower() or "ditemukan" in msg.lower()
+        ws.update.assert_not_called()
+
+    def test_delete_trade_duplikat_no_ditolak(self):
+        existing = self._existing([
+            self._row(5, "AAAA", "PROFIT"),
+            self._row(5, "BWPT", "OPEN", entry=88),
+        ])
+        ws = MagicMock()
+        with patch.object(rj, "_get_trades_ws", return_value=ws), \
+             patch.object(rj, "load_trades", return_value=existing):
+            ok, msg = rj.delete_trade(5)
+        assert ok is False
+        ws.delete_rows.assert_not_called()
+
+    def test_edit_trade_duplikat_no_ditolak(self):
+        existing = self._existing([
+            self._row(5, "AAAA", "PROFIT"),
+            self._row(5, "BWPT", "OPEN", entry=88),
+        ])
+        ws = MagicMock()
+        with patch.object(rj, "_get_trades_ws", return_value=ws), \
+             patch.object(rj, "load_trades", return_value=existing):
+            ok, msg = rj.edit_trade(5, "2026-08-01", "Broker1", "BWPT", "Swing", 88, 80, 96, 10, "")
+        assert ok is False
+        ws.update.assert_not_called()
+
+    def test_close_trade_tanpa_duplikat_tetap_normal(self):
+        existing = self._existing([
+            self._row(1, "ZZZZ", "OPEN"),
+            self._row(2, "BWPT", "OPEN", entry=88),
+        ])
+        ws = MagicMock()
+        updated = {}
+        ws.update.side_effect = lambda rng, vals, **kw: updated.update({"range": rng, "vals": vals})
+        with patch.object(rj, "_get_trades_ws", return_value=ws), \
+             patch.object(rj, "load_trades", return_value=existing), \
+             patch.object(rj, "load_brokers", return_value=pd.DataFrame(
+                 [["Broker1", 0.15, 0.25]], columns=rj.BROKER_HEADERS)):
+            ok, msg = rj.close_trade(2, "2026-08-10", 91)
+        assert ok is True, msg
+        assert updated["range"] == "J3:O3"  # baris ke-2 (index 1) + 2 = BWPT
+        assert updated["vals"][0][1] == 91  # Exit (Rp) tercatat 91, bukan diblokir
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v"]))

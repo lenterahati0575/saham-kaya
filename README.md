@@ -1845,6 +1845,34 @@ jadi verdict-nya bisa beda tipis dari app lain untuk kondisi borderline.
 - Ini bukan rekomendasi keuangan. Semua skor & sinyal adalah alat bantu screening, keputusan
   akhir tetap di tangan Bro.
 
+## Bug: Tutup Posisi di Jurnal Real Diam-diam Salah Sasaran (duplikat "No")
+
+User: "saya akan tutup posisi BWPT target harga 96, tetapi saya jual di harga 91 karena
+market lagi bearish. mengapa tidak bisa saya catat tutup diharga 91" - gejalanya: tidak ada
+pesan error, tapi setelah disimpan Status BWPT tetap OPEN & Harga Exit tetap kosong.
+
+Dicek ke kode: field "Harga Exit" (`app.py`, tab Jurnal Real > Tutup Posisi) memang BEBAS
+isi angka berapa saja, tidak dibatasi harus di TP/SL - jadi 91 seharusnya tersimpan tanpa
+masalah. Root cause sebenarnya ada di `real_journal.py`: `close_trade()`/`delete_trade()`/
+`edit_trade()` dulu cari baris cuma lewat `trades[trades["No"]==no].iloc[0]` TANPA cek
+apakah hasilnya lebih dari 1 baris. Ini PERSIS risiko yang sudah pernah didokumentasikan di
+`TestOpenTradeNumbering` (lihat `tests/test_real_journal.py`) saat `open_trade()` diperbaiki
+dari `No=len(existing)+1` jadi `No=MAX(No)+1` - TAPI baris yang KADUNG duplikat SEBELUM fix
+itu tidak otomatis dibersihkan dari sheet, dan sisi baca (`close_trade` dkk.) tidak pernah
+ikut diperbaiki. Kalau "No" BWPT kebetulan sama dengan trade LAIN yang sudah closed lebih
+dulu, `close_trade()` diam-diam meng-update baris trade lama itu (berhasil, tidak ada
+exception) - BWPT sendiri tidak pernah tersentuh, makanya user tidak lihat pesan error tapi
+datanya juga tidak berubah.
+
+**Fix**: helper baru `_find_trade_row()` dipakai oleh ketiga fungsi - kalau ditemukan >1
+baris dgn "No" yang sama, TOLAK TEGAS dgn pesan jelas (minta user cek kolom "No" di
+spreadsheet) drpd diam-diam update baris yang salah. Khusus `close_trade()` (menutup posisi
+yang SPESIFIK sedang OPEN): kalau di antara yang duplikat ada tepat SATU baris berstatus
+OPEN, disambiguasi otomatis ke situ dulu (baru dianggap benar2 ambigu kalau masih >1 kandidat
+setelah itu) - jadi kasus BWPT (duplikat dgn trade lama yang SUDAH closed) kemungkinan besar
+langsung tertangani otomatis tanpa user perlu beberes data manual. 5 test baru
+(`TestFindTradeRowDuplicateNo`), 146/146 pytest lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
