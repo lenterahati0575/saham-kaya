@@ -1945,12 +1945,24 @@ with t_real:
                 # session_state semua field terkait SEBELUM widget2 itu dibuat, `value=`/
                 # `index=` dihapus dari semuanya - konsisten dgn pola yg sudah dipakai di
                 # Kalkulator.
+                def _parse_tanggal_edit(s):
+                    """Parse string tanggal tersimpan ("2026-07-30" dkk.) jadi objek date utk
+                    st.date_input - fallback ke hari ini kalau kosong/formatnya rusak (drpd
+                    crash)."""
+                    s = str(s or "").strip()
+                    if not s:
+                        return datetime.now().date()
+                    try:
+                        return datetime.strptime(s[:10], "%Y-%m-%d").date()
+                    except Exception:
+                        return datetime.now().date()
+
                 def _isi_form_edit():
                     idx = st.session_state.get("pilih_edit_no_rj")
                     if idx is None or idx not in trades_edit.index:
                         return
                     row = trades_edit.loc[idx]
-                    st.session_state["e_tgl"] = str(row["Tanggal Entry"])
+                    st.session_state["e_tgl_entry_date"] = _parse_tanggal_edit(row["Tanggal Entry"])
                     st.session_state["e_sek"] = (row["Sekuritas"] if row["Sekuritas"] in broker_options_edit
                                                   else (broker_options_edit[0] if broker_options_edit else ""))
                     st.session_state["e_saham"] = str(row["Saham"])
@@ -1960,7 +1972,9 @@ with t_real:
                     st.session_state["e_sl"] = float(row["Stop Loss (Rp)"] or 0)
                     st.session_state["e_target"] = float(row["Target (Rp)"] or 0)
                     st.session_state["e_catatan"] = str(row["Catatan"] or "")
-                    st.session_state["e_tgl_exit"] = str(row["Tanggal Exit"] or "")
+                    sudah_closed = bool(str(row["Tanggal Exit"] or "").strip())
+                    st.session_state["e_sudah_closed"] = sudah_closed
+                    st.session_state["e_tgl_exit_date"] = _parse_tanggal_edit(row["Tanggal Exit"]) if sudah_closed else datetime.now().date()
                     st.session_state["e_exit_price"] = float(row["Exit (Rp)"] or 0)
 
                 # Identitas dropdown pakai INDEX BARIS, bukan "No" - lihat komentar di tab
@@ -1969,13 +1983,17 @@ with t_real:
                 pilih_edit_row = st.selectbox("Pilih trade", options=trades_edit.index.tolist(),
                                                format_func=lambda idx: f"#{trades_edit.loc[idx,'No']} - {trades_edit.loc[idx,'Saham']}",
                                                key="pilih_edit_no_rj", on_change=_isi_form_edit)
-                if "e_lot" not in st.session_state:
+                if "e_tgl_entry_date" not in st.session_state:
                     _isi_form_edit()  # render PERTAMA (belum pernah ganti dropdown) - isi manual sekali
                 row_edit = trades_edit.loc[pilih_edit_row]
                 ec1, ec2, ec3 = st.columns(3)
-                with ec1: e_tgl_entry = ec1.text_input("Tanggal Entry (YYYY-MM-DD)", key="e_tgl")
+                # Tanggal Entry & Exit dulu text_input polos ("harus diketik" - laporan user) -
+                # sekarang date_input (kalender klik) spt di tab Tutup Posisi, KONSISTEN.
+                # Tanggal Entry aman langsung date_input (selalu ada, tidak pernah kosong).
+                with ec1: e_tgl_entry_date = ec1.date_input("Tanggal Entry", key="e_tgl_entry_date")
                 with ec2: e_sekuritas = ec2.selectbox("Sekuritas", options=broker_options_edit, key="e_sek")
                 with ec3: e_saham = ec3.text_input("Kode Saham", key="e_saham").upper()
+                e_tgl_entry = e_tgl_entry_date.strftime("%Y-%m-%d")
                 ec4, ec5 = st.columns(2)
                 with ec4: e_setup = ec4.selectbox("Setup", options=rj.SETUP_OPTIONS, key="e_setup")
                 with ec5: e_lot = ec5.number_input("Lot", min_value=1.0, step=1.0, key="e_lot")
@@ -1984,15 +2002,27 @@ with t_real:
                 with ec7: e_sl = ec7.number_input("Stop Loss (Rp)", min_value=0.0, step=1.0, key="e_sl")
                 with ec8: e_target = ec8.number_input("Target (Rp)", min_value=0.0, step=1.0, key="e_target")
                 e_catatan = st.text_area("Catatan", height=70, key="e_catatan")
+                # Tanggal Exit BEDA dari Entry - bisa KOSONG kalau posisi masih OPEN, dan
+                # st.date_input tidak punya konsep "kosong". Diselesaikan lewat checkbox: kalau
+                # dicentang baru muncul date_input (klik kalender), kalau tidak dianggap OPEN
+                # (Tanggal Exit dikirim "" ke edit_trade_at_row(), SAMA spt sebelumnya).
+                e_sudah_closed = st.checkbox("Posisi ini sudah CLOSED (ada Tanggal & Harga Exit)", key="e_sudah_closed")
                 ec9, ec10 = st.columns(2)
-                with ec9: e_tgl_exit = ec9.text_input("Tanggal Exit (YYYY-MM-DD, kosongkan kalau OPEN)", key="e_tgl_exit")
-                with ec10: e_exit_price = ec10.number_input("Harga Exit (Rp, 0 = OPEN)", min_value=0.0, step=1.0, key="e_exit_price")
+                with ec9:
+                    if e_sudah_closed:
+                        e_tgl_exit_date = ec9.date_input("Tanggal Exit", key="e_tgl_exit_date")
+                        e_tgl_exit = e_tgl_exit_date.strftime("%Y-%m-%d")
+                    else:
+                        ec9.caption("Posisi OPEN - tidak ada Tanggal Exit.")
+                        e_tgl_exit = ""
+                with ec10: e_exit_price = ec10.number_input("Harga Exit (Rp)", min_value=0.0, step=1.0, key="e_exit_price", disabled=not e_sudah_closed)
                 bcol1, bcol2 = st.columns(2)
                 with bcol1:
                     if st.button("💾 Simpan Perubahan", type="primary", use_container_width=True, key="btn_edit_rj"):
                         if not e_saham or e_entry <= 0: st.error("Kode saham dan Entry wajib diisi.")
+                        elif e_sudah_closed and e_exit_price <= 0: st.error("Sudah dicentang CLOSED - Harga Exit wajib diisi.")
                         else:
-                            ok, msg = rj.edit_trade_at_row(pilih_edit_row, row_edit["No"], e_tgl_entry, e_sekuritas, e_saham, e_setup, e_entry, e_sl, e_target, e_lot, e_catatan, tanggal_exit=e_tgl_exit if e_exit_price > 0 else "", exit_price=e_exit_price if e_exit_price > 0 else None)
+                            ok, msg = rj.edit_trade_at_row(pilih_edit_row, row_edit["No"], e_tgl_entry, e_sekuritas, e_saham, e_setup, e_entry, e_sl, e_target, e_lot, e_catatan, tanggal_exit=e_tgl_exit if e_sudah_closed else "", exit_price=e_exit_price if e_sudah_closed else None)
                             if ok: st.success(msg)
                             else: st.error(msg)
                 with bcol2:

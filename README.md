@@ -1904,6 +1904,21 @@ duplikat "No" (BWPT & DOOH sama-sama No=9) yang sama:
 
 150/150 pytest lolos setelah kedua fix ini.
 
+## Tanggal di Edit/Hapus Jadi Kalender (dulu Harus Diketik)
+
+User: "tanggal di header edit hapus harus diketik" - field "Tanggal Entry" & "Tanggal Exit"
+di tab Jurnal Real > Edit/Hapus dulu pakai `st.text_input` polos (format "YYYY-MM-DD" harus
+diketik manual), TIDAK konsisten dgn tab "Tutup Posisi" yang sudah pakai `st.date_input`
+(klik kalender).
+
+**Fix**: "Tanggal Entry" diganti `st.date_input` langsung (selalu ada isi, tidak pernah
+kosong - aman). "Tanggal Exit" beda kasus - bisa KOSONG kalau posisi masih OPEN, dan
+`st.date_input` tidak punya konsep "kosong" - diselesaikan lewat checkbox baru "Posisi ini
+sudah CLOSED": dicentang baru muncul date_input (klik kalender) + Harga Exit wajib diisi,
+tidak dicentang berarti OPEN (Tanggal Exit otomatis dikirim kosong, sama seperti perilaku
+lama). String tanggal tersimpan (mis. "2026-07-30") diparse ke objek `date` lewat
+`_parse_tanggal_edit()` - fallback ke hari ini kalau kosong/formatnya rusak, drpd crash.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
