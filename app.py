@@ -677,9 +677,29 @@ else:
     universe_scan = universe
 tickers = universe_scan["Kode"].tolist()[:int(n_scan)]
 if refresh: st.cache_data.clear()
+
+
+# Bug performa nyata dari laporan user ("aplikasi ini sangat lambat loadingnya", TERUS-MENERUS
+# bukan cuma sesekali): build_screener_table() (hitung Score/Signal/MA20/50/200/Donchian/Gap
+# utk SAMPAI 400 saham) dulu TIDAK di-cache sama sekali - padahal fetch harga mentahnya
+# (get_price_history_with_report) SUDAH di-cache 15 menit. Streamlit menjalankan ULANG SELURUH
+# skrip (termasuk semua ~19 tab, terlepas mana yang lagi dibuka user - fakta arsitektur
+# `st.tabs()` yang sudah diverifikasi sesi ini) di SETIAP interaksi apa pun, jadi perhitungan
+# CPU berat ini (rolling MA/Donchian/gap utk ratusan saham) diulang dari nol tiap klik di
+# MANA PUN di app, bukan cuma saat data live benar2 di-refresh. Fix: bungkus fetch+compute
+# jadi SATU fungsi ter-cache (kunci: tickers + params, SAMA persis pola yg sudah dipakai
+# _fetch_price_history_cached_v2) - ttl 300 detik msh cukup segar utk screener harian, TAPI
+# menghapus biaya kalkulasi berulang di setiap klik selama app dibuka.
+@st.cache_data(ttl=300, show_spinner=False)
+def _scan_dan_bangun_tabel(tickers_key: list[str], params_key: dict):
+    price_data_inner, failed_tickers_inner = get_price_history_with_report(tickers_key)
+    universe_inner = load_ticker_universe()
+    table_inner = build_screener_table(price_data_inner, universe_inner, params_key)
+    return price_data_inner, table_inner, failed_tickers_inner
+
+
 with st.spinner(f"Mengambil data live untuk {len(tickers)} saham..."):
-    price_data, failed_tickers = get_price_history_with_report(tickers)
-    table = build_screener_table(price_data, universe, params)
+    price_data, table, failed_tickers = _scan_dan_bangun_tabel(tickers, params)
     if table.empty: st.warning("Belum ada data yang berhasil diambil."); st.stop()
 if failed_tickers:
     with st.expander(f"⚠️ {len(failed_tickers)} saham gagal diambil setelah retry (bukan diam-diam "

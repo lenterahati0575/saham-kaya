@@ -1919,6 +1919,29 @@ tidak dicentang berarti OPEN (Tanggal Exit otomatis dikirim kosong, sama seperti
 lama). String tanggal tersimpan (mis. "2026-07-30") diparse ke objek `date` lewat
 `_parse_tanggal_edit()` - fallback ke hari ini kalau kosong/formatnya rusak, drpd crash.
 
+## Bug Performa: build_screener_table() Tidak Di-cache, Diulang Tiap Klik
+
+User: "yang saya rasakan aplikasi ini sangat lambat loadingnya" - lalu dikonfirmasi lambatnya
+**TERUS-MENERUS** (bukan cuma sesekali/pas awal buka).
+
+Audit arsitektur: sebagian besar fitur AMAN (Sentiment di-cache 30 menit; Fundamental
+Screener/Value Invest/Perbandingan Saham semuanya di balik tombol, tidak auto-jalan). Root
+cause sebenarnya: `build_screener_table()` (hitung Score/Signal/MA20/50/200/Donchian/Gap utk
+sampai 400 saham) **TIDAK di-cache sama sekali** - padahal fetch harga mentahnya
+(`get_price_history_with_report`, via `_fetch_price_history_cached_v2`) SUDAH di-cache 15
+menit. Karena `st.tabs()` menjalankan ULANG SELURUH skrip (termasuk ~19 tab, terlepas mana
+yang sedang dibuka user - fakta arsitektur yang sudah diverifikasi sesi ini) di SETIAP
+interaksi APA PUN di app (klik tab lain, ubah slider di sidebar yang tidak terkait, dst.),
+perhitungan CPU berat ini (rolling MA/Donchian/klasifikasi gap utk ratusan saham) diulang
+dari nol tiap klik - bukan cuma saat data live benar2 di-refresh.
+
+**Fix**: fetch+compute dibungkus jadi SATU fungsi ter-cache `_scan_dan_bangun_tabel(tickers,
+params)` (`app.py`), kunci cache = tickers + params (pola SAMA yang sudah dipakai
+`_fetch_price_history_cached_v2` di `screener.py`), ttl 300 detik. **Diverifikasi lewat
+preview lokal** (bukan cuma py_compile/pytest): scan awal 398/400 saham berhasil, lalu pindah
+tab lain - caption "Terakhir refresh" TETAP menunjukkan jam yang SAMA (bukti cache benar2
+dipakai, tidak fetch/hitung ulang). 150/150 pytest tetap lolos (tidak ada regresi fungsional).
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
