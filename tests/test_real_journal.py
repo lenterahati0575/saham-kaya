@@ -306,6 +306,56 @@ class TestCloseEditDeleteAtRow:
         ws.update.assert_not_called()
 
 
+class TestNoNumpyLeakKeSheet:
+    """Bug nyata dari laporan user (live app): klik 'Simpan Perubahan' langsung error
+    'TypeError: Object of type int64 is not JSON serializable'. Root cause: app.py mengirim
+    `row_edit["No"]` (hasil akses langsung ke Series pandas via `.loc[idx]`) sbg parameter
+    `no` - itu numpy.int64, BUKAN `int` Python biasa (beda dari kode lama yg pakai
+    `.tolist()`, otomatis convert). gspread men-JSON-kan tiap sel sebelum dikirim ke Google
+    Sheets API - numpy.int64/float64 tidak bisa di-JSON-kan langsung. Fix: cast eksplisit di
+    edit_trade_at_row()/_close_at_sheet_row() SEBELUM ws.update() dipanggil - test ini pakai
+    `json.dumps` langsung ke payload yang dikirim utk memverifikasi tidak ada lagi tipe numpy
+    yang lolos, bukan cuma cek nilainya benar."""
+
+    def _assert_json_serializable(self, payload):
+        import json
+        json.dumps(payload)  # akan raise TypeError kalau ada numpy.int64/float64 di dalamnya
+
+    def test_edit_trade_at_row_dgn_no_numpy_int64_tidak_crash(self):
+        existing = pd.DataFrame([
+            [9, "2026-07-31", "Broker1", "BWPT", "Day Trading", 83, 78, 96, 101,
+             "", "", "", "", "", "OPEN", ""],
+        ], columns=rj.TRADES_HEADERS)
+        no_numpy = existing.loc[0, "No"]  # numpy.int64, PERSIS spt row_edit["No"] di app.py
+        assert type(no_numpy).__name__ in ("int64", "int32", "int")  # sanity: memang numpy kalau di lingkungan ini
+        ws = MagicMock()
+        captured = {}
+        ws.update.side_effect = lambda rng, vals, **kw: (self._assert_json_serializable(vals), captured.update({"vals": vals}))
+        with patch.object(rj, "_get_trades_ws", return_value=ws), \
+             patch.object(rj, "load_trades", return_value=existing):
+            ok, msg = rj.edit_trade_at_row(0, no_numpy, "2026-07-31", "Broker1", "BWPT",
+                                            "Day Trading", 83, 78, 96, 101, "")
+        assert ok is True, msg
+        assert captured["vals"][0][0] == 9
+        assert isinstance(captured["vals"][0][0], int) and not isinstance(captured["vals"][0][0], bool)
+
+    def test_close_trade_at_row_dgn_lot_numpy_tidak_crash(self):
+        existing = pd.DataFrame([
+            [9, "2026-07-31", "Broker1", "BWPT", "Day Trading", 83, 78, 96, 101,
+             "", "", "", "", "", "OPEN", ""],
+        ], columns=rj.TRADES_HEADERS)
+        ws = MagicMock()
+        captured = {}
+        ws.update.side_effect = lambda rng, vals, **kw: (self._assert_json_serializable(vals), captured.update({"vals": vals}))
+        with patch.object(rj, "_get_trades_ws", return_value=ws), \
+             patch.object(rj, "load_trades", return_value=existing), \
+             patch.object(rj, "load_brokers", return_value=pd.DataFrame(
+                 [["Broker1", 0.15, 0.25]], columns=rj.BROKER_HEADERS)):
+            ok, msg = rj.close_trade_at_row(0, "2026-08-14", 91)
+        assert ok is True, msg
+        self._assert_json_serializable(captured["vals"])
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v"]))

@@ -2042,7 +2042,7 @@ with t_real:
                         if not e_saham or e_entry <= 0: st.error("Kode saham dan Entry wajib diisi.")
                         elif e_sudah_closed and e_exit_price <= 0: st.error("Sudah dicentang CLOSED - Harga Exit wajib diisi.")
                         else:
-                            ok, msg = rj.edit_trade_at_row(pilih_edit_row, row_edit["No"], e_tgl_entry, e_sekuritas, e_saham, e_setup, e_entry, e_sl, e_target, e_lot, e_catatan, tanggal_exit=e_tgl_exit if e_sudah_closed else "", exit_price=e_exit_price if e_sudah_closed else None)
+                            ok, msg = rj.edit_trade_at_row(pilih_edit_row, int(row_edit["No"]), e_tgl_entry, e_sekuritas, e_saham, e_setup, e_entry, e_sl, e_target, e_lot, e_catatan, tanggal_exit=e_tgl_exit if e_sudah_closed else "", exit_price=e_exit_price if e_sudah_closed else None)
                             if ok: st.success(msg)
                             else: st.error(msg)
                 with bcol2:

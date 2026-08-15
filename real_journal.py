@@ -186,16 +186,21 @@ def _close_at_sheet_row(ws, r: pd.Series, sheet_row: int, tanggal_exit: str, exi
     """Inti logika tutup posisi (hitung biaya/Net P/L/Return%/Status, tulis ke sheet) - dipakai
     close_trade() (cari baris via "No", bisa ambigu -> ditolak lewat _find_trade_row()) MAUPUN
     close_trade_at_row() (baris SUDAH PASTI dari index DataFrame, tidak perlu cari lagi)."""
+    # exit_price/tanggal_exit di-cast eksplisit ke tipe Python murni - lihat komentar panjang
+    # di edit_trade_at_row() soal TypeError "int64 is not JSON serializable" kalau nilai numpy
+    # (dari akses Series pandas langsung) kelolos sampai ke ws.update().
     entry = float(r["Entry (Rp)"])
     lot = float(r["Lot"])
+    exit_price = float(exit_price)
+    tanggal_exit = str(tanggal_exit)
     sekuritas = r["Sekuritas"]
     fee_row = brokers[brokers["Sekuritas"] == sekuritas]
     biaya_beli_pct = float(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
     biaya_jual_pct = float(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
     r_calc = _calculate_trade_result(entry, exit_price, lot, biaya_beli_pct, biaya_jual_pct)
     ws.update(f"J{sheet_row}:O{sheet_row}", [[
-        tanggal_exit, exit_price, round(r_calc["biaya"], 2), round(r_calc["net_pl"], 2),
-        round(r_calc["return_pct"], 2), r_calc["status"],
+        tanggal_exit, exit_price, float(round(r_calc["biaya"], 2)), float(round(r_calc["net_pl"], 2)),
+        float(round(r_calc["return_pct"], 2)), str(r_calc["status"]),
     ]], value_input_option="RAW")
     load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return True, f"Trade #{r['No']} ({r['Saham']}) ditutup: {r_calc['status']} ({r_calc['return_pct']:+.2f}%)"
@@ -267,19 +272,34 @@ def edit_trade(no: int, tanggal_entry: str, sekuritas: str, saham: str, setup: s
     if err:
         return False, err
 
+    # Bug nyata dari laporan user: klik "Simpan Perubahan" langsung error
+    # "TypeError: Object of type int64 is not JSON serializable" - root cause: `no` dikirim
+    # dari app.py sbg `row_edit["No"]`, hasil akses langsung ke Series pandas (`.loc[idx]`)
+    # yang TIDAK lewat `.tolist()` (beda dari kode lama yg pakai `pilih_edit_no` dari
+    # `st.selectbox(options=trades_edit["No"].tolist(), ...)` - `.tolist()` otomatis
+    # mengonversi numpy.int64 jadi `int` Python biasa, itulah kenapa dulu aman). gspread
+    # men-JSON-kan tiap sel sebelum dikirim - numpy.int64/float64 BUKAN tipe yang bisa
+    # di-JSON-kan bawaan Python, beda dari int/float murni. Fix: cast eksplisit SEMUA nilai
+    # numerik ke tipe Python murni tepat sebelum ditulis ke sheet, drpd berharap semua
+    # pemanggil selalu kirim tipe yang benar.
+    no = int(no)
+    entry = float(entry); sl = float(sl); target = float(target); lot = float(lot)
+
     is_closed = bool(tanggal_exit) and exit_price is not None and exit_price > 0
     if is_closed:
+        exit_price = float(exit_price)
         brokers = load_brokers()
         fee_row = brokers[brokers["Sekuritas"] == sekuritas]
         biaya_beli_pct = float(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
         biaya_jual_pct = float(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
         r_calc = _calculate_trade_result(entry, exit_price, lot, biaya_beli_pct, biaya_jual_pct)
-        exit_row = [tanggal_exit, exit_price, round(r_calc["biaya"], 2), round(r_calc["net_pl"], 2),
-                    round(r_calc["return_pct"], 2), r_calc["status"]]
+        exit_row = [tanggal_exit, exit_price, float(round(r_calc["biaya"], 2)), float(round(r_calc["net_pl"], 2)),
+                    float(round(r_calc["return_pct"], 2)), str(r_calc["status"])]
     else:
         exit_row = ["", "", "", "", "", "OPEN"]
 
-    full_row = [no, tanggal_entry, sekuritas, saham.upper(), setup, entry, sl, target, lot] + exit_row + [catatan]
+    full_row = [no, str(tanggal_entry), str(sekuritas), str(saham).upper(), str(setup),
+                entry, sl, target, lot] + exit_row + [str(catatan)]
     ws.update(f"A{sheet_row}:P{sheet_row}", [full_row], value_input_option="RAW")
     load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return True, f"Trade #{no} berhasil diperbarui."
@@ -298,19 +318,34 @@ def edit_trade_at_row(row_index: int, no: int, tanggal_entry: str, sekuritas: st
         return False, "Baris trade tidak ditemukan - data mungkin baru berubah, refresh halaman lalu coba lagi."
     sheet_row = row_index + 2
 
+    # Bug nyata dari laporan user: klik "Simpan Perubahan" langsung error
+    # "TypeError: Object of type int64 is not JSON serializable" - root cause: `no` dikirim
+    # dari app.py sbg `row_edit["No"]`, hasil akses langsung ke Series pandas (`.loc[idx]`)
+    # yang TIDAK lewat `.tolist()` (beda dari kode lama yg pakai `pilih_edit_no` dari
+    # `st.selectbox(options=trades_edit["No"].tolist(), ...)` - `.tolist()` otomatis
+    # mengonversi numpy.int64 jadi `int` Python biasa, itulah kenapa dulu aman). gspread
+    # men-JSON-kan tiap sel sebelum dikirim - numpy.int64/float64 BUKAN tipe yang bisa
+    # di-JSON-kan bawaan Python, beda dari int/float murni. Fix: cast eksplisit SEMUA nilai
+    # numerik ke tipe Python murni tepat sebelum ditulis ke sheet, drpd berharap semua
+    # pemanggil selalu kirim tipe yang benar.
+    no = int(no)
+    entry = float(entry); sl = float(sl); target = float(target); lot = float(lot)
+
     is_closed = bool(tanggal_exit) and exit_price is not None and exit_price > 0
     if is_closed:
+        exit_price = float(exit_price)
         brokers = load_brokers()
         fee_row = brokers[brokers["Sekuritas"] == sekuritas]
         biaya_beli_pct = float(fee_row["Biaya Beli (%)"].values[0]) if not fee_row.empty else 0.15
         biaya_jual_pct = float(fee_row["Biaya Jual (%)"].values[0]) if not fee_row.empty else 0.25
         r_calc = _calculate_trade_result(entry, exit_price, lot, biaya_beli_pct, biaya_jual_pct)
-        exit_row = [tanggal_exit, exit_price, round(r_calc["biaya"], 2), round(r_calc["net_pl"], 2),
-                    round(r_calc["return_pct"], 2), r_calc["status"]]
+        exit_row = [tanggal_exit, exit_price, float(round(r_calc["biaya"], 2)), float(round(r_calc["net_pl"], 2)),
+                    float(round(r_calc["return_pct"], 2)), str(r_calc["status"])]
     else:
         exit_row = ["", "", "", "", "", "OPEN"]
 
-    full_row = [no, tanggal_entry, sekuritas, saham.upper(), setup, entry, sl, target, lot] + exit_row + [catatan]
+    full_row = [no, str(tanggal_entry), str(sekuritas), str(saham).upper(), str(setup),
+                entry, sl, target, lot] + exit_row + [str(catatan)]
     ws.update(f"A{sheet_row}:P{sheet_row}", [full_row], value_input_option="RAW")
     load_trades.clear()  # data berubah - paksa baca ulang di panggilan berikutnya
     return True, f"Trade #{no} berhasil diperbarui."

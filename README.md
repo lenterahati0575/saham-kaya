@@ -1942,6 +1942,30 @@ preview lokal** (bukan cuma py_compile/pytest): scan awal 398/400 saham berhasil
 tab lain - caption "Terakhir refresh" TETAP menunjukkan jam yang SAMA (bukti cache benar2
 dipakai, tidak fetch/hitung ulang). 150/150 pytest tetap lolos (tidak ada regresi fungsional).
 
+## Regresi: "Simpan Perubahan" Error TypeError int64 (dari Fix Dropdown Sendiri)
+
+User klik "Simpan Perubahan" di tab Edit/Hapus, langsung error `TypeError: Object of type
+int64 is not JSON serializable` (log Streamlit Cloud). Ini REGRESI dari fix dropdown
+"index baris" sesi ini sendiri: `edit_trade_at_row()` dipanggil dgn `row_edit["No"]` - hasil
+akses LANGSUNG ke Series pandas (`trades_edit.loc[idx]`) - yang bertipe `numpy.int64`, BUKAN
+`int` Python biasa. Kode LAMA (`pilih_edit_no` dari `st.selectbox(options=trades_edit["No"]
+.tolist(), ...)`) AMAN krn `.tolist()` otomatis mengonversi numpy.int64 jadi `int` murni -
+begitu identitas dropdown diganti ke index baris (utk fix bug "No" duplikat), jalur konversi
+implisit ini ikut hilang tanpa disadari.
+
+gspread men-JSON-kan tiap sel sebelum dikirim ke Google Sheets API - tipe numpy (int64/
+float64) TIDAK bisa di-JSON-kan langsung oleh `json.dumps()` bawaan Python, beda dari int/
+float murni yang bisa.
+
+**Fix**: cast eksplisit SEMUA nilai numerik (`no`, `entry`, `sl`, `target`, `lot`,
+`exit_price`) ke tipe Python murni (`int()`/`float()`) tepat sebelum ditulis ke sheet, di
+`edit_trade_at_row()`, `edit_trade()`, DAN `_close_at_sheet_row()` (dipakai `close_trade()`/
+`close_trade_at_row()`) - drpd berharap semua pemanggil (sekarang & masa depan) selalu kirim
+tipe yang benar. Cast tambahan juga di titik panggil (`app.py`: `int(row_edit["No"])`)
+sbg lapisan kedua. 2 test baru (`TestNoNumpyLeakKeSheet`) memverifikasi lewat `json.dumps()`
+LANGSUNG ke payload yang akan dikirim (bukan cuma cek nilainya benar) - reproduksi persis
+kasus numpy.int64 dari DataFrame. 152/152 pytest lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
