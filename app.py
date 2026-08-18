@@ -1608,18 +1608,35 @@ with t_perf:
                         floating_total += fl
                         floating_list.append({"Saham": saham, "Entry": entry, "Current": current, "Lot": lot, "Floating (Rp)": fl})
             n_open, n_closed = len(open_df), len(closed_df)
-            n_win = int((closed_df["P&L (Rp)"] > 0).sum()) if not closed_df.empty and "P&L (Rp)" in closed_df.columns else 0
-            n_loss = int((closed_df["P&L (Rp)"] < 0).sum()) if not closed_df.empty and "P&L (Rp)" in closed_df.columns else 0
-            winrate = (n_win / n_closed * 100) if n_closed > 0 else 0
-            gross_profit = closed_df.loc[closed_df["P&L (Rp)"] > 0, "P&L (Rp)"].sum() if n_win > 0 else 0
-            gross_loss = abs(closed_df.loc[closed_df["P&L (Rp)"] < 0, "P&L (Rp)"].sum()) if n_loss > 0 else 0
+            # Bug nyata dari laporan user: "Win Rate 2,1%" (1 WIN, 47 LOSS) bikin kaget -
+            # ternyata dari 48 closed, cuma 28 yang BENAR SL (rugi -3% s.d -10%), 19 SISANYA
+            # BREAKEVEN (SL berhasil ditrail ke breakeven, P&L cuma -0,4% = ongkos fee) - tapi
+            # dihitung SAMA PERSIS spt LOSS penuh krn cuma dicek tanda P&L (Rp) < 0 tanpa
+            # bedakan Status "BREAKEVEN" dari "LOSS (SL)". Akibatnya trailing-stop yang
+            # BEKERJA BENAR (melindungi modal) malah bikin gambaran performa jauh lebih buruk
+            # dari kenyataan. Fix: BREAKEVEN dipisah jadi kategori TERSENDIRI (bukan menang
+            # ATAU kalah - modal kembali minus fee), Win Rate & Profit Factor dihitung dari
+            # WIN vs LOSS ASLI saja (BREAKEVEN tidak masuk keduanya).
+            status_str_perf = closed_df["Status"].astype(str) if "Status" in closed_df.columns else pd.Series([""] * len(closed_df))
+            is_breakeven_perf = status_str_perf.str.contains("BREAKEVEN", case=False, na=False)
+            breakeven_df = closed_df[is_breakeven_perf]
+            winloss_df = closed_df[~is_breakeven_perf]
+            n_breakeven = len(breakeven_df)
+            n_win = int((winloss_df["P&L (Rp)"] > 0).sum()) if not winloss_df.empty and "P&L (Rp)" in winloss_df.columns else 0
+            n_loss = int((winloss_df["P&L (Rp)"] < 0).sum()) if not winloss_df.empty and "P&L (Rp)" in winloss_df.columns else 0
+            winrate = (n_win / (n_win + n_loss) * 100) if (n_win + n_loss) > 0 else 0
+            gross_profit = winloss_df.loc[winloss_df["P&L (Rp)"] > 0, "P&L (Rp)"].sum() if n_win > 0 else 0
+            gross_loss = abs(winloss_df.loc[winloss_df["P&L (Rp)"] < 0, "P&L (Rp)"].sum()) if n_loss > 0 else 0
             pf = gross_profit / gross_loss if gross_loss > 0 else float("inf")
             pf_str = "∞" if pf == float("inf") else f"{pf:.2f}"
             equity_now = modal_awal_bt + realized_total + (floating_total if include_open else 0)
             total_return = ((equity_now / modal_awal_bt) - 1) * 100
             st.markdown("### 📊 Ringkasan Performance Backtest")
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Total Posisi", n_open + n_closed); c2.metric("OPEN", n_open); c3.metric("CLOSED", n_closed); c4.metric("WIN", n_win); c5.metric("LOSS", n_loss)
+            st.caption("Win Rate & Profit Factor dihitung dari WIN vs LOSS asli saja - BREAKEVEN "
+                       "(SL berhasil ditrail, cuma rugi tipis krn fee) TIDAK dihitung sbg kalah.")
+            c1, c2, c3, c4, c5, c6 = st.columns(6)
+            c1.metric("Total Posisi", n_open + n_closed); c2.metric("OPEN", n_open); c3.metric("CLOSED", n_closed)
+            c4.metric("WIN", n_win); c5.metric("LOSS", n_loss); c6.metric("BREAKEVEN", n_breakeven)
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Win Rate", f"{winrate:.1f}%"); m2.metric("Profit Factor", pf_str); m3.metric("Realized P/L", f"Rp{realized_total:,.0f}"); m4.metric("Floating P/L", f"Rp{floating_total:,.0f}")
             st.divider()

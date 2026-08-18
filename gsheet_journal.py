@@ -481,14 +481,15 @@ def summarize(df: pd.DataFrame) -> dict:
     """Hitung ringkasan statistik dari semua posisi."""
     if df.empty:
         return {
-            "total": 0, 
-            "open": 0, 
-            "win": 0, 
-            "loss": 0, 
-            "winrate": 0.0, 
+            "total": 0,
+            "open": 0,
+            "win": 0,
+            "loss": 0,
+            "breakeven": 0,
+            "winrate": 0.0,
             "total_pnl_pct": 0.0
         }
-    
+
     total = len(df)
     open_n = int((df["Status"] == "OPEN").sum()) if "Status" in df.columns else 0
 
@@ -499,22 +500,28 @@ def summarize(df: pd.DataFrame) -> dict:
     # kata WIN/LOSS). Akibatnya kotak WIN/LOSS/Win Rate tetap 0 walau ada force-sell yang
     # untung besar (mis. P&L +701%). Fix: force-sell diklasifikasi WIN/LOSS dari TANDA
     # P&L (%) aktualnya (untung/rugi tetap tercatat, cuma exit reason-nya beda dari TP/SL).
+    #
+    # Bug nyata LANJUTAN dari laporan user (tab Performance): "Win Rate 2,1%" (1 WIN, 47
+    # LOSS) - ternyata dari 48 closed, cuma 28 BENAR kena SL, 19 SISANYA "BREAKEVEN" (SL
+    # berhasil ditrail ke breakeven, P&L cuma -0,4% krn fee) - versi lama menganggap
+    # BREAKEVEN SAMA PERSIS dgn LOSS (P&L<=0 -> loss_mask), padahal itu trailing-stop
+    # BEKERJA BENAR melindungi modal, bukan kegagalan spt SL penuh (-3% s.d -10%). Fix:
+    # BREAKEVEN dipisah jadi kategori TERSENDIRI (bukan menang ATAU kalah), Win Rate dihitung
+    # dari WIN vs LOSS asli saja (BREAKEVEN tidak masuk keduanya).
     win = 0
     loss = 0
+    breakeven = 0
     if "Status" in df.columns:
         status_str = df["Status"].astype(str)
         is_force_sell = status_str.str.contains("FORCE SELL", case=False, na=False)
-        # "BREAKEVEN" (SL ditrail, lihat auto_close_positions()) juga TIDAK mengandung
-        # kata WIN/LOSS - sama kelas bug dgn FORCE SELL di atas, diklasifikasi dari TANDA
-        # P&L (%) juga (biasanya rugi tipis krn fee, walau posisi terhindar dari SL asli).
         is_breakeven = status_str.str.contains("BREAKEVEN", case=False, na=False)
         pnl_num = pd.to_numeric(df["P&L (%)"], errors="coerce") if "P&L (%)" in df.columns else pd.Series([float("nan")] * len(df), index=df.index)
-        ambigu = is_force_sell | is_breakeven
-        win_mask = status_str.str.contains("WIN", case=False, na=False) | (ambigu & (pnl_num > 0))
-        loss_mask = status_str.str.contains("LOSS", case=False, na=False) | (ambigu & (pnl_num <= 0))
-        win = int(win_mask.sum())
-        loss = int(loss_mask.sum())
-    
+        win_mask = status_str.str.contains("WIN", case=False, na=False) | (is_force_sell & (pnl_num > 0))
+        loss_mask = status_str.str.contains("LOSS", case=False, na=False) | (is_force_sell & (pnl_num <= 0))
+        win = int((win_mask & ~is_breakeven).sum())
+        loss = int((loss_mask & ~is_breakeven).sum())
+        breakeven = int(is_breakeven.sum())
+
     closed_n = win + loss
     winrate = (win / closed_n * 100) if closed_n > 0 else 0.0
     
@@ -526,11 +533,12 @@ def summarize(df: pd.DataFrame) -> dict:
             total_pnl_pct = 0.0
     
     return {
-        "total": total, 
-        "open": open_n, 
-        "win": win, 
+        "total": total,
+        "open": open_n,
+        "win": win,
         "loss": loss,
-        "winrate": winrate, 
+        "breakeven": breakeven,
+        "winrate": winrate,
         "total_pnl_pct": total_pnl_pct
     }
 

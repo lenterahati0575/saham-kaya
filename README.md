@@ -2055,6 +2055,43 @@ matikan sendiri drpd terkunci hard-code. `auto_run.py` (skrip otomatis tanpa pen
 SENGAJA tidak ikut toggle ini - tetap `require_minervini_position=True` (default paling
 tervalidasi) terlepas apa yang dipilih user di dashboard interaktifnya.
 
+## Bug Serius: "Win Rate 2,1%" Ternyata BREAKEVEN Dihitung Sama Dengan LOSS
+
+User lapor lewat contoh nyata (KIJA, dibeli 10 Agustus): tab Performance menunjukkan
+**Win Rate 2,1% (1 WIN, 47 LOSS dari 48 closed), Profit Factor 0,08** - jauh lebih buruk dari
+backtest manapun sepanjang sesi ini (terburuk masih ~30% win rate). User curiga "ada yang
+keliru", minta diaudit.
+
+**Diagnosis 2 lapis**:
+1. **KIJA sendiri** dicek presisi pakai data harga asli: sinyal 10 Agustus (Score=6, Signal
+   BUY) menghasilkan Entry=133, SL=129,4 (dari MA20, LEBIH SEMPIT dari Donchian Low=120
+   ataupun cap 10%=119,7). Low hari berikutnya (11 Agustus)=124 -> SL kena SATU HARI setelah
+   entry, rugi -2,7%. Harga lanjut turun sampai 119 (14 Agustus) baru meledak +35% ke 166
+   (18 Agustus) - **whipsaw murni**, persis kelas kejadian yang sudah diukur sebelumnya
+   (~6,1% dari semua trade SL, README > "Referensi Screener Profesional"). BUKAN bug -
+   KIJA saat itu 63,5% di bawah high 52 minggunya, filter Minervini yang baru dipasang
+   JUSTRU akan membuang KIJA dari kandidat (trade ini terjadi sebelum filter itu ada).
+2. **Angka Win Rate 2,1% itu sendiri BUG NYATA**: dicek manual dari CSV export sheet POSISI
+   (48 closed) - ternyata cuma **28 BENAR kena SL** (rugi -3% s.d -10%, MATCH persis dgn
+   baseline SL rate 55-59% yang sudah divalidasi sebelumnya), **19 SISANYA "BREAKEVEN"**
+   (SL berhasil ditrail ke breakeven - fitur trailing-stop BEKERJA BENAR, cuma rugi tipis
+   -0,4% krn fee) - TAPI keduanya (app.py tab Performance, DAN `gsheet_journal.py`'s
+   `summarize()`) menghitung BREAKEVEN SAMA PERSIS dgn LOSS penuh (cuma cek tanda P&L <= 0,
+   tidak bedakan Status "BREAKEVEN" dari "LOSS (SL)"). Akibatnya trailing-stop yang
+   MELINDUNGI modal malah bikin gambaran performa jauh lebih buruk dari kenyataan: Win Rate
+   asli (WIN vs LOSS beneran, BREAKEVEN dipisah) = **1/(1+28) = 3,4%** - masih rendah (masuk
+   akal, periode ~1,5 minggu ini memang lagi sepi kemenangan) TAPI kategorinya jujur, bukan
+   1/48=2,1% yang menyamarkan 19 posisi yang sebenarnya AMAN.
+
+**Fix**: BREAKEVEN dipisah jadi kategori TERSENDIRI (kotak metrik baru "BREAKEVEN" di tab
+Performance) - Win Rate & Profit Factor dihitung dari WIN vs LOSS asli saja, BREAKEVEN
+tidak masuk pembilang maupun penyebut keduanya. Diperbaiki di 2 tempat: `app.py` (tab
+Performance, kalkulasi inline) dan `gsheet_journal.py`'s `summarize()` (field baru
+`"breakeven"` di dict return, walau saat ini belum ada pemanggil aktif - diperbaiki sekalian
+utk konsistensi). 1 test baru (`test_breakeven_tidak_dihitung_sbg_loss`) mereproduksi skala
+kasus asli (1 WIN, 2 LOSS asli, 2 BREAKEVEN -> winrate harus 1/3, BUKAN 1/5). 164/164 pytest
+lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

@@ -368,6 +368,24 @@ class TestSummarizeForceSell:
         assert stats["win"] == 1
         assert stats["loss"] == 1
 
+    def test_breakeven_tidak_dihitung_sbg_loss(self):
+        # Bug nyata dari laporan user: sheet POSISI asli (48 closed: 1 WIN, 28 LOSS (SL)
+        # sungguhan, 19 BREAKEVEN) - Win Rate lama menghitung 1/48=2,1% krn BREAKEVEN
+        # (P&L selalu sedikit negatif krn fee) dianggap SAMA dgn LOSS. Reproduksi persis
+        # skala kasus itu (disederhanakan: 1 WIN, 2 LOSS asli, 2 BREAKEVEN).
+        df = pd.DataFrame([
+            _make_closed_row("WIN (TP)", 23.55),
+            _make_closed_row("LOSS (SL)", -10.72),
+            _make_closed_row("LOSS (SL)", -6.97),
+            _make_closed_row("BREAKEVEN", -0.4),
+            _make_closed_row("BREAKEVEN", -0.4),
+        ])
+        stats = gj.summarize(df)
+        assert stats["win"] == 1
+        assert stats["loss"] == 2  # BUKAN 4 (2 LOSS asli + 2 BREAKEVEN yg salah dihitung)
+        assert stats["breakeven"] == 2
+        assert round(stats["winrate"], 1) == round(1 / 3 * 100, 1)  # 1/(1+2), BUKAN 1/5
+
 
 class TestLoadPositionsLocaleParsing:
     """Bug nyata dari laporan user (screenshot tab Performance): P&L GDST tampil
