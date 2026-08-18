@@ -569,6 +569,61 @@ class TestMinerviniPosition52w:
         assert m["Pct Below High52w"] is None
 
 
+class TestMomentum5HariBeruntun:
+    """Pola dari kursus user: "ciri saham yang mau naik - Close lebih tinggi dari hari
+    sebelumnya selama minimal 5 hari, dengan volume meningkat". Dibacktest (350 saham/3
+    tahun, walk-forward): TERVALIDASI KUAT - avg return +0,43%/+1,51% (1D/5D) vs baseline
+    +0,10%/+0,48%, split-half KONSISTEN POSITIF di kedua paruh - lebih solid dari VCP.
+    "Volume meningkat" diuji 2 definisi: LONGGAR (rata2 5 hari > rata2 20 hari sebelumnya)
+    tervalidasi; KETAT (naik SETIAP hari) GAGAL split-half (N kecil) - LONGGAR yang dipakai.
+    README > "Referensi Screener Profesional"."""
+
+    def _histori_dgn_streak(self, close_5hari, volume_5hari, volume_sebelum=1_000_000.0):
+        """25 hari flat (harga & volume dasar), lalu 5 hari terakhir diganti sesuai param -
+        cukup utk syarat len(df)>=25 di compute_metrics()."""
+        df = _flat_ohlcv(25, price=close_5hari[0] - 10, volume=volume_sebelum)
+        tambahan = pd.DataFrame({
+            "Open": close_5hari, "High": close_5hari, "Low": close_5hari,
+            "Close": close_5hari, "Volume": volume_5hari,
+        }, index=pd.bdate_range(df.index[-1] + pd.Timedelta(days=1), periods=5))
+        return pd.concat([df.iloc[:-5], tambahan])  # ganti 5 hari terakhir, total tetap 25
+
+    def test_true_saat_5_hari_naik_beruntun_dan_volume_rata2_lbh_tinggi(self):
+        df = self._histori_dgn_streak(
+            close_5hari=[1000, 1010, 1020, 1030, 1040],
+            volume_5hari=[3_000_000] * 5,  # jauh > volume dasar 1jt
+            volume_sebelum=1_000_000.0,
+        )
+        m = compute_metrics(df, _params())
+        assert m["Momentum 5 Hari"] is True
+
+    def test_false_kalau_hari_terakhir_turun_streak_putus(self):
+        df = self._histori_dgn_streak(
+            close_5hari=[1000, 1010, 1020, 1030, 1025],  # hari terakhir TURUN
+            volume_5hari=[3_000_000] * 5,
+            volume_sebelum=1_000_000.0,
+        )
+        m = compute_metrics(df, _params())
+        assert m["Momentum 5 Hari"] is False
+
+    def test_false_kalau_naik_beruntun_tapi_volume_tidak_naik(self):
+        df = self._histori_dgn_streak(
+            close_5hari=[1000, 1010, 1020, 1030, 1040],
+            volume_5hari=[800_000] * 5,  # LEBIH RENDAH dari volume dasar 1jt
+            volume_sebelum=1_000_000.0,
+        )
+        m = compute_metrics(df, _params())
+        assert m["Momentum 5 Hari"] is False
+
+    def test_false_kalau_histori_kurang_dari_25_hari_bukan_crash(self):
+        # 24 hari: cukup utk compute_metrics() sendiri (min lookback+2=22), TAPI kurang dari
+        # 25 yg dibutuhkan Momentum 5 Hari - harus False, BUKAN crash.
+        df = _uptrend_ohlcv(24, start_price=1000.0, step=5.0)
+        m = compute_metrics(df, _params())
+        assert m is not None
+        assert m["Momentum 5 Hari"] is False
+
+
 class TestMinerviniFilterDiTradeCandidates:
     def _fixture_gagal_minervini(self):
         # Flat 300 hari (gagal posisi 52w - lihat test di atas), breakout kecil hari

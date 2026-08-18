@@ -895,6 +895,8 @@ with t_kandidat:
             kolom_merge = ["Kode", "Tipe", "RR", "Entry", "Target", "Stop Loss", "Risiko %"]
             if "VCP Kuat" in cands_valid.columns:
                 kolom_merge.append("VCP Kuat")
+            if "Momentum 5 Hari" in cands_valid.columns:
+                kolom_merge.append("Momentum 5 Hari")
             picks = picks.merge(cands_valid[kolom_merge], on="Kode", how="inner")
         else:
             picks = picks.iloc[0:0]
@@ -944,6 +946,11 @@ with t_kandidat:
         # baik).
         if "VCP Kuat" in show.columns:
             show["VCP Kuat"] = show["VCP Kuat"].map(lambda x: "💪 Ya" if x else "-")
+        # Momentum 5 Hari Beruntun + Volume Naik (pola dari kursus user, TERVALIDASI lebih
+        # kuat dari VCP - avg return +0,43%/+1,51% 1D/5D, split-half konsisten POSITIF di
+        # kedua paruh) - INFO + boost ranking (lihat komentar di screener.py).
+        if "Momentum 5 Hari" in show.columns:
+            show["Momentum 5 Hari"] = show["Momentum 5 Hari"].map(lambda x: "🚀 Ya" if x else "-")
         for col in ["RR", "Entry", "Target", "Stop Loss"]:
             if col in show.columns:
                 if col == "RR":
@@ -953,7 +960,7 @@ with t_kandidat:
         # "Tipe" (selalu sama) & "Harga" (= Entry dibulatkan) tidak ditampilkan - redundan.
         kolom_tampil = [
             "Kode", "Nama", "Signal", "Score",
-            "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss", "VCP Kuat",
+            "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss", "VCP Kuat", "Momentum 5 Hari",
             "Rekomendasi", "Confidence", "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
             "Perubahan %", "Naik dari Open %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
         ]

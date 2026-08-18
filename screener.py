@@ -719,6 +719,26 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
             vcp_rasio_kontraksi = float(recent10 / prior10)
             vcp_kuat = vcp_rasio_kontraksi < 0.7
 
+    # 3. Momentum 5 Hari Beruntun + Volume Naik - pola dari kursus user ("ciri saham yang mau
+    #    naik: Close lebih tinggi dari hari sebelumnya selama minimal 5 hari, dengan volume
+    #    meningkat"). DIUJI dulu (350 saham/3 tahun, walk-forward): TERVALIDASI KUAT -
+    #    Return 1D avg +0,43% (vs baseline +0,10%, 4x lipat), Return 5D avg +1,51% (vs
+    #    baseline +0,48%, 3x lipat), win rate 40,6-45,7% (lbh tinggi dari Kandidat biasa
+    #    ~30-35%), split-half KONSISTEN POSITIF di kedua paruh (bukan cuma searah, tapi
+    #    dua2nya benar2 untung) - lebih solid dari VCP di atas. "Volume meningkat" diuji 2
+    #    definisi: LONGGAR (rata2 volume 5 hari > rata2 20 hari SEBELUM streak) tervalidasi
+    #    baik; KETAT (volume naik SETIAP hari, monoton) GAGAL split-half (N=78 terlalu
+    #    kecil, berbalik arah antar paruh) - jadi definisi LONGGAR yang dipakai di sini.
+    #    README > "Referensi Screener Profesional" (bagian Momentum 5 Hari).
+    momentum_5hari_naik = False
+    if len(df) >= 25:
+        window_close_5 = df["Close"].iloc[-5:]
+        naik_beruntun_5hari = all(window_close_5.iloc[i] > window_close_5.iloc[i - 1] for i in range(1, 5))
+        if naik_beruntun_5hari:
+            window_vol_5 = df["Volume"].iloc[-5:]
+            vol_sebelum_20 = df["Volume"].iloc[-25:-5].mean()
+            momentum_5hari_naik = bool(pd.notna(vol_sebelum_20) and window_vol_5.mean() > vol_sebelum_20)
+
     volume = float(last["Volume"])
     avg_volume20 = float(df["Volume"].tail(20).mean())
     value_traded = close * avg_volume20
@@ -838,6 +858,7 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         "Pct Below High52w": round(pct_below_high52w, 1) if pct_below_high52w is not None else None,
         "VCP Kuat": vcp_kuat,
         "VCP Rasio Kontraksi": round(vcp_rasio_kontraksi, 2) if vcp_rasio_kontraksi is not None else None,
+        "Momentum 5 Hari": momentum_5hari_naik,
     }
 
 
@@ -919,6 +940,7 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
         "Open=Low", "Setup A Breakout", "Open=Low Trend Aligned",
         "Gap %", "Gap Type", "Gap Konfirmasi", "Gap Breakout", "Gap Trend Aligned",
         "Minervini Position OK", "Pct Above Low52w", "Pct Below High52w", "VCP Kuat", "VCP Rasio Kontraksi",
+        "Momentum 5 Hari",
         "Donchian High", "Donchian Low", "Avg Volume 20D", "Volume"
     ]
     
@@ -1044,6 +1066,12 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
             # info kolom, TIDAK diikutkan ke Score (jaga kalibrasi score_buy/score_strong_buy
             # yang sudah divalidasi terpisah).
             "VCP Kuat": bool(r.get("VCP Kuat", False)),
+            # Momentum 5 Hari Beruntun + Volume Naik (pola dari kursus user) - TERVALIDASI
+            # LEBIH KUAT dari VCP di atas: avg return +0,43%/+1,51% (1D/5D) vs baseline
+            # +0,10%/+0,48%, split-half KONSISTEN POSITIF di kedua paruh (bukan cuma searah).
+            # Diprioritaskan LEBIH TINGGI dari VCP Kuat di sort ranking (README > "Referensi
+            # Screener Profesional").
+            "Momentum 5 Hari": bool(r.get("Momentum 5 Hari", False)),
         }
         if total_equity and total_equity > 0:
             risiko_rp = total_equity * (risk_pct / 100)
@@ -1059,10 +1087,12 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
     out = pd.DataFrame(rows)
     if out.empty:
         return out
-    # VCP Kuat jadi kunci sort KEDUA (setelah RR, sebelum Score) - kandidat dgn kontraksi
-    # volatilitas kuat diprioritaskan di antara RR yang sama, TANPA mengubah RR/Score itu
-    # sendiri (lihat komentar "VCP Kuat" di atas kenapa ini boost ranking, bukan filter keras).
-    return out.sort_values(["RR", "VCP Kuat", "Score"], ascending=[False, False, False]).head(top_n).reset_index(drop=True)
+    # Urutan sort: RR (utama) -> Momentum 5 Hari (boost KEDUA, bukti lebih kuat & konsisten
+    # dari VCP - lihat komentar "Momentum 5 Hari" di atas) -> VCP Kuat (boost KETIGA) -> Score.
+    # Kandidat dgn RR sama diprioritaskan yg lolos boost2 ini, TANPA mengubah RR/Score itu
+    # sendiri (keduanya cuma boost ranking, bukan filter keras - lihat komentar masing2).
+    return out.sort_values(["RR", "Momentum 5 Hari", "VCP Kuat", "Score"],
+                            ascending=[False, False, False, False]).head(top_n).reset_index(drop=True)
 
 
 def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:

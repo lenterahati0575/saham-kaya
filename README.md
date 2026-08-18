@@ -2158,6 +2158,46 @@ SWING TRADE vs WAIT) DIPISAH dari batas AUTO-BUY. Sidebar baru "Jumlah Kandidat 
 tetap cuma ambil `max_new_per_day` TERATAS (sudah terurut RR/VCP/Score) dari daftar yang
 lebih panjang ini, jadi user tetap lihat banyak pilihan tanpa auto-buy jadi lebih agresif.
 
+## Momentum 5 Hari Beruntun + Volume Naik - Pola dari Kursus User, TERVALIDASI Kuat
+
+User: "saya pernah ikut kursus, disitu diajarkan ciri2 saham yang mau naik: setiap candle
+close lebih tinggi dari hari sebelumnya selama minimal 5 hari dengan volume meningkat."
+Dibacktest dulu (350 saham/3 tahun, walk-forward, no-lookahead) sebelum diterapkan - SAMA
+disiplin dgn semua ide baru sesi ini.
+
+**"Volume meningkat" diuji 2 definisi** (istilah ini ambigu, bisa multi-tafsir):
+- **LONGGAR**: rata-rata volume selama 5 hari streak > rata-rata volume 20 hari SEBELUM
+  streak dimulai (volume keseluruhan lebih tinggi dari biasanya).
+- **KETAT**: volume naik SETIAP HARI juga selama 5 hari itu (monoton naik, sama seperti
+  closenya).
+
+| Definisi | N sinyal | Return 1D | Return 5D | Split-half |
+|---|---|---|---|---|
+| **LONGGAR** | **1.124** | **+0,43%** (vs baseline +0,10%) | **+1,51%** (vs baseline +0,48%) | **Konsisten POSITIF kedua paruh** (+0,28%/+0,58% & +1,29%/+1,73%) |
+| KETAT | 78 (terlalu kecil) | +0,51% | +0,43% | GAGAL - berbalik arah antar paruh (+2,73%/-1,87%) |
+
+Definisi **LONGGAR** tervalidasi kuat - win rate 40,6-45,7% (lebih tinggi dari Kandidat biasa
+~30-35%), avg return 3-4x lipat baseline pasar, DAN split-half benar-benar konsisten POSITIF
+di kedua paruh (bukan cuma searah spt VCP - lihat bagian di atas). Definisi KETAT gagal krn
+sampelnya terlalu kecil (N=78) - bukti klasik kenapa disiplin walk-forward + split-half
+penting sebelum percaya sebuah pola, meski secara intuitif "logis".
+
+**User juga usul pola kebalikan**: "reversal dengan volume semakin mengecil, apalagi di area
+support kuat" (selling exhaustion) - DIUJI 5 kombinasi (radius 3-5% dari low N=60/120 hari,
+dengan/tanpa syarat awal reversal) - **SEMUA GAGAL**: avg return mendekati nol/negatif
+(-0,21% s.d +0,14%, jauh di bawah baseline +0,48%) DAN split-half berbalik arah di hampir
+semua kombinasi. **TIDAK diterapkan** - proxy "dekat low historis" yang dipakai kemungkinan
+belum menangkap definisi "support kuat" yang sebenarnya (perlu pendekatan lain kalau mau
+diuji ulang, mis. level yang sudah diuji/dipantulkan berkali-kali, bukan sekadar dekat low).
+
+**Fix**: field baru `Momentum 5 Hari` (bool) di `compute_metrics()` (screener.py) - 5 hari
+terakhir (termasuk hari ini) harus close lebih tinggi dari hari sebelumnya SEMUA, DAN
+rata-rata volume 5 hari itu > rata-rata volume 20 hari sebelum streak dimulai (definisi
+LONGGAR). Dipakai sbg kolom info ("🚀 Ya"/-) di tabel Kandidat + kunci sort KEDUA di
+`build_trade_candidates()` (setelah RR, SEBELUM VCP Kuat - diprioritaskan lebih tinggi krn
+buktinya lebih kuat & konsisten). TIDAK diikutkan ke formula Score (jaga kalibrasi yang
+sudah divalidasi terpisah). 4 test baru (`TestMomentum5HariBeruntun`). 172/172 pytest lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
