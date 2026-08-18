@@ -2221,6 +2221,53 @@ panggilan drastis - sekali per 5 menit, bukan tiap klik) + retry 3x dgn backoff 
 SAMA persis dgn fetch harga saham). 172/172 pytest tetap lolos (tidak ada perubahan logika
 yang di-test, murni penambahan cache+retry di lapisan network).
 
+## Bug Panjang: "VCP Kuat"/"Momentum 5 Hari" Tidak Pernah Muncul - Ternyata pandas.merge() Suffix
+
+User lapor kolom "VCP Kuat" dan "Momentum 5 Hari" tidak pernah muncul di tabel Kandidat
+walau sudah reboot & clear cache berkali-kali. Investigasi ini JAUH LEBIH PANJANG dari
+biasanya krn awalnya kelihatan seperti masalah deploy, bukan bug kode - urutan
+pembuktiannya, sebelum akhirnya ketemu:
+
+1. Kode di GitHub (app.py DAN screener.py) dicek langsung via raw content - BENAR.
+2. Kode lokal dijalankan langsung (build_screener_table -> build_trade_candidates) -
+   kolomnya MUNCUL dgn benar.
+3. Log deploy Streamlit Cloud dicek - startup app TERJADI SETELAH waktu commit yang benar.
+4. Reboot app, Clear Cache (dari menu app itu sendiri, bukan cuma "Reboot app" di panel
+   Manage app), buka di browser lain - SEMUA tidak membantu.
+5. Dicek jumlah app di akun Streamlit Cloud - cuma SATU "saham-kaya", bukan salah
+   deployment.
+6. CSV export dari tabel Kandidat dicek headernya - kolomnya BENAR tidak ada di data
+   (bukan soal render/scroll browser).
+7. **Penanda versi kode di-hardcode LANGSUNG di source** (`st.caption("🔖 Versi kode:
+   ...")` di sidebar) - dicek MUNCUL - membuktikan 100% app SUDAH menjalankan kode
+   terbaru. Ini mematahkan SEMUA teori deploy/cache sekaligus.
+
+**Root cause sebenarnya** (baru ketemu setelah pembuktian di atas menyingkirkan semua
+kemungkinan lain): "VCP Kuat" dan "Momentum 5 Hari" SUDAH ada di `table` (lewat
+`build_screener_table()`) DAN ada LAGI di `cands_swing_all`/`cands_valid` (lewat
+`build_trade_candidates()`) - keduanya sengaja ditambahkan di 2 tempat berbeda pada sesi
+ini. Saat `app.py` melakukan `picks.merge(cands_valid[kolom_merge], on="Kode")` dan KEDUA
+sisi (`picks`, dari `table`, DAN `cands_valid`) sama-sama punya kolom bernama "VCP Kuat" -
+`pandas.merge()` OTOMATIS menambahkan suffix `_x`/`_y` (default `suffixes=('_x','_y')`)
+utk kolom yang bentrok NAMANYA - jadi "VCP Kuat" diam-diam berubah jadi "VCP Kuat_x"/
+"VCP Kuat_y", TANPA error atau warning apa pun. Kolom "VCP Kuat" polos yang dicari
+`kolom_tampil` jadi genuinely TIDAK ADA - bukan soal render, bukan soal deploy, murni
+tabrakan nama kolom saat merge.
+
+**Fix**: hapus "VCP Kuat"/"Momentum 5 Hari" dari `kolom_merge` di `app.py` - TIDAK PERLU
+digabung ulang krn `picks` SUDAH punya nilai yang identik langsung dari `table`
+(`build_trade_candidates()` sendiri MEMBACA nilai ini dari `table` yang sama, jadi
+nilainya pasti sama - menggabungkannya lagi cuma menciptakan tabrakan nama tanpa manfaat).
+Diverifikasi ulang lewat reproduksi PERSIS alur `app.py` (bukan cuma test unit terisolasi)
+- kolom muncul benar setelah fix. Penanda versi di sidebar tetap dipertahankan (diupdate
+tiap fix signifikan) - berguna utk debugging serupa di masa depan tanpa perlu audit
+sepanjang ini lagi. 172/172 pytest tetap lolos.
+
+**Pelajaran penting**: kalau menambahkan kolom yang SAMA NAMANYA ke 2 sumber DataFrame
+yang nantinya di-`merge()`, SELALU cek dulu kolom mana yang perlu di-merge vs mana yang
+SUDAH ada di salah satu sisi - `pandas.merge()` tidak pernah error/warning saat terjadi
+tabrakan nama, cuma diam-diam menyisipkan suffix.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

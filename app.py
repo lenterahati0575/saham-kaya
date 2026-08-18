@@ -604,7 +604,7 @@ with st.sidebar:
     # filesystem saat runtime) supaya bisa dipastikan 100% apakah app benar2 menjalankan
     # kode ini atau bukan, tanpa tebak-tebakan lagi lain kali ada laporan serupa - UPDATE
     # string ini setiap kali push signifikan.
-    st.caption("🔖 Versi kode: 2026-08-18-momentum5hari-v1")
+    st.caption("🔖 Versi kode: 2026-08-18-fix-merge-suffix-v2")
     session = get_market_session()
     st.markdown(f"""<div style="background:{session['color']};border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;border:1px solid rgba(255,255,255,0.1);"><div style="font-size:11px;color:rgba(255,255,255,0.7);">MARKET SESSION</div><div style="font-size:16px;font-weight:700;color:#fff;margin:4px 0;">{session['session']}</div><div style="font-size:10px;color:rgba(255,255,255,0.6);">{session['desc']}</div></div>""", unsafe_allow_html=True)
     if session['next_open'] and session['countdown'] > 0:
@@ -900,11 +900,18 @@ with t_kandidat:
             cands_valid = cands_valid.sort_values("RR", ascending=False)
             cands_valid = cands_valid.rename(columns={"Saham": "Kode"})
             cands_valid["Risiko %"] = ((cands_valid["Entry"] - cands_valid["Stop Loss"]) / cands_valid["Entry"] * 100).round(1)
+            # Bug nyata dari laporan user: "VCP Kuat"/"Momentum 5 Hari" tidak pernah muncul di
+            # tabel Kandidat walau kode sudah dipastikan versi terbaru (ditambah penanda versi
+            # eksplisit di sidebar utk mematahkan semua dugaan cache/deploy). Root cause: KEDUA
+            # kolom ini SUDAH ada di `picks` (dari `table`, lewat build_screener_table()) DAN
+            # ADA LAGI di `cands_valid` (dari cands_swing_all, lewat build_trade_candidates())
+            # - pandas.merge() dgn nama kolom yang SAMA di kedua sisi otomatis menambahkan
+            # suffix "_x"/"_y" (default `suffixes=('_x','_y')`), jadi "VCP Kuat" brubah diam2
+            # jadi "VCP Kuat_x"/"VCP Kuat_y" - BUKAN hilang, cuma ganti nama tanpa error/warning
+            # apa pun. TIDAK PERLU digabung ulang - `picks` SUDAH punya nilai yang identik
+            # langsung dari `table` (build_trade_candidates() sendiri MEMBACA nilai ini dari
+            # `table` yang sama, jadi nilainya pasti sama, redundan kalau digabung lagi).
             kolom_merge = ["Kode", "Tipe", "RR", "Entry", "Target", "Stop Loss", "Risiko %"]
-            if "VCP Kuat" in cands_valid.columns:
-                kolom_merge.append("VCP Kuat")
-            if "Momentum 5 Hari" in cands_valid.columns:
-                kolom_merge.append("Momentum 5 Hari")
             picks = picks.merge(cands_valid[kolom_merge], on="Kode", how="inner")
         else:
             picks = picks.iloc[0:0]
