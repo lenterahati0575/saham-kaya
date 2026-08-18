@@ -2126,6 +2126,38 @@ utk konsistensi). 1 test baru (`test_breakeven_tidak_dihitung_sbg_loss`) merepro
 kasus asli (1 WIN, 2 LOSS asli, 2 BREAKEVEN -> winrate harus 1/3, BUKAN 1/5). 164/164 pytest
 lolos.
 
+## Batas Posisi Baru per Hari - Risiko Terkonsentrasi, Bukan Kualitas Sinyal
+
+Lanjutan dari investigasi Win Rate di atas: dicek KAPAN 48 trade closed itu dibuka - ternyata
+mayoritas dibuka BERBARENGAN di 10-13 Agustus (10 Agustus saja: ARKO, KIJA, HRUM, PAMG,
+MCAS, PIPA, EURO, ASPR, MDIA, TMPO - persis `top_n=10` penuh dalam SATU hari). Tepat di
+periode itu IHSG terkoreksi tipis (-1,53% tgl 11, -1% tgl 13) - karena SEMUA posisi dibuka
+BERBARENGAN & banyak SL cukup sempit (-2% s.d -5%, bukan cuma -10%), koreksi kecil itu
+menjatuhkan BANYAK posisi sekaligus dlm beberapa hari. User: "ideal backtest ini
+diperlakukan seperti saat membeli saham [beneran], bedanya ini dilakukan oleh sistem" -
+trader modal kecil beneran TIDAK PERNAH beli 10 saham berbeda dalam 1 hari, itu memusatkan
+risiko bukan menyebarnya.
+
+**Diuji dulu**: membatasi ke top-3/top-5 per hari (dari kandidat yg sudah diurutkan RR/VCP/
+Score) **TIDAK memperbaiki avg return per-trade** (top-3: +0,43%, top-5: +1,35%, top-10:
++1,44% - kualitas TIDAK naik dgn batas lebih ketat). Jadi ini murni soal **PENYEBARAN
+RISIKO** (smoothness kurva ekuitas / hindari cluster rugi berbarengan), BUKAN klaim "makin
+sedikit makin untung". User (modal kecil) diminta pilih batas realistis, memilih **5**.
+
+**Fix**: parameter baru `max_new_per_day` (default 5) di `open_positions_from_candidates()`
+(`gsheet_journal.py`) - batas TOTAL posisi baru (semua saham gabung) per HARI KALENDER,
+dihitung ULANG dari data sheet tiap panggilan (bukan variabel proses) supaya berlaku
+gabungan lintas cron otomatis **dan** klik manual berkali-kali dalam sehari. Sidebar baru
+"Maks Posisi Baru per Hari" (`app.py`, default 5) + `auto_run.py` pakai konstanta
+`MAX_POSISI_BARU_PER_HARI = 5` yang sama. 4 test baru (`TestMaxPosisiBaruPerHari`).
+
+User lanjut: "saya maunya diatas 10 supaya ada pilihan... karena yang tampil kadang lebih
+banyak" - jumlah baris di TABEL Kandidat (utk dipilih manual, mis. via kolom Rekomendasi
+SWING TRADE vs WAIT) DIPISAH dari batas AUTO-BUY. Sidebar baru "Jumlah Kandidat Ditampilkan"
+(default 20, independen dari "Maks Posisi Baru per Hari") - `open_positions_from_candidates()`
+tetap cuma ambil `max_new_per_day` TERATAS (sudah terurut RR/VCP/Score) dari daftar yang
+lebih panjang ini, jadi user tetap lihat banyak pilihan tanpa auto-buy jadi lebih agresif.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

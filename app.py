@@ -613,6 +613,30 @@ with st.sidebar:
                                                "Equity Bro (tab Equity), bukan lagi angka tetap 10 lot untuk semua "
                                                "saham. Butuh snapshot Equity terisi - kalau belum ada, tetap fallback "
                                                "ke lot default lama.")
+    # Bug nyata dari laporan user: 10 Agustus sistem buka SEMUA top_n=10 kandidat SEKALIGUS
+    # dlm 1 hari, lalu IHSG terkoreksi tipis beberapa hari sesudahnya - SEMUA posisi kena SL
+    # BERBARENGAN krn dibuka berbarengan (risiko terkonsentrasi, bukan tersebar). User (modal
+    # kecil) diminta pilih batas realistis spt trader beneran - "ideal backtest ini
+    # diperlakukan seperti saat membeli saham [beneran], bedanya ini dilakukan oleh sistem" -
+    # dipilih 5. INI SOAL PENYEBARAN RISIKO, BUKAN kualitas sinyal (avg return/trade TIDAK
+    # membaik dgn batas lebih ketat, sudah diuji - README > "Referensi Screener Profesional").
+    max_posisi_per_hari = st.number_input("Maks Posisi Baru per Hari (Jurnal Backtest)", min_value=1, max_value=10, value=5, step=1,
+                                           help="Batas TOTAL posisi baru (semua saham digabung, lintas cron otomatis "
+                                                "& klik manual) yang boleh dibuka DALAM SATU HARI KALENDER - meniru "
+                                                "disiplin trader modal kecil beneran (tidak beli 10 saham sekaligus "
+                                                "dalam 1 hari). HANYA membatasi auto-buy, TIDAK mengurangi jumlah "
+                                                "baris di tabel Kandidat (lihat 'Jumlah Kandidat Ditampilkan' di "
+                                                "bawah - dipisah supaya Bro tetap punya banyak pilihan utk lihat/"
+                                                "pilih manual). Default 5.")
+    # User: "saya maunya diatas 10 supaya ada pilihan" - dipisah dari max_posisi_per_hari
+    # (yang cuma soal auto-buy/penyebaran risiko) krn user tetap mau lihat kandidat LEBIH
+    # BANYAK utk pilihan manual (mis. via "Kirim ke Jurnal Real"), walau yang dibeli
+    # OTOMATIS tetap dibatasi 5/hari.
+    jumlah_kandidat_tampil = st.number_input("Jumlah Kandidat Ditampilkan (tabel Kandidat)", min_value=5, max_value=50, value=20, step=5,
+                                              help="Jumlah baris di tabel Kandidat - LEBIH BANYAK dari yang otomatis "
+                                                   "dibeli (lihat 'Maks Posisi Baru per Hari' di atas), supaya Bro "
+                                                   "tetap punya banyak pilihan utk lihat/pilih sendiri secara "
+                                                   "manual. Tidak mempengaruhi batas auto-buy.")
     st.divider()
     st.subheader("Ambang Skor Sinyal")
     sb = st.number_input("Skor min. STRONG BUY", value=7)
@@ -764,7 +788,13 @@ if gj.is_configured():
 
 # Day Trading dihapus - tidak ada parameter/sinyal yang terbukti konsisten profit
 # (lihat README > "Day Trading: Bukan Soal Parameter, Tapi Desain Sinyal").
-cands_swing_all = build_trade_candidates(table, price_data, int(donchian_lb), min_rr_swing, top_n=10,
+# top_n dipisah dari batas auto-buy - user: "saya maunya diatas 10 supaya ada pilihan"
+# (mis. kolom "Rekomendasi" SWING TRADE vs WAIT butuh lebih banyak bahan utk dipilih
+# manual). Jumlah TAMPIL (jumlah_kandidat_tampil, default 20) != jumlah yang DIBELI
+# OTOMATIS (max_posisi_per_hari, default 5, diterapkan di open_positions_from_candidates())
+# - open_positions_from_candidates() akan tetap ambil cuma sebanyak max_posisi_per_hari
+# TERATAS (sudah diurutkan RR/VCP/Score) dari daftar yang lebih panjang ini.
+cands_swing_all = build_trade_candidates(table, price_data, int(donchian_lb), min_rr_swing, top_n=int(jumlah_kandidat_tampil),
                                           require_bullish_regime=filter_market, regime_status=regime["status"],
                                           total_equity=total_equity_now, risk_pct=risk_pct_per_trade,
                                           require_minervini_position=filter_minervini)
@@ -1508,13 +1538,14 @@ with t_perf:
                         else:
                             st.write("🎯 **Kandidat yang akan dibuka:**")
                             st.dataframe(cands_swing_all[["Saham", "Entry", "Stop Loss", "Target", "RR"]].head(10))
-                            opened = gj.open_positions_from_candidates(cands_swing_all, "SWING")
+                            opened = gj.open_positions_from_candidates(cands_swing_all, "SWING", max_new_per_day=max_posisi_per_hari)
                             if opened:
                                 st.success(f"✅ Berhasil dibuka: {', '.join(opened)}")
                                 st.balloons()
                                 st.rerun()
                             else:
-                                st.warning("⚠️ Tidak ada posisi baru dibuka (semua sudah ada di sheet)")
+                                st.warning(f"⚠️ Tidak ada posisi baru dibuka (semua sudah ada di sheet, ATAU sudah "
+                                           f"mencapai batas {max_posisi_per_hari} posisi baru/hari)")
                 except Exception as e:
                     st.error(f"❌ Error buka Swing Trading: {str(e)}")
                     import traceback

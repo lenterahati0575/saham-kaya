@@ -38,6 +38,12 @@ DONCHIAN_LB_SWING = 20
 # Historis).
 MIN_RR_SWING = 1.5
 RISK_PCT_PER_TRADE = 1.0     # sama seperti default sidebar dashboard
+# Batas posisi baru/hari - bug nyata dari laporan user: 10 Agustus buka SEMUA top_n=10
+# kandidat SEKALIGUS dlm 1 hari, IHSG terkoreksi tipis beberapa hari sesudahnya, SEMUA
+# posisi kena SL berbarengan krn dibuka berbarengan (risiko terkonsentrasi). User (modal
+# kecil) diminta pilih batas realistis spt trader beneran, pilih 5 - sama dgn default
+# sidebar dashboard.
+MAX_POSISI_BARU_PER_HARI = 5
 
 
 def log(msg: str):
@@ -134,7 +140,7 @@ def main():
     cands_swing = build_trade_candidates(table, price_data, DONCHIAN_LB_SWING, MIN_RR_SWING, top_n=10,
                                           require_bullish_regime=True, regime_status=regime["status"],
                                           total_equity=total_equity_now, risk_pct=RISK_PCT_PER_TRADE)
-    opened_swing = gj.open_positions_from_candidates(cands_swing, "SWING")
+    opened_swing = gj.open_positions_from_candidates(cands_swing, "SWING", max_new_per_day=MAX_POSISI_BARU_PER_HARI)
     if regime["status"] != "BULLISH":
         log(f"Auto-BUY Swing Trading: dilewati (IHSG {regime['status']}, filter regime aktif)")
     else:

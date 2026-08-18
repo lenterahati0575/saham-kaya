@@ -153,23 +153,26 @@ def _find_row_number(ws, saham: str, status: str = "OPEN") -> int:
         return None
 
 
-def open_positions_from_candidates(candidates: pd.DataFrame, tipe: str) -> list[str]:
+def open_positions_from_candidates(candidates: pd.DataFrame, tipe: str, max_new_per_day: int = 5) -> list[str]:
     """Buka posisi baru dari tabel kandidat (hasil screener.build_trade_candidates).
-    
+
     Args:
         candidates: DataFrame dengan kolom Saham, Entry, Target, Stop Loss, Lot (opsional)
         tipe: 'BPJS', 'BSJP', atau 'SWING'
-    
+        max_new_per_day: batas TOTAL posisi baru (semua saham digabung) yang boleh dibuka
+            dalam SATU hari kalender - lihat komentar panjang di bawah.
+
     Returns:
         List kode saham yang berhasil dibuka
     """
     if candidates is None or candidates.empty:
         return []
-    
+
     ws = _get_worksheet()
     existing = load_positions()
     open_symbols = set()
     opened_today_symbols = set()
+    n_opened_today = 0
     if not existing.empty and "Status" in existing.columns:
         open_symbols = set(existing.loc[existing["Status"] == "OPEN", "Saham"])
     # Cooldown 1 hari/saham: cegah re-entry di HARI YANG SAMA stlh saham ini kena SL/close -
@@ -182,15 +185,33 @@ def open_positions_from_candidates(candidates: pd.DataFrame, tipe: str) -> list[
         today_str = datetime.now(WIB).strftime("%Y-%m-%d")
         tgl_open_str = existing["Tanggal Open"].astype(str).str[:10]
         opened_today_symbols = set(existing.loc[tgl_open_str == today_str, "Saham"])
+        n_opened_today = int((tgl_open_str == today_str).sum())
+
+    # Batas posisi baru/hari: bug nyata dari laporan user - 10 Agustus sistem membuka SEMUA
+    # top_n=10 kandidat SEKALIGUS dalam 1 hari (ARKO/KIJA/HRUM/PAMG/dst.), lalu IHSG terkoreksi
+    # tipis beberapa hari sesudahnya (-1,53% & -1%) - karena SEMUA posisi dibuka BERBARENGAN,
+    # SL yang cukup sempit (-2% s.d -5%, bukan cuma -10%) kena BERBARENGAN juga, bikin Win
+    # Rate jangka pendek jatuh jauh di bawah baseline historis (3,4% vs 30-40%). Ini BUKAN
+    # soal kualitas sinyal (per-trade avg return TIDAK membaik dgn batas lebih ketat, sudah
+    # diuji) - ini soal PENYEBARAN RISIKO: trader modal kecil sungguhan TIDAK akan pernah
+    # beli 10 saham berbeda dalam 1 hari, itu memusatkan risiko bukan menyebarnya. User
+    # (modal kecil) diminta pilih batas realistis, memilih 5 - "ideal backtest ini
+    # diperlakukan seperti saat membeli saham [beneran], bedanya ini dilakukan oleh sistem".
+    # `n_opened_today` dihitung ULANG dari sheet TIAP PANGGILAN (bukan variabel proses) -
+    # jadi batas ini tetap berlaku gabungan lintas SEMUA pemicu hari itu (cron otomatis
+    # DAN klik manual berkali-kali), bukan cuma per-panggilan.
+    slot_tersisa = max(0, max_new_per_day - n_opened_today)
 
     opened = []
     for _, row in candidates.iterrows():
+        if len(opened) >= slot_tersisa:
+            break
         kode = row["Saham"]
 
         # Skip jika sudah ada posisi open, ATAU sudah pernah dibuka hari ini (cooldown 1x/hari)
         if kode in open_symbols or kode in opened_today_symbols:
             continue
-        
+
         try:
             entry = float(row["Entry"])
             tp = float(row["Target"])

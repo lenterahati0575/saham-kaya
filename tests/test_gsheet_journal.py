@@ -130,6 +130,69 @@ class TestReEntryCooldown:
         assert opened == ["SLIS"]
 
 
+class TestMaxPosisiBaruPerHari:
+    """Bug nyata dari laporan user: 10 Agustus sistem buka SEMUA top_n=10 kandidat SEKALIGUS
+    dlm 1 hari (ARKO/KIJA/HRUM/dst.), lalu IHSG terkoreksi tipis beberapa hari sesudahnya -
+    SEMUA posisi kena SL BERBARENGAN krn dibuka berbarengan (risiko terkonsentrasi, bukan
+    tersebar). User (modal kecil): "ideal backtest ini diperlakukan seperti saat membeli
+    saham [beneran], bedanya ini dilakukan oleh sistem" - trader modal kecil beneran TIDAK
+    akan beli 10 saham berbeda dlm 1 hari. Fix: max_new_per_day (default 5) - batas TOTAL
+    posisi baru per hari kalender, dihitung ULANG dari sheet tiap panggilan (bukan variabel
+    proses) supaya berlaku gabungan lintas cron otomatis & klik manual berkali-kali."""
+
+    def _candidates(self, n):
+        return pd.DataFrame([
+            {"Saham": f"S{i:03d}", "Entry": 100.0 + i, "Target": 120.0 + i, "Stop Loss": 90.0 + i, "RR": 2.0}
+            for i in range(n)
+        ])
+
+    def test_sheet_kosong_batas_5_hanya_buka_5_dari_10_kandidat(self):
+        ws = MagicMock()
+        with patch.object(gj, "_get_worksheet", return_value=ws), \
+             patch.object(gj, "load_positions", return_value=pd.DataFrame(columns=gj.HEADERS)):
+            opened = gj.open_positions_from_candidates(self._candidates(10), "SWING", max_new_per_day=5)
+        assert len(opened) == 5
+        assert opened == ["S000", "S001", "S002", "S003", "S004"]
+
+    def test_sudah_3_dibuka_hari_ini_sisa_slot_cuma_2(self):
+        today_wib = datetime.now(gj.WIB).strftime("%Y-%m-%d")
+        existing = pd.DataFrame([
+            {"Tanggal Open": f"{today_wib} 09:{10+i}", "Saham": f"OLD{i}", "Harga Beli": 100.0,
+             "TP": 120.0, "SL": 90.0, "Tipe": "SWING", "Lot": 10, "Tanggal Close": "",
+             "Harga Jual": "", "P&L (Rp)": "", "P&L (%)": "", "Status": "OPEN", "Hari": "",
+             "SL Awal": 90.0}
+            for i in range(3)
+        ])
+        ws = MagicMock()
+        with patch.object(gj, "_get_worksheet", return_value=ws), \
+             patch.object(gj, "load_positions", return_value=existing):
+            opened = gj.open_positions_from_candidates(self._candidates(10), "SWING", max_new_per_day=5)
+        assert len(opened) == 2  # 5 - 3 yg sudah dibuka hari ini = sisa 2 slot
+
+    def test_sudah_penuh_hari_ini_tidak_buka_apa_pun(self):
+        today_wib = datetime.now(gj.WIB).strftime("%Y-%m-%d")
+        existing = pd.DataFrame([
+            {"Tanggal Open": f"{today_wib} 09:{10+i}", "Saham": f"OLD{i}", "Harga Beli": 100.0,
+             "TP": 120.0, "SL": 90.0, "Tipe": "SWING", "Lot": 10, "Tanggal Close": "",
+             "Harga Jual": "", "P&L (Rp)": "", "P&L (%)": "", "Status": "OPEN", "Hari": "",
+             "SL Awal": 90.0}
+            for i in range(5)
+        ])
+        ws = MagicMock()
+        with patch.object(gj, "_get_worksheet", return_value=ws), \
+             patch.object(gj, "load_positions", return_value=existing):
+            opened = gj.open_positions_from_candidates(self._candidates(10), "SWING", max_new_per_day=5)
+        assert opened == []
+        ws.append_row.assert_not_called()
+
+    def test_default_max_new_per_day_adalah_5(self):
+        ws = MagicMock()
+        with patch.object(gj, "_get_worksheet", return_value=ws), \
+             patch.object(gj, "load_positions", return_value=pd.DataFrame(columns=gj.HEADERS)):
+            opened = gj.open_positions_from_candidates(self._candidates(10), "SWING")  # tanpa isi param
+        assert len(opened) == 5
+
+
 class TestEnrichPriceLookup:
     """enrich_price_lookup() dipakai BARENG oleh auto_close_positions() dan tampilan debug
     tabel "Posisi yang dicek" di app.py - dulu dua tempat itu pakai sumber data yang beda
