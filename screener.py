@@ -671,10 +671,23 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
     # sebelum diterapkan (350 saham/3 tahun, walk-forward, README > "Referensi Screener
     # Profesional"):
     # 1. Posisi vs 52-week High/Low (Minervini): kandidat yg GAGAL kriteria ini (blm >=25%
-    #    dari low 52w ATAU masih >25% di bawah high 52w) terbukti MERUGI secara konsisten
-    #    (median -2,85%, rata2 -0,41%, split-half +2,64%/+2,26% utk yg LOLOS) - beda dari
-    #    filter tren/RS yg cuma memperbesar untung, ini benar2 menyaring kandidat yg buruk.
-    #    Dipakai sbg FILTER KERAS di build_trade_candidates().
+    #    dari low 52w ATAU masih >AMBANG_BELOW_HIGH52W di bawah high 52w) terbukti MERUGI
+    #    secara konsisten (median -2,85%, rata2 -0,41%, split-half +2,64%/+2,26% utk yg
+    #    LOLOS) - beda dari filter tren/RS yg cuma memperbesar untung, ini benar2 menyaring
+    #    kandidat yg buruk. Dipakai sbg FILTER KERAS di build_trade_candidates().
+    #
+    #    Ambang sisi "high" DILONGGARKAN dari 25% jadi 35% (sisi "low" TETAP 25%, sisi paling
+    #    bernilai) - user (trader modal kecil, butuh frekuensi transaksi lebih sering,
+    #    beda konteks dgn Minervini yg modal besar & sengaja jarang transaksi) minta jalan
+    #    tengah drpd hapus filter total. Diuji dulu (350 saham/3 tahun): melonggarkan KEDUA
+    #    sisi ke 35% nyaris tidak nambah kandidat (375->370, sisi "low" ternyata yg paling
+    #    selektif) - TAPI melonggarkan HANYA sisi "high" ke 35% (sisi "low" ttp 25%) beri
+    #    hasil lebih baik: kandidat naik 58%->68% (~17% lebih banyak), avg return tetap kuat
+    #    +2,20% (msh jauh di atas baseline tanpa filter +1,25%), kelompok yg masih tersaring
+    #    (>35% di bawah high) tetap terbukti rugi rata2 (-0,75%) - perlindungannya tidak
+    #    hilang. README > "Referensi Screener Profesional".
+    AMBANG_ABOVE_LOW52W = 25
+    AMBANG_BELOW_HIGH52W = 35
     hist_before_today = df.iloc[:-1]  # SEMUA data SEBELUM hari ini - no lookahead
     pct_above_low52w = pct_below_high52w = None
     minervini_position_ok = False
@@ -686,7 +699,7 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         if low52w > 0 and high52w > 0:
             pct_above_low52w = (close - low52w) / low52w * 100
             pct_below_high52w = (high52w - close) / high52w * 100
-            minervini_position_ok = pct_above_low52w >= 25 and pct_below_high52w <= 25
+            minervini_position_ok = pct_above_low52w >= AMBANG_ABOVE_LOW52W and pct_below_high52w <= AMBANG_BELOW_HIGH52W
     # 2. Volatility Contraction Pattern (VCP) proxy: rasio range harian 10 hari TERAKHIR vs
     #    10 hari SEBELUM itu (SEBELUM hari ini, no lookahead) - <0.7 = kontraksi kuat.
     #    TERBUKTI menaikkan win rate (45,9% vs baseline ~33%) & menurunkan SL rate (46,9% vs

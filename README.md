@@ -2055,6 +2055,40 @@ matikan sendiri drpd terkunci hard-code. `auto_run.py` (skrip otomatis tanpa pen
 SENGAJA tidak ikut toggle ini - tetap `require_minervini_position=True` (default paling
 tervalidasi) terlepas apa yang dipilih user di dashboard interaktifnya.
 
+### Ambang Sisi "High" Dilonggarkan 25% -> 35% - Minervini Ditulis utk Modal Besar, User Modal Kecil
+
+User: setelah dibandingkan dgn referensi lain (situs `idx-saham.netlify.app` + spreadsheet
+publik yang menampilkan "P&L 2662%" dari 1241 transaksi - ternyata cuma SUM mentah kolom
+persentase, BUKAN return portofolio riil, vanity metric yang sama persis dgn keterbatasan
+"Max Drawdown -369%" yang sudah diakui jujur di README ini), user angkat poin lebih
+mendasar: "menurut bukunya Minervini jarang sekali transaksi, mereka punya uang besar...
+sedangkan saya masih murni trader dengan uang sangat kecil". Minervini MEMANG menulis utk
+trader/investor bermodal besar yang sengaja SANGAT selektif (nunggu setup langka, masuk
+besar) - beda konteks dgn trader modal kecil yang butuh frekuensi transaksi lebih sering
+utk membangun modal.
+
+**Bukan dijawab dgn menghapus filter** (data tetap menunjukkan kelompok yang gagal kriteria
+ini rata2 MERUGI, -0,41% - utk modal kecil, sering masuk ke trade rugi rata2 justru lebih
+berbahaya, bukan kurang) - dicari JALAN TENGAH dgn data:
+
+| Ambang sisi "high" (sisi "low" tetap >=25%) | Kandidat lolos | Avg Return | Kelompok gagal |
+|---|---|---|---|
+| 25% (awal) | 58% | +2,45% | -0,41% |
+| **35% (dipilih)** | **68% (+17% lbh banyak)** | **+2,20%** | **-0,75%** |
+| 50% | 76% | +1,66% | -0,05% (nyaris tdk ada beda lg) |
+
+Melonggarkan KEDUA sisi sekaligus ke 35% dicoba dulu tapi HAMPIR TIDAK menambah kandidat
+(375->370) - ternyata sisi "harus >=25% dari low 52 minggu" adalah bagian PALING SELEKTIF
+& bernilai (tetap dipertahankan). Melonggarkan HANYA sisi "radius dari high 52 minggu" (dari
+25% ke 35%) memberi hasil terbaik: ~17% lebih banyak kandidat, avg return msh kuat (+2,20%,
+jauh di atas baseline tanpa filter +1,25%), kelompok yg masih tersaring TETAP terbukti rugi
+rata2 (-0,75%) - perlindungannya tidak hilang, cuma jadi kurang seketat versi Minervini asli
+yang memang dirancang utk gaya trading yang berbeda.
+
+**Fix**: `AMBANG_ABOVE_LOW52W = 25`, `AMBANG_BELOW_HIGH52W = 35` (dulu keduanya 25) di
+`compute_metrics()` (screener.py). 164/164 pytest tetap lolos (tidak ada test yg
+hardcode asumsi ambang lama scr keliru).
+
 ## Bug Serius: "Win Rate 2,1%" Ternyata BREAKEVEN Dihitung Sama Dengan LOSS
 
 User lapor lewat contoh nyata (KIJA, dibeli 10 Agustus): tab Performance menunjukkan

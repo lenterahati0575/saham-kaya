@@ -647,10 +647,11 @@ with st.sidebar:
     # terlalu sedikit, README > "Referensi Screener Profesional".
     filter_minervini = st.checkbox("Wajib posisi 52-minggu (Minervini) di Kandidat", value=True,
                                     help="Default AKTIF - divalidasi: kandidat yang GAGAL kriteria ini "
-                                         "(blm >=25% dari low 52 minggu, atau masih >25% di bawah high 52 "
-                                         "minggu) secara historis MERUGI (median -2,85%). TAPI filter ini "
-                                         "cukup ketat (rata2 cuma 58% kandidat lolos, bisa jauh lebih sedikit "
-                                         "di hari tertentu) - matikan kalau kandidat terasa terlalu sedikit.")
+                                         "(blm >=25% dari low 52 minggu, atau masih >35% di bawah high 52 "
+                                         "minggu) secara historis MERUGI (median -2,85%). Ambang sisi 'high' "
+                                         "sudah dilonggarkan dari 25% ke 35% (~68% kandidat lolos, naik dari "
+                                         "58%) khusus utk trader modal kecil yang butuh frekuensi lebih "
+                                         "sering - matikan checkbox ini kalau masih terasa terlalu sedikit.")
     st.divider()
     st.subheader("🔮 IHSG Gann + Time Cycle")
     st.caption("Sudah diuji historis (10 tahun IHSG) - hit rate-nya SETARA hari acak, bukan lebih akurat. "
