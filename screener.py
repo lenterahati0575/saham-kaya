@@ -1108,15 +1108,36 @@ def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_ihsg_history(period: str = "3mo") -> pd.DataFrame:
-    """Ambil histori IHSG (^JKSE) dari Yahoo Finance."""
-    try:
-        df = yf.download("^JKSE", period=period, interval="1d", progress=False, auto_adjust=True)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        return df.dropna(subset=["Close"])
-    except Exception:
-        return pd.DataFrame()
+    """Ambil histori IHSG (^JKSE) dari Yahoo Finance.
+
+    Bug nyata dari laporan user: "Regime IHSG tidak terhitung (data kurang)" muncul TERUS-
+    MENERUS, akibatnya SELURUH tab Kandidat kosong ("tidak ada data yang ditampilkan").
+    Root cause: fungsi ini dulu (a) TIDAK di-cache - dipanggil ULANG di SETIAP interaksi di
+    seluruh app (fakta arsitektur st.tabs() yang sudah diverifikasi sesi ini - README > "Bug
+    Performa"), memperbesar peluang kena rate-limit Yahoo Finance krn dipanggil jauh lebih
+    sering dari yang perlu; (b) TIDAK ada retry sama sekali - beda dari fetch harga saham
+    biasa (_fetch_price_history_cached_v2) yang SUDAH pakai retry+backoff justru krn
+    kegagalan transient Yahoo Finance itu umum & sudah terbukti - begitu SATU kali gagal
+    (timeout/rate-limit), fungsi ini nyerah total & balik DataFrame kosong, market_regime()
+    jadi "UNKNOWN", dan filter regime (default aktif) menyembunyikan SEMUA kandidat sbg
+    "safe default". Fix: cache 5 menit (kurangi frekuensi panggilan drastis) + retry 3x
+    dgn backoff 2s/4s/8s (pola SAMA persis dgn fetch saham)."""
+    import time
+    for attempt in range(3):
+        try:
+            df = yf.download("^JKSE", period=period, interval="1d", progress=False, auto_adjust=True)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            df = df.dropna(subset=["Close"])
+            if not df.empty:
+                return df
+        except Exception:
+            pass
+        if attempt < 2:
+            time.sleep(2 ** (attempt + 1))  # backoff 2s, 4s
+    return pd.DataFrame()
 
 
 _BULAN_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]

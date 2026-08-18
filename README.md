@@ -2198,6 +2198,29 @@ LONGGAR). Dipakai sbg kolom info ("🚀 Ya"/-) di tabel Kandidat + kunci sort KE
 buktinya lebih kuat & konsisten). TIDAK diikutkan ke formula Score (jaga kalibrasi yang
 sudah divalidasi terpisah). 4 test baru (`TestMomentum5HariBeruntun`). 172/172 pytest lolos.
 
+## Bug: Regime IHSG "Tidak Terhitung" Terus-menerus - Kandidat Selalu Kosong
+
+User: "ini juga selalu muncul sekarang" + screenshot warning "Regime IHSG tidak terhitung
+(data kurang) - kandidat Swing disembunyikan" + "tidak ada data yang ditampilkan" - tab
+Kandidat kosong terus.
+
+**Root cause**: `fetch_ihsg_history()` (screener.py) dulu (a) **TIDAK di-cache sama
+sekali** - dipanggil ULANG di SETIAP interaksi di seluruh app (fakta arsitektur `st.tabs()`
+yang sudah diverifikasi sesi ini - README > "Bug Performa"), jauh lebih sering dipanggil
+dari yang perlu, memperbesar peluang kena rate-limit Yahoo Finance; (b) **TIDAK ada retry
+sama sekali** - beda dari fetch harga saham biasa (`_fetch_price_history_cached_v2`) yang
+SUDAH pakai retry+backoff justru krn kegagalan transient Yahoo Finance itu UMUM & sudah
+terbukti berulang kali sepanjang sesi ini. Begitu SATU kali gagal (timeout/rate-limit),
+fungsi ini nyerah total & balik DataFrame kosong -> `market_regime()` jadi "UNKNOWN" ->
+filter regime (default aktif) menyembunyikan SEMUA kandidat sbg "safe default". Efek
+sampingnya: `fetch_index_snapshot()` juga ikut kehilangan data "IHSG" (pakai histori yang
+sama), makanya box IHSG di header ikut hilang, cuma LQ45/JII yang tampil (fetch terpisah).
+
+**Fix**: `fetch_ihsg_history()` sekarang `@st.cache_data(ttl=300)` (kurangi frekuensi
+panggilan drastis - sekali per 5 menit, bukan tiap klik) + retry 3x dgn backoff 2s/4s (pola
+SAMA persis dgn fetch harga saham). 172/172 pytest tetap lolos (tidak ada perubahan logika
+yang di-test, murni penambahan cache+retry di lapisan network).
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
