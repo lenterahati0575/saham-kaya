@@ -847,10 +847,13 @@ with t_kandidat:
             cands_valid = cands_valid.sort_values("RR", ascending=False)
             cands_valid = cands_valid.rename(columns={"Saham": "Kode"})
             cands_valid["Risiko %"] = ((cands_valid["Entry"] - cands_valid["Stop Loss"]) / cands_valid["Entry"] * 100).round(1)
-            picks = picks.merge(cands_valid[["Kode", "Tipe", "RR", "Entry", "Target", "Stop Loss", "Risiko %"]], on="Kode", how="inner")
+            kolom_merge = ["Kode", "Tipe", "RR", "Entry", "Target", "Stop Loss", "Risiko %"]
+            if "VCP Kuat" in cands_valid.columns:
+                kolom_merge.append("VCP Kuat")
+            picks = picks.merge(cands_valid[kolom_merge], on="Kode", how="inner")
         else:
             picks = picks.iloc[0:0]
-            st.info("Tidak ada kandidat yang lolos kriteria RR/regime yang sudah divalidasi.")
+            st.info("Tidak ada kandidat yang lolos kriteria RR/regime/posisi 52-minggu yang sudah divalidasi.")
     if not picks.empty and "Tipe" in picks.columns:
         st.markdown("""<div style="background:#1e3a8a;border-radius:8px;padding:10px 14px;margin-bottom:10px;border:1px solid #2563eb;">
 <div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:0.3px;">🌊 SWING TRADE TERVALIDASI</div>
@@ -889,6 +892,13 @@ with t_kandidat:
             show["Quality Score"] = show["Quality Score"].map(lambda x: f"{float(x):.1f}" if pd.notnull(x) and x != "" else "-")
         if "Risiko %" in show.columns:
             show["Risiko %"] = show["Risiko %"].map(lambda x: f"{x:.1f}%" if pd.notnull(x) else "-")
+        # VCP Kuat (kontraksi volatilitas sebelum breakout, referensi Minervini/VCP) - INFO
+        # + sudah dipakai boost ranking di build_trade_candidates(), bukan filter keras (lihat
+        # komentar di screener.py kenapa: win rate/SL rate membaik tapi median return
+        # kelompoknya tetap negatif - bukan sinyal "pasti untung", cuma kecenderungan lebih
+        # baik).
+        if "VCP Kuat" in show.columns:
+            show["VCP Kuat"] = show["VCP Kuat"].map(lambda x: "💪 Ya" if x else "-")
         for col in ["RR", "Entry", "Target", "Stop Loss"]:
             if col in show.columns:
                 if col == "RR":
@@ -898,7 +908,7 @@ with t_kandidat:
         # "Tipe" (selalu sama) & "Harga" (= Entry dibulatkan) tidak ditampilkan - redundan.
         kolom_tampil = [
             "Kode", "Nama", "Signal", "Score",
-            "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss",
+            "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss", "VCP Kuat",
             "Rekomendasi", "Confidence", "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
             "Perubahan %", "Naik dari Open %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
         ]

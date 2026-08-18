@@ -1966,6 +1966,81 @@ sbg lapisan kedua. 2 test baru (`TestNoNumpyLeakKeSheet`) memverifikasi lewat `j
 LANGSUNG ke payload yang akan dikirim (bukan cuma cek nilainya benar) - reproduksi persis
 kasus numpy.int64 dari DataFrame. 152/152 pytest lolos.
 
+## Referensi Screener Profesional: Evaluasi Menyeluruh Kandidat (Minervini + VCP)
+
+User: "sudah beli krn masuk kandidat STRONG BUY, besoknya naik 1% doang sudah minus, nunggu
+berhari2... banyak saham potensial tidak muncul." Diminta evaluasi menyeluruh, bukan cuma
+tweak parameter - "kalau hanya fokus ke backtest mungkin kita akan kehilangan peluang untuk
+membuat screener yang lebih baik".
+
+### Diagnosis awal: masalah ada di kualitas ENTRY, bukan lebar SL
+
+Dites dulu 350 saham/3 tahun (walk-forward, regime IHSG>MA50, RR>=1.5 - SAMA persis default
+live). Baseline: 646 trade, avg return **+1,25%**, tapi **57% kena SL**, cuma 15% kena TP.
+
+Diagnosis: dari 369 trade yang kena SL, dicek apakah SL memang benar (harga tidak pernah
+sampai Target dlm sisa max_hold_days) atau whipsaw (SL kena tapi kalau ditahan akhirnya
+sampai Target juga) - **93,9% SL BENAR** (arah memang salah dari awal), cuma 6,1% whipsaw.
+Kesimpulan: **melebarkan SL TIDAK akan banyak menolong** - masalahnya kualitas sinyal ENTRY.
+
+### Ide yang DIUJI TAPI TIDAK DIPAKAI (cuma perbesar untung, tidak kurangi rugi)
+
+- **Trend Aligned (MA20>MA50>MA200)** sbg filter tambahan di Kandidat: avg return naik
+  (+1,65%->+3,16%, split-half konsisten) TAPI SL rate malah naik dikit (55,8%->59,2%,) &
+  cakupan turun drastis (cuma 36% kandidat lolos) - TIDAK diterapkan sbg filter keras di
+  Kandidat (beda dari Gap Up yang memang sudah pakai ini).
+- **Kekuatan Relatif (RS) vs IHSG/Sektor**: pola SAMA - kuartil RS tertinggi avg return jauh
+  lebih baik (+4,15% vs +0,39% di RS vs Sektor) TAPI win rate/SL rate TIDAK ikut membaik.
+- **Time Stop 3 hari** (keluar cepat kalau blm pernah balik ke breakeven): efek KECIL tapi
+  tervalidasi out-of-sample beneran (N dipilih dari paruh1 SAJA, diuji buta di paruh2, tetap
+  membaik +1,74%->+1,81%) - kandidat fitur masa depan, BELUM diimplementasi (efeknya kecil,
+  prioritas lebih rendah dari 2 fix di bawah).
+
+### Yang DITERAPKAN: referensi Mark Minervini (Trend Template/SEPA) + Volatility Contraction Pattern
+
+Dicari kerangka screener profesional yang terdokumentasi (Minervini, William O'Neil -
+CANSLIM, VCP) - 2 kriteria yang BELUM ADA sama sekali di sistem kita, diuji dgn data yg sama:
+
+1. **Posisi vs 52-week High/Low** (Minervini: Entry harus >=25% di atas low 52 minggu DAN
+   dalam radius 25% dari high 52 minggu). Kandidat yang GAGAL kriteria ini terbukti MERUGI
+   secara konsisten (median **-2,85%**, rata2 **-0,41%** - dua-duanya negatif, bukan cuma
+   dibawa outlier; split-half sangat konsisten +2,64%/+2,26% utk yg lolos). BEDA dari
+   Trend Aligned/RS di atas: ini benar2 menyaring kandidat yang secara historis buruk, bukan
+   cuma memperbesar untung. **Diterapkan sbg FILTER KERAS** (`require_minervini_position`,
+   default `True`) di `build_trade_candidates()` (screener.py) DAN `backtest.py` (supaya
+   tool validasi tetap konsisten dgn live).
+2. **Volatility Contraction Pattern (VCP)** proxy: rasio range harian 10 hari terakhir vs 10
+   hari sebelum itu (SEBELUM hari ini, no lookahead) - <0,7 = kontraksi kuat. TERBUKTI
+   menaikkan win rate (**45,9%** vs baseline ~33%) & menurunkan SL rate (**46,9%** vs
+   ~57-60%) - TAPI **median return kelompoknya TETAP NEGATIF (-1,98%)**, rata2 positifnya
+   ditarik sedikit kemenangan BESAR (FORU +60%, FPNI +56%, BTEK +54%) - pola "sering rugi
+   kecil, sesekali untung besar", BUKAN sinyal "pasti untung". Karena karakternya beda dari
+   filter aman Minervini, **TIDAK dijadikan filter keras** - dipakai sbg kolom info ("VCP
+   Kuat" ✅/-) di tabel Kandidat + kunci sort KEDUA (setelah RR, sebelum Score) di
+   `build_trade_candidates()` supaya diprioritaskan tanpa membuang kandidat lain. TIDAK
+   diikutkan ke formula Score (jaga kalibrasi score_buy/score_strong_buy yg sudah
+   divalidasi terpisah tidak ikut bergeser).
+
+**Verifikasi end-to-end** (350 saham/3 tahun, `run_realistic_backtest()` dgn kode yang
+BENERAN dipakai live, bukan skrip analisis terpisah): dgn filter Minervini aktif, N turun
+dari 646 jadi **375** (58%), avg return naik dari **+1,25% jadi +2,45%** - angka ini PERSIS
+cocok dgn analisis manual sebelumnya, membuktikan implementasi benar.
+
+**Fix teknis**: `compute_metrics()` (screener.py) menghitung `Pct Above Low52w`,
+`Pct Below High52w`, `Minervini Position OK`, `VCP Rasio Kontraksi`, `VCP Kuat` - SEMUA dari
+histori SEBELUM hari ini (`df.iloc[:-1]`, no lookahead, pola sama dgn MA20/50/200 Gap Trend
+Aligned). `build_trade_candidates()` dapat parameter baru `require_minervini_position`
+(default `True`) + sort kedua `VCP Kuat`. `backtest.py` (`_simulate_realistic_trades_single`/
+`run_realistic_backtest`) dapat parameter yang sama (default `True`) supaya tool validasi
+resmi tetap mencerminkan perilaku live. Test lama yang fixture-nya (`_flat_ohlcv` 25 hari,
+histori terlalu pendek utk 52-week) TIDAK lolos Minervini ditambahi
+`require_minervini_position=False` eksplisit (fokus tiap test ke fitur yg diuji, bukan
+ketabrak filter baru) - termasuk 3 test `TestTrailingStopBreakeven` yang gagal krn alasan LAIN
+(tanggal hardcoded lewat ambang force-sell 15 hari - waktu asli sudah berjalan sejak ditulis),
+diperbaiki pakai tanggal relatif ke `datetime.now()`, bukan string tetap. 12 test baru
+(`TestMinerviniPosition52w`, `TestMinerviniFilterDiTradeCandidates`, `TestVCPKontraksi`,
+`TestVCPBoostRankingDiTradeCandidates`). 163/163 pytest lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

@@ -6,7 +6,7 @@ TP/SL/force-sell selamanya. Fix-nya: fetch harga tambahan khusus utk saham yang 
 tidak ada di price_lookup, sebelum loop pengecekan.
 """
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -14,6 +14,14 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import gsheet_journal as gj
+
+
+def _tanggal_open_recent(hari_lalu: int = 2) -> str:
+    """Tanggal open yang SELALU beberapa hari lalu relatif ke SEKARANG (bukan hardcoded
+    string) - cegah test gagal begitu waktu asli berjalan lewat ambang force-sell 15 hari
+    (bug nyata yang sudah pernah terjadi sebelumnya di sesi ini - lihat komentar
+    TestTrailingStopBreakeven)."""
+    return (datetime.now(gj.WIB) - timedelta(days=hari_lalu)).strftime("%Y-%m-%d %H:%M")
 
 
 def _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=110.0, sl=90.0, tipe="SWING", lot=10,
@@ -228,7 +236,7 @@ class TestTrailingStopBreakeven:
 
     def test_trailing_menaikkan_sl_ke_breakeven_saat_profit_1r_tercapai(self):
         # risk awal = 100-90 = 10 -> trigger begitu High >= 100+10 = 110.
-        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=130.0, sl=90.0, sl_awal=90.0, tanggal_open="2026-08-01 10:00")
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=130.0, sl=90.0, sl_awal=90.0, tanggal_open=_tanggal_open_recent())
         ws = _mock_worksheet()
         with patch.object(gj, "load_positions", return_value=df_positions), \
              patch.object(gj, "_get_worksheet", return_value=ws):
@@ -237,7 +245,7 @@ class TestTrailingStopBreakeven:
         ws.update.assert_called_once_with("E2", [[100.0]])
 
     def test_trailing_tidak_trigger_kalau_profit_belum_1r(self):
-        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=130.0, sl=90.0, sl_awal=90.0, tanggal_open="2026-08-01 10:00")
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=130.0, sl=90.0, sl_awal=90.0, tanggal_open=_tanggal_open_recent())
         ws = _mock_worksheet()
         with patch.object(gj, "load_positions", return_value=df_positions), \
              patch.object(gj, "_get_worksheet", return_value=ws):
@@ -247,7 +255,7 @@ class TestTrailingStopBreakeven:
 
     def test_exit_setelah_ditrail_dilabel_breakeven_bukan_loss(self):
         # SL SUDAH ditrail ke 100 (breakeven) di run sebelumnya - SL Awal tetap 90 (risk asli).
-        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=130.0, sl=100.0, sl_awal=90.0, tanggal_open="2026-08-01 10:00")
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=130.0, sl=100.0, sl_awal=90.0, tanggal_open=_tanggal_open_recent())
         ws = _mock_worksheet()
         with patch.object(gj, "load_positions", return_value=df_positions), \
              patch.object(gj, "_get_worksheet", return_value=ws):
@@ -260,7 +268,7 @@ class TestTrailingStopBreakeven:
         # Baris dibuka SEBELUM kolom "SL Awal" ada - fallback ke SL saat ini (yang utk
         # baris belum-pernah-ditrail SAMA dgn SL asli) - TIDAK crash, trailing tetap jalan.
         df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=130.0, sl=90.0,
-                                            tanpa_kolom_sl_awal=True, tanggal_open="2026-08-01 10:00")
+                                            tanpa_kolom_sl_awal=True, tanggal_open=_tanggal_open_recent())
         ws = _mock_worksheet()
         with patch.object(gj, "load_positions", return_value=df_positions), \
              patch.object(gj, "_get_worksheet", return_value=ws):

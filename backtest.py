@@ -154,7 +154,8 @@ def _simulate_realistic_trades_single(kode: str, df: pd.DataFrame, params: dict,
                                        fee_pct: float = DEFAULT_FEE_PCT,
                                        signal_filter: tuple = ("STRONG BUY", "BUY"),
                                        require_bullish_regime: bool = False,
-                                       ihsg_df: pd.DataFrame | None = None) -> list[dict]:
+                                       ihsg_df: pd.DataFrame | None = None,
+                                       require_minervini_position: bool = True) -> list[dict]:
     """Simulasikan trade NYATA (Entry/Target/Stop Loss ala build_trade_candidates()) untuk
     tiap sinyal tradeable yang muncul di histori, dieksekusi hari bursa berikutnya sampai
     salah satu tersentuh:
@@ -172,7 +173,11 @@ def _simulate_realistic_trades_single(kode: str, df: pd.DataFrame, params: dict,
     Swing SELALU digate regime, lihat build_trade_candidates()). Tambahan ini dibuat supaya
     tool validasi resmi ini bisa reproduksi angka yang sama dgn perbandingan head-to-head di
     README ("Regresi: Fix di Atas Ternyata Pakai Formula Stop Loss yang LEBIH BURUK"), yang
-    sebelum ini cuma pernah diuji lewat skrip sekali-pakai di luar repo."""
+    sebelum ini cuma pernah diuji lewat skrip sekali-pakai di luar repo.
+
+    require_minervini_position (default True, SAMA dgn build_trade_candidates() di
+    screener.py): filter posisi vs 52-week High/Low (referensi Mark Minervini - Trend
+    Template/SEPA) - lihat komentar lengkap & hasil backtest di screener.py."""
     rows = []
     n = len(df)
     lookback = params["donchian_lookback"]
@@ -187,6 +192,8 @@ def _simulate_realistic_trades_single(kode: str, df: pd.DataFrame, params: dict,
             bullish = is_bullish(df.index[t])
             if bullish is None or not bullish:
                 continue
+        if require_minervini_position and not m.get("Minervini Position OK", False):
+            continue
 
         dh, dl = _donchian_levels(window, lookback)
         if dh is None or dl is None or dl <= 0:
@@ -239,7 +246,8 @@ def run_realistic_backtest(price_data: dict[str, pd.DataFrame], params: dict | N
                             fee_pct: float = DEFAULT_FEE_PCT,
                             signal_filter: tuple = ("STRONG BUY", "BUY"),
                             require_bullish_regime: bool = False,
-                            ihsg_df: pd.DataFrame | None = None) -> dict:
+                            ihsg_df: pd.DataFrame | None = None,
+                            require_minervini_position: bool = True) -> dict:
     """Jalankan simulasi trade realistis (TP/SL/force-sell + fee) di semua saham dalam
     price_data, untuk sinyal yang benar-benar tradeable saja. Return dict berisi 'detail'
     (tiap trade simulasi) dan 'summary' (win rate & return BERSIH per jenis Signal &
@@ -248,7 +256,10 @@ def run_realistic_backtest(price_data: dict[str, pd.DataFrame], params: dict | N
     require_bullish_regime=True (butuh ihsg_df diisi): entry cuma diambil saat IHSG>MA50
     pada tanggal itu (walk-forward) - default False TIDAK menggate apa pun, UNDERSTATE
     performa Swing yang sebenarnya krn live SELALU menggate Swing dgn regime ini. Lihat
-    README > "Regresi: Fix di Atas Ternyata Pakai Formula Stop Loss yang LEBIH BURUK"."""
+    README > "Regresi: Fix di Atas Ternyata Pakai Formula Stop Loss yang LEBIH BURUK".
+
+    require_minervini_position (default True, SAMA dgn build_trade_candidates()): lihat
+    komentar di _simulate_realistic_trades_single()/screener.py."""
     params = params or DEFAULT_PARAMS
     all_rows: list[dict] = []
     for kode, df in price_data.items():
@@ -256,7 +267,8 @@ def run_realistic_backtest(price_data: dict[str, pd.DataFrame], params: dict | N
             continue
         all_rows.extend(_simulate_realistic_trades_single(
             kode, df, params, max_hold_days, step, min_rr=min_rr, fee_pct=fee_pct,
-            signal_filter=signal_filter, require_bullish_regime=require_bullish_regime, ihsg_df=ihsg_df))
+            signal_filter=signal_filter, require_bullish_regime=require_bullish_regime, ihsg_df=ihsg_df,
+            require_minervini_position=require_minervini_position))
 
     detail = pd.DataFrame(all_rows)
     if detail.empty:

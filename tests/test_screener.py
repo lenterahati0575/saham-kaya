@@ -355,7 +355,7 @@ class TestBuildTradeCandidates:
             ),
             "BBB": _flat_ohlcv(25, price=1000),
         }
-        out = build_trade_candidates(table, price_data, lookback=20, min_rr=2.0, top_n=10)
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=2.0, top_n=10, require_minervini_position=False)
         assert isinstance(out, pd.DataFrame)
         # Tidak boleh ada baris dengan RR < 2.0
         if not out.empty:
@@ -374,15 +374,15 @@ class TestBuildTradeCandidates:
                 **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)}
             ),
         }
-        out_bearish = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10,
+        out_bearish = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10, require_minervini_position=False,
                                               require_bullish_regime=True, regime_status="BEARISH")
         assert out_bearish.empty
 
-        out_bullish = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10,
+        out_bullish = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10, require_minervini_position=False,
                                               require_bullish_regime=True, regime_status="BULLISH")
         assert not out_bullish.empty
 
-        out_default = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
+        out_default = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10, require_minervini_position=False)
         assert not out_default.empty  # require_bullish_regime default False - perilaku lama tidak berubah
 
     def test_tanpa_total_equity_lot_tidak_diisi(self):
@@ -390,7 +390,7 @@ class TestBuildTradeCandidates:
         table = pd.DataFrame([{"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 910.0, "Value Traded (Rp)": 5e9}])
         price_data = {"AAA": _flat_ohlcv(25, price=1000).assign(
             **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)})}
-        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10, require_minervini_position=False)
         assert "Lot" not in out.columns  # perilaku lama: fallback ke default 10 lot di gsheet_journal.py
 
     def test_dengan_total_equity_lot_dihitung_dari_risiko(self):
@@ -399,7 +399,7 @@ class TestBuildTradeCandidates:
         table = pd.DataFrame([{"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 910.0, "Value Traded (Rp)": 5e9}])
         price_data = {"AAA": _flat_ohlcv(25, price=1000).assign(
             **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)})}
-        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10,
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10, require_minervini_position=False,
                                       total_equity=10_000_000, risk_pct=1.0)
         assert "Lot" in out.columns
         assert out.iloc[0]["Lot"] == 100
@@ -410,7 +410,7 @@ class TestBuildTradeCandidates:
         table = pd.DataFrame([{"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 910.0, "Value Traded (Rp)": 5e9}])
         price_data = {"AAA": _flat_ohlcv(25, price=1000).assign(
             **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)})}
-        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10,
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10, require_minervini_position=False,
                                       total_equity=100.0, risk_pct=1.0)
         assert out.empty
 
@@ -434,19 +434,19 @@ class TestFilterAntiKejarHarga:
 
     def test_naik_dari_open_melebihi_ambang_default_dilewati(self):
         table, price_data = self._fixture(naik_dari_open_pct=15.0)  # > ambang default 10%
-        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10, require_minervini_position=False)
         assert out.empty
 
     def test_naik_dari_open_dalam_ambang_tetap_lolos(self):
         table, price_data = self._fixture(naik_dari_open_pct=5.0)  # <= ambang default 10%
-        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10, require_minervini_position=False)
         assert not out.empty
 
     def test_ambang_bisa_diatur_manual(self):
         table, price_data = self._fixture(naik_dari_open_pct=15.0)
-        out_default = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
+        out_default = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10, require_minervini_position=False)
         assert out_default.empty
-        out_longgar = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10,
+        out_longgar = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10, require_minervini_position=False,
                                               max_naik_dari_open_pct=20.0)
         assert not out_longgar.empty
 
@@ -456,7 +456,7 @@ class TestFilterAntiKejarHarga:
         table = pd.DataFrame([{"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 910.0, "Value Traded (Rp)": 5e9}])
         price_data = {"AAA": _flat_ohlcv(25, price=1000).assign(
             **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)})}
-        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10, require_minervini_position=False)
         assert not out.empty
 
 
@@ -531,6 +531,159 @@ class TestIhsgSeasonality:
         feb = result[result["Bulan"] == "Feb"].iloc[0]
         assert feb["p_value"] is not None
         assert 0 <= feb["p_value"] <= 1
+
+
+class TestMinerviniPosition52w:
+    """Referensi screener profesional (Mark Minervini - Trend Template/SEPA) - user minta
+    dievaluasi "apa yang perlu disempurnakan krn win rate rendah". Dibacktest (350 saham/3
+    tahun, walk-forward): kandidat yg GAGAL posisi ini (blm >=25% dari low 52w ATAU masih
+    >25% di bawah high 52w) terbukti MERUGI konsisten (median -2,85%, README > "Referensi
+    Screener Profesional") - beda dari filter tren/RS relatif yg cuma memperbesar untung."""
+
+    def test_ok_true_saat_uptrend_kuat_dan_dekat_high_52w(self):
+        # Uptrend linear panjang -> harga hari ini selalu dekat high52w (baru dibuat) &
+        # jauh di atas low52w (harga di awal histori, jauh lebih rendah).
+        df = _uptrend_ohlcv(260, start_price=1000.0, step=3.0)
+        m = compute_metrics(df, _params())
+        assert m["Minervini Position OK"] is True
+        assert m["Pct Above Low52w"] >= 25
+        assert m["Pct Below High52w"] <= 25
+
+    def test_ok_false_saat_histori_flat_belum_pernah_naik(self):
+        # Flat total -> harga hari ini SAMA dgn low52w (0% di atas low) - gagal kriteria
+        # ">=25% dari low", walau breakout kecil di hari terakhir.
+        df = _flat_ohlcv(260, price=1000.0)
+        df.iloc[-1, df.columns.get_loc("Close")] = 1010.0  # breakout kecil hari ini saja
+        df.iloc[-1, df.columns.get_loc("High")] = 1010.0
+        m = compute_metrics(df, _params())
+        assert m["Minervini Position OK"] is False
+
+    def test_none_kalau_histori_kurang_dari_60_hari(self):
+        # compute_metrics() sendiri cuma butuh lookback+2 (22) hari, TAPI Minervini butuh
+        # minimal 60 - histori 25 hari (spt banyak fixture lama) harus dapat False, BUKAN
+        # crash/None yang tidak ditangani.
+        df = _uptrend_ohlcv(25, start_price=1000.0, step=3.0)
+        m = compute_metrics(df, _params())
+        assert m["Minervini Position OK"] is False
+        assert m["Pct Above Low52w"] is None
+        assert m["Pct Below High52w"] is None
+
+
+class TestMinerviniFilterDiTradeCandidates:
+    def _fixture_gagal_minervini(self):
+        # Flat 300 hari (gagal posisi 52w - lihat test di atas), breakout kecil hari
+        # terakhir spt fixture RR yg sudah ada di TestBuildTradeCandidates.
+        table = pd.DataFrame([{"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 910.0,
+                                "Value Traded (Rp)": 5e9}])
+        price_data = {"AAA": _flat_ohlcv(300, price=1000).assign(
+            **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)})}
+        return table, price_data
+
+    def test_default_membuang_kandidat_yang_gagal_posisi_52_minggu(self):
+        table, price_data = self._fixture_gagal_minervini()
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
+        assert out.empty  # require_minervini_position default True
+
+    def test_matikan_filter_meloloskan_kandidat_yang_sama(self):
+        table, price_data = self._fixture_gagal_minervini()
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10,
+                                      require_minervini_position=False)
+        assert not out.empty
+
+    def test_kolom_tidak_ada_dianggap_gagal_bukan_crash(self):
+        # table TANPA kolom "Minervini Position OK" sama sekali (mis. caller lama/test lain
+        # yg bikin table manual) - default False (aman, bukan lolos diam2), BUKAN crash.
+        table = pd.DataFrame([{"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 910.0,
+                                "Value Traded (Rp)": 5e9}])
+        price_data = {"AAA": _flat_ohlcv(25, price=1000).assign(
+            **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)})}
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10)
+        assert out.empty
+
+
+def _vcp_ohlcv(n_base: int = 40, prior_range_pct: float = 10.0, recent_range_pct: float = 1.0,
+               price: float = 1000.0) -> pd.DataFrame:
+    """OHLCV dgn range harian TERKENDALI: n_base hari flat (base), lalu 10 hari "prior"
+    dgn range=prior_range_pct, lalu 10 hari "recent" dgn range=recent_range_pct, lalu 1
+    baris terakhir (hari ini) breakout kecil. Dipakai uji Volatility Contraction Pattern."""
+    idx = pd.date_range("2023-01-01", periods=n_base + 21, freq="B")
+    rows = []
+    for _ in range(n_base):
+        rows.append({"Open": price, "High": price, "Low": price, "Close": price, "Volume": 10_000_000.0})
+    for _ in range(10):  # prior 10 hari (SEBELUM recent)
+        half = price * prior_range_pct / 100 / 2
+        rows.append({"Open": price, "High": price + half, "Low": price - half, "Close": price, "Volume": 10_000_000.0})
+    for _ in range(10):  # recent 10 hari (tepat SEBELUM hari ini)
+        half = price * recent_range_pct / 100 / 2
+        rows.append({"Open": price, "High": price + half, "Low": price - half, "Close": price, "Volume": 10_000_000.0})
+    rows.append({"Open": price, "High": price * 1.03, "Low": price, "Close": price * 1.02, "Volume": 15_000_000.0})  # hari ini
+    return pd.DataFrame(rows, index=idx)
+
+
+class TestVCPKontraksi:
+    """VCP (Volatility Contraction Pattern) proxy: rasio range 10 hari terakhir vs 10 hari
+    sebelum itu (SEBELUM hari ini, no lookahead). Dibacktest: <0.7 (kontraksi kuat) menaikkan
+    win rate (45,9% vs baseline ~33%) & menurunkan SL rate (46,9% vs ~57-60%) - TAPI median
+    return kelompoknya TETAP NEGATIF (-1,98%), jadi dipakai sbg INFO + boost ranking, BUKAN
+    filter keras (README > "Referensi Screener Profesional")."""
+
+    def test_kuat_true_saat_range_menyempit_jauh(self):
+        df = _vcp_ohlcv(n_base=40, prior_range_pct=10.0, recent_range_pct=1.0)
+        m = compute_metrics(df, _params())
+        assert m["VCP Kuat"] is True
+        assert m["VCP Rasio Kontraksi"] < 0.7
+
+    def test_kuat_false_saat_range_melebar(self):
+        df = _vcp_ohlcv(n_base=40, prior_range_pct=1.0, recent_range_pct=10.0)
+        m = compute_metrics(df, _params())
+        assert m["VCP Kuat"] is False
+        assert m["VCP Rasio Kontraksi"] > 1.0
+
+    def test_kuat_false_saat_range_mirip_tidak_kontraksi(self):
+        df = _vcp_ohlcv(n_base=40, prior_range_pct=5.0, recent_range_pct=4.5)
+        m = compute_metrics(df, _params())
+        assert m["VCP Kuat"] is False  # rasio 0.9 - bukan kontraksi KUAT (<0.7)
+
+    def test_none_kalau_histori_kurang_dari_20_hari(self):
+        # donchian_lookback dikecilkan (5) supaya compute_metrics() sendiri tidak butuh
+        # >=22 baris (spt default) - fokus murni ke syarat VCP (>=20 hari histori SEBELUM
+        # hari ini), bukan ketabrak syarat minimum compute_metrics() yg lain.
+        df = _uptrend_ohlcv(10, start_price=1000.0, step=3.0)
+        m = compute_metrics(df, _params(donchian_lookback=5))
+        assert m["VCP Rasio Kontraksi"] is None
+        assert m["VCP Kuat"] is False
+
+
+class TestVCPBoostRankingDiTradeCandidates:
+    """VCP Kuat = boost RANKING (bukan filter) - dipakai sbg kunci sort KEDUA (setelah RR,
+    sebelum Score) supaya kandidat dgn kontraksi kuat diprioritaskan di antara RR yang sama,
+    TANPA membuang kandidat yang tidak VCP."""
+
+    def test_vcp_kuat_diprioritaskan_di_atas_rr_yang_sama(self):
+        # Dua saham dgn RR yang PERSIS SAMA (Donchian High/Low identik) - AAA kontraksi kuat
+        # (VCP), BBB tidak. Keduanya harus tetap lolos (VCP bukan filter), tapi AAA harus
+        # muncul LEBIH DULU di hasil akhir.
+        df_vcp = _vcp_ohlcv(n_base=250, prior_range_pct=10.0, recent_range_pct=1.0)  # 250+21 hari, lolos Minervini jg
+        df_vcp.iloc[-2, df_vcp.columns.get_loc("Low")] = df_vcp["Close"].iloc[0] * 0.9  # Donchian Low seragam
+        df_non_vcp = _vcp_ohlcv(n_base=250, prior_range_pct=1.0, recent_range_pct=10.0)
+        df_non_vcp.iloc[-2, df_non_vcp.columns.get_loc("Low")] = df_non_vcp["Close"].iloc[0] * 0.9
+
+        m_vcp = compute_metrics(df_vcp, _params())
+        m_non_vcp = compute_metrics(df_non_vcp, _params())
+        assert m_vcp["VCP Kuat"] is True
+        assert m_non_vcp["VCP Kuat"] is False
+
+        table = pd.DataFrame([
+            {"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": m_vcp["Harga"],
+             "Value Traded (Rp)": 5e9, "VCP Kuat": m_vcp["VCP Kuat"]},
+            {"Kode": "BBB", "Signal": "BUY", "Score": 5, "Harga": m_non_vcp["Harga"],
+             "Value Traded (Rp)": 5e9, "VCP Kuat": m_non_vcp["VCP Kuat"]},
+        ])
+        price_data = {"AAA": df_vcp, "BBB": df_non_vcp}
+        out = build_trade_candidates(table, price_data, lookback=20, min_rr=0.1, top_n=10,
+                                      require_minervini_position=False)
+        assert len(out) == 2  # KEDUANYA tetap lolos - VCP bukan filter
+        assert out.iloc[0]["Saham"] == "AAA"  # tapi AAA (VCP kuat) diprioritaskan di urutan pertama
 
 
 if __name__ == "__main__":

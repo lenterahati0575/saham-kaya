@@ -664,6 +664,48 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
     ma200_prev = float(close_hist.tail(200).mean()) if len(close_hist) >= 200 else None
     trend_aligned_bullish = (ma20_prev is not None and ma50_prev is not None and ma200_prev is not None
                               and prev_close > ma20_prev and ma20_prev > ma50_prev and ma50_prev > ma200_prev)
+
+    # Referensi screener profesional (Mark Minervini - Trend Template/SEPA, William O'Neil -
+    # CANSLIM, Volatility Contraction Pattern) - user minta dicek "apakah ada yang perlu
+    # disempurnakan krn banyak saham potensial tidak masuk & win rate rendah". DIUJI dulu
+    # sebelum diterapkan (350 saham/3 tahun, walk-forward, README > "Referensi Screener
+    # Profesional"):
+    # 1. Posisi vs 52-week High/Low (Minervini): kandidat yg GAGAL kriteria ini (blm >=25%
+    #    dari low 52w ATAU masih >25% di bawah high 52w) terbukti MERUGI secara konsisten
+    #    (median -2,85%, rata2 -0,41%, split-half +2,64%/+2,26% utk yg LOLOS) - beda dari
+    #    filter tren/RS yg cuma memperbesar untung, ini benar2 menyaring kandidat yg buruk.
+    #    Dipakai sbg FILTER KERAS di build_trade_candidates().
+    hist_before_today = df.iloc[:-1]  # SEMUA data SEBELUM hari ini - no lookahead
+    pct_above_low52w = pct_below_high52w = None
+    minervini_position_ok = False
+    if len(hist_before_today) >= 60:
+        lookback_52w = min(252, len(hist_before_today))
+        window_52w = hist_before_today.iloc[-lookback_52w:]
+        low52w = float(window_52w["Low"].min())
+        high52w = float(window_52w["High"].max())
+        if low52w > 0 and high52w > 0:
+            pct_above_low52w = (close - low52w) / low52w * 100
+            pct_below_high52w = (high52w - close) / high52w * 100
+            minervini_position_ok = pct_above_low52w >= 25 and pct_below_high52w <= 25
+    # 2. Volatility Contraction Pattern (VCP) proxy: rasio range harian 10 hari TERAKHIR vs
+    #    10 hari SEBELUM itu (SEBELUM hari ini, no lookahead) - <0.7 = kontraksi kuat.
+    #    TERBUKTI menaikkan win rate (45,9% vs baseline ~33%) & menurunkan SL rate (46,9% vs
+    #    ~57-60%) - TAPI median return kelompok ini TETAP NEGATIF (-1,98%), rata-rata
+    #    positifnya ditarik oleh sedikit kemenangan BESAR (FORU +60%, FPNI +56%, dst.) -
+    #    pola "sering rugi kecil, sesekali untung besar", BUKAN sinyal "pasti untung stabil".
+    #    Karena karakternya beda (bukan filter aman spt Minervini), dipakai sbg INFO + boost
+    #    RANKING saja (bukan filter keras) - TIDAK diikutkan ke formula Score supaya
+    #    kalibrasi score_buy/score_strong_buy yg sudah divalidasi tidak ikut bergeser.
+    vcp_rasio_kontraksi = None
+    vcp_kuat = False
+    if len(hist_before_today) >= 20:
+        range_pct_hist = (hist_before_today["High"] - hist_before_today["Low"]) / hist_before_today["Close"] * 100
+        recent10 = range_pct_hist.iloc[-10:].mean()
+        prior10 = range_pct_hist.iloc[-20:-10].mean()
+        if prior10 and prior10 > 0:
+            vcp_rasio_kontraksi = float(recent10 / prior10)
+            vcp_kuat = vcp_rasio_kontraksi < 0.7
+
     volume = float(last["Volume"])
     avg_volume20 = float(df["Volume"].tail(20).mean())
     value_traded = close * avg_volume20
@@ -778,6 +820,11 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         "Gap Konfirmasi": gap["confirmed"],
         "Gap Breakout": gap["breakout_confirmed"],
         "Gap Trend Aligned": gap["trend_aligned"],
+        "Minervini Position OK": minervini_position_ok,
+        "Pct Above Low52w": round(pct_above_low52w, 1) if pct_above_low52w is not None else None,
+        "Pct Below High52w": round(pct_below_high52w, 1) if pct_below_high52w is not None else None,
+        "VCP Kuat": vcp_kuat,
+        "VCP Rasio Kontraksi": round(vcp_rasio_kontraksi, 2) if vcp_rasio_kontraksi is not None else None,
     }
 
 
@@ -858,6 +905,7 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
         "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
         "Open=Low", "Setup A Breakout", "Open=Low Trend Aligned",
         "Gap %", "Gap Type", "Gap Konfirmasi", "Gap Breakout", "Gap Trend Aligned",
+        "Minervini Position OK", "Pct Above Low52w", "Pct Below High52w", "VCP Kuat", "VCP Rasio Kontraksi",
         "Donchian High", "Donchian Low", "Avg Volume 20D", "Volume"
     ]
     
@@ -893,7 +941,8 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
                             top_n: int = 10, signal_filter=("STRONG BUY", "BUY"),
                             require_bullish_regime: bool = False, regime_status: str | None = None,
                             total_equity: float | None = None, risk_pct: float = 1.0,
-                            max_naik_dari_open_pct: float = 10.0) -> pd.DataFrame:
+                            max_naik_dari_open_pct: float = 10.0,
+                            require_minervini_position: bool = True) -> pd.DataFrame:
     """
     Entry = harga sekarang. Stop Loss = Donchian Low (lookback) - stop struktural, bukan persen tetap.
     Target = Donchian High + (Donchian High - Donchian Low) - proyeksi measured-move dari lebar channel.
@@ -919,6 +968,15 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
     `calculators.risk_management_calculator()`, cuma dihitung inline di sini. Kalau total_equity
     kosong (default, mis. belum ada snapshot Equity), "Lot" tidak diisi - caller/consumer di
     hilir (open_positions_from_candidates) tetap fallback ke default lama.
+
+    require_minervini_position (default True): filter dari referensi screener profesional
+    (Mark Minervini - Trend Template/SEPA) - user minta dicek "apa yang perlu disempurnakan
+    krn win rate rendah, banyak saham potensial tidak masuk". Dibacktest (350 saham/3 tahun,
+    walk-forward, README > "Referensi Screener Profesional"): kandidat yang GAGAL posisi ini
+    (belum >=25% dari low 52 minggu ATAU masih >25% di bawah high 52 minggu) terbukti MERUGI
+    secara konsisten (median -2,85%, rata2 -0,41%, split-half +2,64%/+2,26% utk yg lolos) -
+    beda dari filter tren MA/RS relatif yg sudah diuji sebelumnya (cuma memperbesar untung,
+    TIDAK mengurangi rugi), filter ini benar2 menyaring kandidat yang secara historis buruk.
     """
     if require_bullish_regime and regime_status != "BULLISH":
         return pd.DataFrame()
@@ -928,6 +986,8 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
         kode = r["Kode"]
         naik_dari_open = r.get("Naik dari Open %", 0)
         if pd.notna(naik_dari_open) and naik_dari_open > max_naik_dari_open_pct:
+            continue
+        if require_minervini_position and not bool(r.get("Minervini Position OK", False)):
             continue
         df = price_data.get(kode)
         dh, dl = _donchian_levels(df, lookback)
@@ -962,6 +1022,15 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
             "Target": round(target, 0), "Stop Loss": round(sl, 0),
             "Score": int(r["Score"]), "Nilai Transaksi": r["Value Traded (Rp)"],
             "Chart": tradingview_url(kode),
+            # VCP Kuat (kontraksi volatilitas sebelum breakout, referensi Minervini/VCP) -
+            # TERBUKTI menaikkan win rate (45,9% vs baseline ~33%) & menurunkan SL rate (46,9%
+            # vs ~57-60%), TAPI median return kelompoknya TETAP NEGATIF (-1,98%) - rata2
+            # positifnya ditarik sedikit kemenangan besar, bukan "pasti untung stabil". Karena
+            # karakternya beda dari filter aman Minervini di atas, TIDAK dijadikan filter
+            # keras - cuma boost RANKING (diprioritaskan di antara kandidat RR yang sama) &
+            # info kolom, TIDAK diikutkan ke Score (jaga kalibrasi score_buy/score_strong_buy
+            # yang sudah divalidasi terpisah).
+            "VCP Kuat": bool(r.get("VCP Kuat", False)),
         }
         if total_equity and total_equity > 0:
             risiko_rp = total_equity * (risk_pct / 100)
@@ -977,7 +1046,10 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
     out = pd.DataFrame(rows)
     if out.empty:
         return out
-    return out.sort_values(["RR", "Score"], ascending=[False, False]).head(top_n).reset_index(drop=True)
+    # VCP Kuat jadi kunci sort KEDUA (setelah RR, sebelum Score) - kandidat dgn kontraksi
+    # volatilitas kuat diprioritaskan di antara RR yang sama, TANPA mengubah RR/Score itu
+    # sendiri (lihat komentar "VCP Kuat" di atas kenapa ini boost ranking, bukan filter keras).
+    return out.sort_values(["RR", "VCP Kuat", "Score"], ascending=[False, False, False]).head(top_n).reset_index(drop=True)
 
 
 def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
