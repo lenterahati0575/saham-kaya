@@ -638,6 +638,19 @@ with st.sidebar:
                                  help="Default AKTIF - divalidasi lewat backtest: sistem breakout Swing ini "
                                       "net rugi di pasar sideways/bearish, net profit konsisten kalau cuma "
                                       "aktif saat IHSG di atas MA50.")
+    # Bug nyata dari laporan user: setelah filter Minervini (posisi 52-minggu) diterapkan
+    # sbg default aktif, di hari tertentu kandidat yang lolos jadi SANGAT sedikit (4 lolos
+    # RR/regime, cuma 1 yang lolos Minervini juga) - meski rata-rata 3 tahun filter ini
+    # meloloskan 58% kandidat, di hari² tertentu (mis. pasar baru terkoreksi, banyak saham
+    # blm 25% dari low 52w) bisa jauh lebih ketat dari rata-rata itu. Dibuat OPSIONAL (spt
+    # Gap Trend Aligned) drpd hard-code selalu ON - user bisa matikan saat kandidat terasa
+    # terlalu sedikit, README > "Referensi Screener Profesional".
+    filter_minervini = st.checkbox("Wajib posisi 52-minggu (Minervini) di Kandidat", value=True,
+                                    help="Default AKTIF - divalidasi: kandidat yang GAGAL kriteria ini "
+                                         "(blm >=25% dari low 52 minggu, atau masih >25% di bawah high 52 "
+                                         "minggu) secara historis MERUGI (median -2,85%). TAPI filter ini "
+                                         "cukup ketat (rata2 cuma 58% kandidat lolos, bisa jauh lebih sedikit "
+                                         "di hari tertentu) - matikan kalau kandidat terasa terlalu sedikit.")
     st.divider()
     st.subheader("🔮 IHSG Gann + Time Cycle")
     st.caption("Sudah diuji historis (10 tahun IHSG) - hit rate-nya SETARA hari acak, bukan lebih akurat. "
@@ -752,7 +765,8 @@ if gj.is_configured():
 # (lihat README > "Day Trading: Bukan Soal Parameter, Tapi Desain Sinyal").
 cands_swing_all = build_trade_candidates(table, price_data, int(donchian_lb), min_rr_swing, top_n=10,
                                           require_bullish_regime=filter_market, regime_status=regime["status"],
-                                          total_equity=total_equity_now, risk_pct=risk_pct_per_trade)
+                                          total_equity=total_equity_now, risk_pct=risk_pct_per_trade,
+                                          require_minervini_position=filter_minervini)
 if total_equity_now is None:
     st.sidebar.caption("💡 Lot Auto-BUY masih default (10 lot/saham) - isi snapshot di tab **Equity > Catat "
                         "Snapshot** supaya position sizing dihitung dari Total Equity + Risiko per Trade.")

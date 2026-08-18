@@ -123,7 +123,11 @@ def main():
     #
     # ---- Auto-BUY: Swing Trading (digate regime IHSG - divalidasi lewat backtest realistis
     # + out-of-sample: net rugi kalau dipaksa aktif di pasar bearish, lihat README). Filter
-    # anti-kejar-harga (Naik dari Open % > 10%) sudah otomatis ikut di build_trade_candidates(). ----
+    # anti-kejar-harga (Naik dari Open % > 10%) sudah otomatis ikut di build_trade_candidates().
+    # require_minervini_position TIDAK diisi eksplisit -> ikut default True (screener.py) -
+    # SENGAJA independen dari checkbox dashboard ("Wajib posisi 52-minggu") yang bisa
+    # dimatikan user; skrip otomatis tanpa pengawasan ini tetap pakai default paling
+    # tervalidasi/aman, terlepas apa yang sedang dipilih user di dashboard interaktifnya. ----
     ihsg_hist = fetch_ihsg_history()
     regime = market_regime(ihsg_hist)
     log(f"Regime IHSG: {regime['status']}")

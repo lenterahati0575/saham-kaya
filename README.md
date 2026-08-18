@@ -2041,6 +2041,20 @@ diperbaiki pakai tanggal relatif ke `datetime.now()`, bukan string tetap. 12 tes
 (`TestMinerviniPosition52w`, `TestMinerviniFilterDiTradeCandidates`, `TestVCPKontraksi`,
 `TestVCPBoostRankingDiTradeCandidates`). 163/163 pytest lolos.
 
+### Filter Minervini dibuat OPSIONAL - hari tertentu bisa jauh lebih ketat dari rata-rata
+
+User coba di live: "sepertinya tidak cocok diterapkan, hanya 4 saham yang berhasil di
+screener, itupun cuma satu yang lolos". Rata-rata 3 tahun filter ini meloloskan 58%
+kandidat, TAPI itu rata-rata - di hari tertentu (mis. pasar baru terkoreksi, banyak saham
+belum kembali 25% dari low 52 minggu) bisa jauh lebih ketat, persis yang dialami user.
+
+**Fix**: checkbox baru di sidebar "Wajib posisi 52-minggu (Minervini) di Kandidat" (`app.py`,
+default **ON** - mempertahankan perilaku tervalidasi), pola SAMA dgn checkbox regime IHSG &
+toggle Gap Trend Aligned - kalau kandidat terasa terlalu sedikit di hari tertentu, user bisa
+matikan sendiri drpd terkunci hard-code. `auto_run.py` (skrip otomatis tanpa pengawasan)
+SENGAJA tidak ikut toggle ini - tetap `require_minervini_position=True` (default paling
+tervalidasi) terlepas apa yang dipilih user di dashboard interaktifnya.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
