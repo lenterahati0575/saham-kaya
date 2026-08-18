@@ -975,9 +975,14 @@ with t_kandidat:
         # "Tipe" (selalu sama) & "Harga" (= Entry dibulatkan) tidak ditampilkan - redundan.
         kolom_tampil = [
             "Kode", "Nama", "Signal", "Score",
-            "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss", "VCP Kuat", "Momentum 5 Hari",
+            "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss",
             "Rekomendasi", "Confidence", "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
-            "Perubahan %", "Naik dari Open %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout"
+            "Perubahan %", "Naik dari Open %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout",
+            # VCP Kuat & Momentum 5 Hari dipindah ke PALING AKHIR (saran user) - relatif jarang
+            # terisi (cuma sedikit saham yang lolos kriteria ini tiap hari), jadi lebih pas di
+            # ujung drpd di tengah tabel yang bikin kolom2 utama (RR/Entry/Target/SL) makin ke
+            # kanan/tersembunyi kalau layar sempit.
+            "VCP Kuat", "Momentum 5 Hari",
         ]
         kolom_tampil.insert(2, "Sektor")
         kolom_tampil = [col for col in kolom_tampil if col in show.columns]
