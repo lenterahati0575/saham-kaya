@@ -24,6 +24,20 @@ def _tanggal_open_recent(hari_lalu: int = 2) -> str:
     return (datetime.now(gj.WIB) - timedelta(days=hari_lalu)).strftime("%Y-%m-%d %H:%M")
 
 
+def _tanggal_open_hari_ini(jam: str = "09:00") -> str:
+    """Tanggal open di TANGGAL KALENDER SEKARANG (hari yang sama dgn saat test jalan) -
+    dipakai TestSkipCekSamaHariDenganBuka utk simulasi posisi yang BARU SAJA dibuka."""
+    return datetime.now(gj.WIB).strftime(f"%Y-%m-%d {jam}")
+
+
+def _tanggal_open_kemarin_sore(jam: str = "15:07") -> str:
+    """Tanggal open KEMARIN sore (tanggal KALENDER beda dari sekarang, TAPI kalau dicek pagi
+    ini selisih JAM-nya < 24 jam) - dipakai utk membuktikan fix pakai perbandingan TANGGAL
+    KALENDER (`.date()`), BUKAN selisih jam (`timedelta.days`), yang akan SALAH treat ini
+    sbg "hari yang sama" padahal sudah beda tanggal kalender & MEMANG SAH utk dicek."""
+    return (datetime.now(gj.WIB) - timedelta(days=1)).strftime(f"%Y-%m-%d {jam}")
+
+
 def _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=110.0, sl=90.0, tipe="SWING", lot=10,
                           tanggal_open="2026-07-20 10:00", sl_awal=None, tanpa_kolom_sl_awal=False,
                           momentum_kuat=None):
@@ -402,6 +416,66 @@ class TestTrailingLebihCepatMomentumKuat:
             closed = gj.auto_close_positions({"ZZZZ": 103.5}, {"ZZZZ": (103.5, 101.0)})
         assert closed == []
         ws.update.assert_not_called()  # blm 1R (110), fallback trigger lama
+
+
+class TestSkipCekSamaHariDenganBuka:
+    """Bug nyata dari laporan user (screenshot sheet POSISI): FAST/CTTH/KETR/DOOH/APLN dkk
+    dibuka DAN ditutup di TANGGAL KALENDER YANG SAMA (kadang cuma beda beberapa menit) -
+    contoh paling jelas APLN: "kemarin hijau, hari ini naik kencang, tapi tercatat loss".
+    Akar masalah: auto_run.py membeli pakai Close ~15:07 WIB (hampir tutup bursa) LALU
+    LANGSUNG di eksekusi yang SAMA mengecek SL/TP pakai High/Low HARI ITU JUGA - yang
+    SEBAGIAN BESAR sudah terjadi SEBELUM jam beli (dari jam buka 09:00), SECARA KAUSAL
+    mustahil di dunia nyata. MENYIMPANG dari backtest.py yang tervalidasi (exit dicek MULAI
+    HARI BERIKUTNYA, `range(t + 1, ...)`, tidak pernah hari yang sama dgn entry). Fix: skip
+    total pengecekan TP/SL/trailing kalau tanggal KALENDER Tanggal Open == tanggal KALENDER
+    sekarang."""
+
+    def test_posisi_dibuka_hari_ini_tidak_dicek_walau_low_tembus_sl(self):
+        df_positions = _make_open_position(kode="APLN", harga_beli=137.0, tp=173.0, sl=128.0,
+                                            sl_awal=128.0, tanggal_open=_tanggal_open_hari_ini())
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            # Low hari ini (120) SUDAH di bawah SL (128) - TANPA fix ini akan langsung
+            # "LOSS (SL)", padahal posisi baru saja dibuka hari yang sama.
+            closed = gj.auto_close_positions({"APLN": 145.0}, {"APLN": (150.0, 120.0)})
+        assert closed == []
+        ws.update.assert_not_called()
+
+    def test_posisi_dibuka_hari_ini_tidak_dicek_walau_high_tembus_tp(self):
+        # Konsisten juga utk arah UNTUNG - metodologi backtest sama sekali TIDAK mengecek
+        # exit di hari entry, terlepas arahnya untung atau rugi.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=110.0, sl=90.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_hari_ini())
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 108.0}, {"ZZZZ": (115.0, 95.0)})
+        assert closed == []
+        ws.update.assert_not_called()
+
+    def test_posisi_dibuka_kemarin_sore_tetap_dicek_pagi_ini_walau_kurang_24_jam(self):
+        # Beda TANGGAL KALENDER (kemarin vs sekarang) walau selisih JAM < 24 jam - HARUS
+        # tetap dicek normal (bukan skip) - buktikan fix pakai `.date()`, bukan `.days`.
+        # Kode "ZZZZ" (bukan "PWON") - _mock_worksheet() cuma punya baris hardcode "ZZZZ"
+        # utk _find_row_number(), sama seperti test lain di file ini.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=260.0, tp=308.0, sl=252.0,
+                                            sl_awal=252.0, tanggal_open=_tanggal_open_kemarin_sore())
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 245.0}, {"ZZZZ": (265.0, 245.0)})
+        assert closed == ["ZZZZ (LOSS (SL))"]
+
+    def test_posisi_dibuka_beberapa_hari_lalu_tetap_dicek_normal(self):
+        # Regresi sanity check - posisi lama (bukan hari ini) TIDAK terpengaruh fix ini.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=110.0, sl=90.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent(hari_lalu=3))
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 115.0}, {"ZZZZ": (116.0, 105.0)})
+        assert closed == ["ZZZZ (WIN (TP))"]
 
 
 class TestOpenPositionsMerekamMomentumKuat:

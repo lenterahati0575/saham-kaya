@@ -427,10 +427,37 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
             # (trigger trailing tetap 1,0R lama, tidak crash).
             momentum_kuat = str(row.get("Momentum Kuat", "")).strip().upper() == "TRUE"
             tgl_open = pd.to_datetime(row["Tanggal Open"])
+            now_wib = datetime.now(WIB).replace(tzinfo=None)
+
+            # BUG NYATA dari laporan user (screenshot sheet POSISI: FAST/CTTH/KETR/DOOH/APLN
+            # dkk dibuka DAN ditutup di TANGGAL KALENDER YANG SAMA, kadang cuma beda beberapa
+            # menit) - APLN jadi contoh paling jelas: "kemarin hijau, hari ini naik kencang,
+            # tapi tercatat loss". Akar masalahnya: auto_run.py membeli (pakai Close ~15:07
+            # WIB, hampir tutup bursa) LALU LANGSUNG di eksekusi yang SAMA mengecek SL/TP
+            # pakai High/Low HARI ITU JUGA - yang SEBAGIAN BESAR sudah terjadi SEBELUM jam
+            # 15:07 (dari jam buka 09:00). Kalau Low pagi hari itu kebetulan di bawah SL,
+            # posisi langsung "kena SL" dalam hitungan menit - padahal SECARA KAUSAL mustahil
+            # (baru beli jam 15:07, tidak mungkin kena harga rendah yang sudah lewat jam 10
+            # pagi, SEBELUM posisi itu dibeli). Ini MENYIMPANG dari metodologi backtest yang
+            # sudah divalidasi (`backtest.py::_simulate_realistic_trades_single`): exit HANYA
+            # dicek MULAI HARI BERIKUTNYA (`for d in range(t + 1, ...)`), TIDAK PERNAH di hari
+            # yang sama dengan entry.
+            #
+            # Fix: SKIP total pengecekan TP/SL/trailing kalau tanggal KALENDER "Tanggal Open"
+            # SAMA dengan tanggal KALENDER sekarang - berlaku utk SEMUA pemanggil (cron
+            # otomatis MAUPUN tombol manual dashboard yg bisa diklik berkali2 hari yang sama).
+            # Sengaja bandingkan TANGGAL KALENDER (`.date()`), BUKAN selisih jam (`.days` dari
+            # timedelta) - selisih jam SALAH DI SINI: posisi dibuka jam 15:07 lalu dicek lagi
+            # jam 09:xx BESOK paginya cuma berselisih ~18 jam (`.days` masih 0) padahal itu
+            # SUDAH hari kalender berikutnya & MEMANG SAH utk dicek (bukan bug, lihat kolom
+            # "Hari" yg terpisah - itu cuma dipakai utk force-sell, tidak diubah di sini).
+            if tgl_open.date() == now_wib.date():
+                continue
+
             # "Tanggal Open" ditulis pakai jam WIB (lihat open_positions_from_candidates) -
             # naive, jadi "now" WIB-nya juga di-strip tzinfo dulu spy angka jamnya konsisten
             # dibandingkan (bukan dibandingkan dgn UTC polos yg 7 jam lebih awal).
-            hari = (datetime.now(WIB).replace(tzinfo=None) - tgl_open).days
+            hari = (now_wib - tgl_open).days
             tipe = str(row.get("Tipe", "")).strip().upper()
 
             # Validasi dan auto-swap TP/SL jika terbalik (untuk posisi LONG)

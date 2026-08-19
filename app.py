@@ -604,7 +604,7 @@ with st.sidebar:
     # filesystem saat runtime) supaya bisa dipastikan 100% apakah app benar2 menjalankan
     # kode ini atau bukan, tanpa tebak-tebakan lagi lain kali ada laporan serupa - UPDATE
     # string ini setiap kali push signifikan.
-    st.caption("🔖 Versi kode: 2026-08-19-filter-suspen")
+    st.caption("🔖 Versi kode: 2026-08-19-fix-cek-jual-hari-sama")
     session = get_market_session()
     st.markdown(f"""<div style="background:{session['color']};border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;border:1px solid rgba(255,255,255,0.1);"><div style="font-size:11px;color:rgba(255,255,255,0.7);">MARKET SESSION</div><div style="font-size:16px;font-weight:700;color:#fff;margin:4px 0;">{session['session']}</div><div style="font-size:10px;color:rgba(255,255,255,0.6);">{session['desc']}</div></div>""", unsafe_allow_html=True)
     if session['next_open'] and session['countdown'] > 0:

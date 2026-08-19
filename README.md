@@ -2349,6 +2349,47 @@ sesuai permintaan user. Daftar saham yang dikeluarkan di-print ke log server (bu
 utk transparansi debug tanpa menambah komponen visual baru. 4 test baru
 (`TestFilterSahamTidakAktifSuspen`) - 183/183 pytest lolos.
 
+## Bug Serius: Posisi Dijual di HARI YANG SAMA Dibeli (Look-Ahead Bug)
+
+Laporan user (screenshot sheet POSISI): FAST/CTTH/KETR/DOOH/APLN dkk dibuka **DAN**
+ditutup di **tanggal kalender yang sama**, kadang cuma beda beberapa menit - hampir semua
+berakhir BREAKEVEN atau LOSS (SL). Contoh paling jelas: **APLN** - "kemarin hijau, hari
+ini naik kencang, tapi tercatat loss".
+
+**Root cause**: `auto_run.py` (cron sore, 14:45 WIB) membeli lalu **LANGSUNG di eksekusi
+yang SAMA** mengecek TP/SL/trailing semua posisi OPEN - termasuk yang BARU SAJA dibuka
+detik sebelumnya. Entry-nya pakai Close saham (~jam 15:07 WIB stlh fetch data, nyaris
+tutup bursa), tapi pengecekan SL/TP-nya pakai **High/Low HARI ITU JUGA** - yang
+SEBAGIAN BESAR sudah terjadi SEBELUM jam beli (dari jam buka 09:00). Kalau Low pagi hari
+itu kebetulan di bawah SL, posisi langsung "kena SL" dalam hitungan menit - **secara
+kausal mustahil**: baru beli jam 15:07, tidak mungkin "kena" harga rendah yang sudah
+lewat jam 10 pagi, SEBELUM posisi itu dibeli.
+
+Ini MENYIMPANG dari metodologi `backtest.py::_simulate_realistic_trades_single()` yang
+sudah divalidasi ketat sepanjang proyek ini - baris `for d in range(t + 1, ...)`: exit
+HANYA dicek MULAI HARI BERIKUTNYA, TIDAK PERNAH di hari yang sama dengan entry. Live
+system (`gsheet_journal.py`) tidak punya pengaman yang sama - bug ini sudah ada sejak
+awal, baru ketahuan sekarang karena efeknya (hampir semua trade closed di hari yang
+sama) baru terlihat jelas setelah beberapa hari data terkumpul di sheet POSISI.
+
+**Fix** (`gsheet_journal.py::auto_close_positions()`): tambah guard di awal loop
+pengecekan tiap posisi OPEN - kalau tanggal KALENDER `Tanggal Open` SAMA dengan tanggal
+KALENDER sekarang, SKIP total (lanjut ke posisi berikutnya, tidak dicek TP/SL/trailing
+sama sekali). Berlaku utk SEMUA pemanggil (cron otomatis MAUPUN tombol manual dashboard
+yang bisa diklik berkali-kali hari yang sama) - fix di satu tempat, otomatis melindungi
+semua jalur.
+
+Sengaja bandingkan **tanggal kalender** (`.date()`), BUKAN selisih jam
+(`timedelta.days`) seperti kolom "Hari" yang sudah ada - selisih jam SALAH dipakai di
+sini: posisi dibuka jam 15:07 lalu dicek lagi jam 09:xx BESOK paginya cuma berselisih
+~18 jam (`.days` masih 0) padahal itu SUDAH tanggal kalender berikutnya & MEMANG SAH
+utk dicek (bukan bug - itu justru alur yang benar: beli sore, jual paling cepat besok
+pagi, sesuai jadwal cron yang sudah disepakati - README > "BUY vs SELL Beda Jadwal").
+
+4 test baru (`TestSkipCekSamaHariDenganBuka`) - termasuk test yang membuktikan posisi
+"dibuka kemarin sore, dicek pagi ini" (beda tanggal kalender, tapi selisih jam <24 jam)
+TETAP diproses normal, tidak ikut ke-skip. 187/187 pytest lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
