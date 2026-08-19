@@ -2390,6 +2390,16 @@ pagi, sesuai jadwal cron yang sudah disepakati - README > "BUY vs SELL Beda Jadw
 "dibuka kemarin sore, dicek pagi ini" (beda tanggal kalender, tapi selisih jam <24 jam)
 TETAP diproses normal, tidak ikut ke-skip. 187/187 pytest lolos.
 
+**Data lama tetap tercatat sebagai bukti, TAPI dikecualikan dari ringkasan performa**:
+trade yang SUDAH kena bug ini (FAST/CTTH/KETR/DOOH/APLN dkk) tetap ada di sheet POSISI
+(tidak dihapus - riwayat harus jujur), tapi `app.py` tab Performance sekarang punya
+checkbox baru **"Kecualikan trade 'jual hari sama dgn beli'"** (default AKTIF) yang
+mendeteksi pola ini langsung dari data (tanggal kalender Tanggal Open == Tanggal Close,
+bukan cutoff tanggal deploy) dan mengeluarkannya dari perhitungan Win Rate/Profit
+Factor/Realized P/L. User (2026-08-19): "kita tidak boleh kalah dgn sistem yang kemarin
+saya kirimkan" - performa live harus dibandingkan dari data yang BERSIH, bukan yang
+tercemar bug eksekusi.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

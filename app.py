@@ -1644,6 +1644,28 @@ with t_perf:
             is_open_mask = positions_perf["Status"].astype(str).str.upper().str.strip() == "OPEN"
             open_df = positions_perf[is_open_mask].copy()
             closed_df = positions_perf[~is_open_mask].copy()
+
+            # Bug nyata "dijual di HARI YANG SAMA dibeli" (README > "Bug Serius: Posisi
+            # Dijual di HARI YANG SAMA Dibeli") - trade LAMA yang kena bug ini hasilnya TIDAK
+            # VALID (dievaluasi pakai High/Low yang SEBAGIAN sudah terjadi SEBELUM posisi
+            # dibeli), mencemari Win Rate/rata2 return kalau ikut dihitung. Diidentifikasi
+            # langsung dari data (tanggal KALENDER Open == tanggal KALENDER Close pada trade
+            # yang BUKAN force-sell), bukan cutoff tanggal deploy - supaya tetap benar
+            # walaupun user tidak tahu persis kapan fix ini di-deploy. Dgn fix ini aktif,
+            # pola ini TIDAK BISA terjadi lagi utk trade baru (kecuali user tutup manual di
+            # hari yang sama, sengaja) - jadi DEFAULT dikecualikan, user bisa matikan utk
+            # lihat datanya. User (2026-08-19): "kita tidak boleh kalah dgn sistem yang
+            # kemarin saya kirimkan" - Win Rate/return HARUS dihitung dari data yang bersih
+            # dulu sebelum dibandingkan.
+            if "Tanggal Open" in closed_df.columns and "Tanggal Close" in closed_df.columns:
+                tgl_open_closed = pd.to_datetime(closed_df["Tanggal Open"], errors="coerce")
+                tgl_close_closed = pd.to_datetime(closed_df["Tanggal Close"], errors="coerce")
+                is_bug_hari_sama = (tgl_open_closed.notna() & tgl_close_closed.notna()
+                                     & (tgl_open_closed.dt.date == tgl_close_closed.dt.date))
+            else:
+                is_bug_hari_sama = pd.Series([False] * len(closed_df), index=closed_df.index)
+            n_bug_hari_sama = int(is_bug_hari_sama.sum())
+
             st.markdown("### ⚙️ Parameter Backtest")
             col_m1, col_m2, col_m3 = st.columns(3)
             with col_m1:
@@ -1652,6 +1674,15 @@ with t_perf:
                 include_open = st.checkbox("Sertakan Floating P/L (posisi OPEN)", value=True, help="Centang untuk hitung unrealized P/L posisi terbuka.")
             with col_m3:
                 show_all_trades = st.checkbox("Tampilkan semua trade", value=True)
+            exclude_bug_hari_sama = st.checkbox(
+                f"Kecualikan trade 'jual hari sama dgn beli' - bug look-ahead, sudah diperbaiki ({n_bug_hari_sama} trade lama terpengaruh)",
+                value=True,
+                help="Trade lama yang closed di TANGGAL KALENDER sama dgn Tanggal Open dievaluasi "
+                     "pakai High/Low yang sebagian sudah terjadi SEBELUM posisi dibeli - hasilnya "
+                     "tidak valid, jangan ikut dihitung ke Win Rate/rata2 return. Matikan kalau "
+                     "ingin lihat data mentah aslinya.")
+            if exclude_bug_hari_sama and n_bug_hari_sama > 0:
+                closed_df = closed_df[~is_bug_hari_sama].copy()
             price_lookup = dict(zip(table["Kode"], table["Harga"])) if not table.empty else {}
             realized_total = closed_df["P&L (Rp)"].sum() if not closed_df.empty and "P&L (Rp)" in closed_df.columns else 0
             floating_total = 0
@@ -1693,6 +1724,9 @@ with t_perf:
             st.markdown("### 📊 Ringkasan Performance Backtest")
             st.caption("Win Rate & Profit Factor dihitung dari WIN vs LOSS asli saja - BREAKEVEN "
                        "(SL berhasil ditrail, cuma rugi tipis krn fee) TIDAK dihitung sbg kalah.")
+            if exclude_bug_hari_sama and n_bug_hari_sama > 0:
+                st.caption(f"ℹ️ {n_bug_hari_sama} trade lama (jual di hari sama dgn beli - bug sudah "
+                           f"diperbaiki 19 Agu 2026) dikecualikan dari ringkasan di bawah ini.")
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.metric("Total Posisi", n_open + n_closed); c2.metric("OPEN", n_open); c3.metric("CLOSED", n_closed)
             c4.metric("WIN", n_win); c5.metric("LOSS", n_loss); c6.metric("BREAKEVEN", n_breakeven)
