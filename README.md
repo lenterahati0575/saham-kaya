@@ -2268,6 +2268,87 @@ yang nantinya di-`merge()`, SELALU cek dulu kolom mana yang perlu di-merge vs ma
 SUDAH ada di salah satu sisi - `pandas.merge()` tidak pernah error/warning saat terjadi
 tabrakan nama, cuma diam-diam menyisipkan suffix.
 
+## Trailing Lebih Cepat utk Saham Momentum Kuat (0,3R)
+
+Latar belakang: user lapor DOOH naik **+178% sejak 13 Juli** (5 minggu), tapi kandidat
+saham ini terus di-whipsaw keluar oleh SL sebelum sempat menikmati rally besar - "screener
+kita kemarin yang bermasalah". Trailing-ke-breakeven yang sudah ada (README > "Trailing
+Stop ke Breakeven") trigger di **1,0R** (profit = risk awal) - untuk saham yang memang
+sedang rally kuat, ini kadang terlalu lambat, posisi keburu kena SL asli sebelum
+sempat ditrail sama sekali.
+
+**Sempat diuji juga**: (a) ATR-widened SL (memperlebar jarak SL awal, bukan mempercepat
+trailing) - REJECTED, menurunkan SL rate tapi tidak menaikkan avg return & split-half
+JADI LEBIH TIDAK KONSISTEN. (b) Template Minervini 8-kriteria+RS Rating lengkap sbg
+filter kandidat (termasuk diuji utk hold lebih lama, 20/40 hari) - REJECTED total di
+semua horizon diuji (lihat bagian di bawah). Pendekatan yang AKHIRNYA tervalidasi:
+bukan mengubah filter kandidat atau lebar SL, tapi **mempercepat trigger trailing**
+khusus utk saham yang SUDAH terbukti momentum kuat saat kandidat itu muncul.
+
+**Kriteria "Momentum Kuat"**: naik >=30% dalam 20 hari bursa terakhir (before hari ini,
+no lookahead) - `screener.py::compute_metrics()`, field `"Momentum Kuat 20D"`. Beda dari
+"Momentum 5 Hari" (naik beruntun 5 hari + volume naik, README > "Referensi Screener
+Profesional") - itu pola ENTRY jangka pendek, ini murni ukuran SEBERAPA KUAT rally yang
+SUDAH terjadi, dipakai HANYA utk kecepatan trailing setelah posisi dibuka.
+
+**Backtest** (206 trade real, walk-forward, simulasi realistis Entry/SL/Target/RR, 3
+varian trigger dibandingkan):
+
+| Trigger | Avg Net Return | SL Penuh | BREAKEVEN | Split-half |
+|---|---|---|---|---|
+| 1,0R (baseline lama) | +1,72% | 83 | 76 | +2,71% / +0,73% |
+| 0,5R | +1,51% | 56 | 121 | +1,95% / +1,07% |
+| **0,3R** | **+2,17%** | **42** | **136** | **+2,78% / +1,56%** |
+
+0,3R menang di SEMUA metrik: avg return TERTINGGI, SL penuh TURUN HAMPIR SEPARUH (83->42),
+dan split-half PALING KONSISTEN dari 3 varian (kedua paruh positif & lebih tinggi dari
+baseline). Diterapkan HANYA utk saham Momentum Kuat, BUKAN ke semua populasi (belum diuji
+utk populasi umum, dan trailing 1,0R umum sudah tervalidasi terpisah).
+
+**Fix**: kolom baru **O: Momentum Kuat** ditambahkan ke struktur sheet POSISI
+([gsheet_journal.py](gsheet_journal.py), `HEADERS`) - direkam SEKALI saat posisi dibuka
+(`open_positions_from_candidates()`, dibaca dari `"Momentum Kuat 20D"` hasil
+`build_trade_candidates()`), TIDAK PERNAH dihitung ulang setelahnya. `auto_close_positions()`
+membaca kolom ini per posisi OPEN: kalau `TRUE`, pakai `TRAILING_TRIGGER_R_MOMENTUM_KUAT
+= 0.3` sbg pengali risk awal; kalau `FALSE`/kosong (baris lama sebelum kolom ini ada),
+tetap pakai `TRAILING_TRIGGER_R = 1.0` lama - tidak crash, tidak berubah perilaku utk
+baris lama. 7 test baru (`TestTrailingLebihCepatMomentumKuat`,
+`TestOpenPositionsMerekamMomentumKuat`) - 179/179 pytest lolos.
+
+**Langkah manual diperlukan**: sheet Google Sheets "POSISI" live perlu kolom header baru
+`Momentum Kuat` di cell **O1** (sejajar kolom `Lot`/`SL Awal` yang sudah ada) - kode ini
+menulis/membaca posisi berdasarkan URUTAN kolom, bukan mencari nama header, jadi baris
+BARU akan otomatis terisi benar begitu header-nya ada; tanpa header ini `get_all_records()`
+tidak akan memberi nama kolom O sehingga `auto_close_positions()` fallback aman ke
+trigger 1,0R lama (bukan error, tapi juga belum memanfaatkan fitur baru).
+
+## Filter Saham Tidak Aktif/Suspen
+
+Laporan user: "hari ini DOOH di suspen, saya mau saham yang tidak aktif dari perdagangan
+tidak masuk screener". Sebelumnya TIDAK ada filter khusus utk ini - gate likuiditas yang
+sudah ada (`Layak Likuiditas`) pakai **rata-rata volume 20 hari**, jadi saham yang biasanya
+likuid tapi SEDANG suspen hari ini tetap lolos (rata-ratanya masih tinggi walau hari ini
+nol).
+
+Ditelusuri histori data DOOH sendiri - ditemukan 2 pola suspen yang berbeda, KEDUANYA
+harus dideteksi:
+1. **Bar hari itu ADA tapi Volume=0** - contoh nyata: bar 6 Agustus DOOH punya
+   Open=High=Low=Close=274 (rata sempurna, tidak ada rentang harga sama sekali) dengan
+   Volume=0 - tanda pasti tidak ada satupun transaksi hari itu.
+2. **Bar hari itu TIDAK ADA sama sekali** - saat suspen SEDANG berlangsung, data provider
+   kadang belum/tidak menambah bar baru sama sekali utk hari itu, jadi bar TERAKHIR yang
+   tersedia jadi tertinggal dibanding saham lain yang sudah update.
+
+**Fix** (`screener.py::build_screener_table()`): dihitung `tanggal_terbaru_pasar` = MAX
+tanggal bar TERAKHIR di seluruh batch scan yang sedang berjalan (bukan hardcode "hari
+ini" - supaya tetap benar kalau scan dijalankan sebelum SEMUA saham ter-update: semua
+sama2 tertinggal 1 hari, tidak ada yang salah kefilter). Saham dianggap AKTIF kalau
+tanggal bar terakhirnya == tanggal_terbaru_pasar DAN Volume hari itu > 0 - gagal salah
+satu syarat, saham dikeluarkan SEPENUHNYA dari tabel screener (bukan cuma ditandai),
+sesuai permintaan user. Daftar saham yang dikeluarkan di-print ke log server (bukan UI)
+utk transparansi debug tanpa menambah komponen visual baru. 4 test baru
+(`TestFilterSahamTidakAktifSuspen`) - 183/183 pytest lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

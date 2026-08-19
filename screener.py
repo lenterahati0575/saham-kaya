@@ -739,6 +739,20 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
             vol_sebelum_20 = df["Volume"].iloc[-25:-5].mean()
             momentum_5hari_naik = bool(pd.notna(vol_sebelum_20) and window_vol_5.mean() > vol_sebelum_20)
 
+    # 4. Momentum Kuat 20 Hari - naik >=30% dalam 20 hari bursa TERAKHIR (before today, no
+    #    lookahead). Dipakai HANYA utk menentukan kecepatan trailing-stop-ke-breakeven saat
+    #    posisi DIBUKA (bukan utk filter/ranking Kandidat). DIUJI (206 trade real, walk-
+    #    forward): trailing dipercepat ke 0,3R (dari default 1,0R) utk saham kategori ini
+    #    TERBUKTI lebih baik - Avg Return +2,17% (vs baseline +1,72%), SL penuh turun dari 83
+    #    ke 42 trade, split-half plg konsisten dari semua varian diuji (+2,78%/+1,56%, dua2nya
+    #    positif). Lihat README > "Trailing Lebih Cepat utk Saham Momentum Kuat (0,3R)".
+    momentum_20d_kuat = False
+    if len(hist_before_today) >= 21:
+        close_kemarin = float(hist_before_today["Close"].iloc[-1])
+        close_21hari_lalu = float(hist_before_today["Close"].iloc[-21])
+        if close_21hari_lalu > 0:
+            momentum_20d_kuat = (close_kemarin / close_21hari_lalu - 1) >= 0.30
+
     volume = float(last["Volume"])
     avg_volume20 = float(df["Volume"].tail(20).mean())
     value_traded = close * avg_volume20
@@ -859,6 +873,13 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         "VCP Kuat": vcp_kuat,
         "VCP Rasio Kontraksi": round(vcp_rasio_kontraksi, 2) if vcp_rasio_kontraksi is not None else None,
         "Momentum 5 Hari": momentum_5hari_naik,
+        "Momentum Kuat 20D": momentum_20d_kuat,
+        # Tanggal bar TERAKHIR yang tersedia (raw Timestamp, BUKAN string "Tanggal Harga" yg
+        # sudah diformat "%d %b" & kehilangan info tahun) - dipakai build_screener_table() utk
+        # mendeteksi saham yg SEDANG SUSPEN/tidak aktif diperdagangkan (README > "Filter Saham
+        # Tidak Aktif/Suspen"). Bukan kolom tampilan (tidak ada di `cols`, otomatis hilang
+        # setelah proyeksi akhir build_screener_table()).
+        "_tanggal_harga_raw": last.name if hasattr(last.name, "strftime") else None,
     }
 
 
@@ -931,7 +952,27 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
         
     out = pd.DataFrame(rows)
     out["Chart"] = out["Kode"].map(tradingview_url)
-    
+
+    # Filter saham TIDAK AKTIF/SUSPEN - laporan user: DOOH suspen tapi masih muncul di
+    # screener (bisa jadi kandidat BELI utk saham yg TIDAK BISA ditransaksikan hari itu).
+    # Deteksi 2 pola suspen sekaligus (keduanya nyata terlihat dari data histori DOOH):
+    # (a) bar hari itu MUNCUL tapi Volume=0 (semua OHLC rata krn tidak ada transaksi sama
+    #     sekali - lihat bar 6 Agu DOOH: O=H=L=C=274, Volume=0), (b) bar hari itu BELUM/TIDAK
+    #     muncul sama sekali (bar terakhir yg tersedia LEBIH LAMA dari bar terbaru saham lain
+    #     di scan yg sama - pasar jelas sudah update, saham ini yg tertinggal). Referensi
+    #     "tanggal terbaru pasar" dipakai MAX tanggal bar di seluruh batch scan ini (bukan
+    #     hardcode hari ini) - supaya tetap benar kalau scan dijalankan sebelum data market
+    #     ter-update semua (semua saham sama2 "tertinggal" 1 hari -> tidak ada yg salah
+    #     kefilter). TIDAK menampilkan kolom info terpisah (user minta "tidak masuk screener"
+    #     sepenuhnya) - excluded list di-print ke log server saja utk transparansi debug.
+    if "_tanggal_harga_raw" in out.columns:
+        tanggal_terbaru_pasar = out["_tanggal_harga_raw"].max()
+        saham_aktif = (out["_tanggal_harga_raw"] == tanggal_terbaru_pasar) & (out["Volume"] > 0)
+        tidak_aktif = out.loc[~saham_aktif, "Kode"].tolist()
+        if tidak_aktif:
+            print(f"⚠️ Saham tidak aktif/suspen (dikeluarkan dari screener): {tidak_aktif}")
+        out = out[saham_aktif].reset_index(drop=True)
+
     cols = [
         "Kode", "Nama", "Harga", "Tanggal Harga", "Perubahan %", "Naik dari Open %", "Range %", "Volume Ratio", "Value Traded (Rp)",
         "Status Breakout", "Chart", "Layak Likuiditas", "Score", "Signal",
@@ -940,7 +981,7 @@ def build_screener_table(price_data: dict[str, pd.DataFrame], names: pd.DataFram
         "Open=Low", "Setup A Breakout", "Open=Low Trend Aligned",
         "Gap %", "Gap Type", "Gap Konfirmasi", "Gap Breakout", "Gap Trend Aligned",
         "Minervini Position OK", "Pct Above Low52w", "Pct Below High52w", "VCP Kuat", "VCP Rasio Kontraksi",
-        "Momentum 5 Hari",
+        "Momentum 5 Hari", "Momentum Kuat 20D",
         "Donchian High", "Donchian Low", "Avg Volume 20D", "Volume"
     ]
     
@@ -1072,6 +1113,12 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
             # Diprioritaskan LEBIH TINGGI dari VCP Kuat di sort ranking (README > "Referensi
             # Screener Profesional").
             "Momentum 5 Hari": bool(r.get("Momentum 5 Hari", False)),
+            # Momentum Kuat 20D (naik >=30% dalam 20 hari bursa) - TIDAK dipakai utk
+            # filter/ranking kandidat di sini, HANYA dibawa sampai ke gsheet_journal.py agar
+            # saat posisi ini DIBUKA, sistem tahu harus pakai trailing-ke-breakeven yg
+            # dipercepat (0,3R, bukan 1,0R default) - lihat komentar lengkap di compute_metrics
+            # dan README > "Trailing Lebih Cepat utk Saham Momentum Kuat (0,3R)".
+            "Momentum Kuat 20D": bool(r.get("Momentum Kuat 20D", False)),
         }
         if total_equity and total_equity > 0:
             risiko_rp = total_equity * (risk_pct / 100)
@@ -1107,7 +1154,6 @@ def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
     return {"status": status, "close": close, "ma": ma}
 
 
-@st.cache_data(ttl=300, show_spinner=False)
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_ihsg_history(period: str = "3mo") -> pd.DataFrame:
     """Ambil histori IHSG (^JKSE) dari Yahoo Finance.

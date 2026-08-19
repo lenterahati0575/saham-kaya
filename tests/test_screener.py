@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from screener import DEFAULT_PARAMS, compute_metrics, market_regime, build_trade_candidates, ihsg_seasonality
+from screener import (DEFAULT_PARAMS, compute_metrics, market_regime, build_trade_candidates,
+                      ihsg_seasonality, build_screener_table)
 
 
 def _flat_ohlcv(n: int, price: float = 1000.0, volume: float = 2_000_000.0) -> pd.DataFrame:
@@ -739,6 +740,52 @@ class TestVCPBoostRankingDiTradeCandidates:
                                       require_minervini_position=False)
         assert len(out) == 2  # KEDUANYA tetap lolos - VCP bukan filter
         assert out.iloc[0]["Saham"] == "AAA"  # tapi AAA (VCP kuat) diprioritaskan di urutan pertama
+
+
+class TestFilterSahamTidakAktifSuspen:
+    """Bug nyata dari laporan user: DOOH SUSPEN (tidak ada transaksi hari itu) tapi masih
+    muncul di screener - berpotensi jadi kandidat BELI utk saham yang tidak bisa ditransaksikan
+    hari itu. Dideteksi 2 pola sekaligus (lihat komentar build_screener_table()): (a) bar hari
+    itu ADA tapi Volume=0 (OHLC rata, tidak ada transaksi - pola nyata terlihat di histori
+    DOOH 6 Agustus: O=H=L=C=274, Volume=0), (b) bar hari itu TIDAK ADA sama sekali (saham lain
+    di batch scan yang sama sudah update ke tanggal lebih baru)."""
+
+    def _names(self, kodes):
+        return pd.DataFrame({"Kode": kodes, "Nama": kodes})
+
+    def test_saham_dgn_volume_nol_hari_ini_dikeluarkan(self):
+        df_aktif = _flat_ohlcv(30, price=1000, volume=10_000_000)
+        df_suspen = df_aktif.copy()
+        df_suspen.iloc[-1, df_suspen.columns.get_loc("Volume")] = 0
+        price_data = {"AAA": df_aktif, "BBB": df_suspen}
+        out = build_screener_table(price_data, self._names(["AAA", "BBB"]), _params())
+        assert "AAA" in out["Kode"].tolist()
+        assert "BBB" not in out["Kode"].tolist()
+
+    def test_saham_dgn_bar_tertinggal_dari_pasar_dikeluarkan(self):
+        # BBB histori-nya 1 hari lebih pendek -> tanggal bar terakhirnya TERTINGGAL dibanding
+        # AAA (yang sudah update) - simulasi "belum ada bar baru sama sekali hari ini".
+        df_aktif = _flat_ohlcv(30, price=1000, volume=10_000_000)
+        df_tertinggal = _flat_ohlcv(29, price=1000, volume=10_000_000)
+        price_data = {"AAA": df_aktif, "BBB": df_tertinggal}
+        out = build_screener_table(price_data, self._names(["AAA", "BBB"]), _params())
+        assert "AAA" in out["Kode"].tolist()
+        assert "BBB" not in out["Kode"].tolist()
+
+    def test_semua_saham_tertinggal_sehari_sama_rata_tidak_ada_yg_terfilter(self):
+        # Scan dijalankan SEBELUM data market ter-update semua saham - SEMUA saham di batch
+        # ini sama2 "tertinggal" 1 hari dari kalender asli, tapi SALING KONSISTEN satu sama
+        # lain (tanggal bar terakhirnya SAMA) - tidak boleh ada yang salah kefilter.
+        df_a = _flat_ohlcv(30, price=1000, volume=10_000_000)
+        df_b = _flat_ohlcv(30, price=2000, volume=5_000_000)
+        price_data = {"AAA": df_a, "BBB": df_b}
+        out = build_screener_table(price_data, self._names(["AAA", "BBB"]), _params())
+        assert set(out["Kode"]) == {"AAA", "BBB"}
+
+    def test_kolom_internal_tanggal_harga_raw_tidak_bocor_ke_tabel_akhir(self):
+        df = _flat_ohlcv(30, price=1000, volume=10_000_000)
+        out = build_screener_table({"AAA": df}, self._names(["AAA"]), _params())
+        assert "_tanggal_harga_raw" not in out.columns
 
 
 if __name__ == "__main__":
