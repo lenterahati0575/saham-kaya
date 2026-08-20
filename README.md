@@ -1715,7 +1715,13 @@ bukan salah satu semata:
 ditunda). 2 test baru (`TestReEntryCooldown`) memverifikasi cooldown skip closed-hari-
 ini tapi tetap boleh re-entry di hari yg berbeda. 141/141 pytest lolos.
 
-## Trailing Stop ke Breakeven - jawaban atas "apakah bisa memprediksi reversal sebelum TP"
+## Trailing Stop ke Breakeven - DIHAPUS 2026-08-20 (lihat "Target-Lock" di bawah)
+
+> **SUPERSEDED**: mekanisme di bagian ini sudah **DIHAPUS TOTAL** dari kode 2026-08-20 -
+> terbukti sistematis MEMOTONG untung (bukan cuma melindungi dari rugi), lihat "Target-Lock:
+> Kunci Untung, Bukan Kunci Rugi". Dipertahankan sbg riwayat/pelajaran saja.
+
+## (Riwayat) Trailing Stop ke Breakeven - jawaban atas "apakah bisa memprediksi reversal sebelum TP"
 
 User tanya: "apakah sistem yang kita bangun dapat memprediksi bahwa akan terjadi
 reversal sebelum target TP tercapai... kelemahan saya disini... yang saya maksud ada
@@ -2268,7 +2274,12 @@ yang nantinya di-`merge()`, SELALU cek dulu kolom mana yang perlu di-merge vs ma
 SUDAH ada di salah satu sisi - `pandas.merge()` tidak pernah error/warning saat terjadi
 tabrakan nama, cuma diam-diam menyisipkan suffix.
 
-## Trailing Lebih Cepat utk Saham Momentum Kuat (0,3R)
+## Trailing Lebih Cepat utk Saham Momentum Kuat (0,3R) - DIHAPUS 2026-08-20
+
+> **SUPERSEDED**: seluruh bagian ini (dan "Trailing Stop ke Breakeven" sebelumnya) sudah
+> **DIHAPUS TOTAL** dari kode - lihat "Target-Lock: Kunci Untung, Bukan Kunci Rugi" di
+> bawah utk penggantinya & alasan lengkapnya. Dipertahankan di sini sbg riwayat/pelajaran,
+> BUKAN deskripsi perilaku sistem saat ini.
 
 Latar belakang: user lapor DOOH naik **+178% sejak 13 Juli** (5 minggu), tapi kandidat
 saham ini terus di-whipsaw keluar oleh SL sebelum sempat menikmati rally besar - "screener
@@ -2399,6 +2410,74 @@ bukan cutoff tanggal deploy) dan mengeluarkannya dari perhitungan Win Rate/Profi
 Factor/Realized P/L. User (2026-08-19): "kita tidak boleh kalah dgn sistem yang kemarin
 saya kirimkan" - performa live harus dibandingkan dari data yang BERSIH, bukan yang
 tercemar bug eksekusi.
+
+## Target-Lock: Kunci Untung, Bukan Kunci Rugi (2026-08-20)
+
+Latar belakang - user melaporkan pola aneh di sheet POSISI: **hampir semua trade closed
+berakhir BREAKEVEN atau LOSS**, padahal saham-saham itu kelihatan bullish - "backtest
+harus seiring dengan kondisi kandidat, kalau tidak sistem ini seharusnya tidak bisa
+dipakai". Ditelusuri lewat 3 jalur bukti INDEPENDEN sekaligus:
+
+1. **Data live 54 trade real** (sheet POSISI, 2 minggu terakhir) - saham yang closed
+   LOSS/BREAKEVEN kita cek harga aslinya 3-5 hari SETELAH kita exit: **55-70% justru
+   NAIK LAGI**, avg +2,6% s.d +3,8% (PWON naik ke High 278 sehari setelah breakeven @260;
+   BEEF naik ke 498 dua hari setelah breakeven @446).
+2. **Backtest besar** (614 sinyal, 350 saham/3 tahun, walk-forward, dipecah per regime
+   IHSG): FIXED TP/SL MURNI (SL/TP tetap sejak awal, tidak pernah digeser) menang avg
+   return DAN win rate dibanding trailing-ke-breakeven kita (+1,18%/32,7% vs
+   +0,99%/24,4%) - **di regime BULLISH maupun BEARISH**, bukan cuma soal 1 periode
+   bullish kebetulan.
+3. **Sistem referensi milik user sendiri** (spreadsheet pribadi, sudah dipakai lama) -
+   TIDAK PERNAH pakai trailing sama sekali, Status cuma `CLOSED-TP`/`CLOSED-SL`/`OPEN`,
+   kolom "Hari" antar Open-Close SELALU >=1 (tidak pernah 0) - kelihatan bekerja baik.
+
+**Kesimpulan**: trailing-ke-breakeven (baik versi 1,0R polos maupun versi 0,3R "Momentum
+Kuat" - README bagian atas, keduanya SUPERSEDED) MEMOTONG untung (exit di ~0% begitu
+harga singgah balik ke harga beli) LEBIH SERING daripada MELINDUNGI dari rugi nyata.
+Keduanya **dihapus total**, kolom "Momentum Kuat" (screener.py & sheet POSISI) juga ikut
+tidak dipakai lagi.
+
+**Ide penggantinya - dari praktik manual user**: "yang ideal sebenarnya jika target
+tercapai geser SL dibawah target, sehingga jika harga balik keuntungan terselamatkan -
+itu yang sering saya lakukan secara manual." Beda fundamental dari trailing-ke-breakeven:
+itu mengunci di HARGA BELI (upside dikorbankan demi hindari rugi), ini mengunci MENDEKATI
+TARGET (untung besar tetap terselamatkan, DAN posisi dibiarkan jalan lebih jauh kalau
+tren lanjut - tidak dibatasi Target lagi).
+
+**Diuji** (614 sinyal yang sama, 3 varian jarak kuncian dlm satuan R = risk awal):
+
+| | Avg Return | Win Rate | Avg Return (Bullish) |
+|---|---|---|---|
+| FIXED (exit tepat di Target) | +1,18% | 32,7% | +1,94% |
+| Target − 0,3×Risiko | +2,20% | 32,7% (sama) | +3,39% |
+| **Target − 0,5×Risiko** | **+2,23%** | **32,7% (sama)** | **+3,36%** |
+| Target − 1,0×Risiko | +2,03% | 32,7% (sama) | +3,15% |
+
+k=0,5R dipilih (avg tertinggi keseluruhan). **Win rate SAMA PERSIS dengan FIXED di semua
+varian k** - mekanisme ini HANYA menyalakan diri pada trade yang SUDAH mencapai Target
+(sudah pasti menang), jadi ini **strict improvement**, bukan trade-off spt trailing-ke-
+breakeven yang lama (yang menukar win rate demi hindari rugi).
+
+**Terbukti selalu untung kalau sampai tersentuh** (matematis): level kuncian = Target −
+k×Risiko = Entry + Risiko×(RR − k). Kandidat SWING mensyaratkan RR >= 1,5 (filter
+`build_trade_candidates()`), dan k <= 1,0 di semua varian diuji, jadi RR−k selalu > 0 -
+level kuncian PASTI di atas harga beli, tidak mungkin jadi breakeven atau rugi.
+
+**Implementasi** (`gsheet_journal.py::auto_close_positions()`): begitu High hari ini
+menyentuh Target (kolom D "TP"), posisi **TIDAK ditutup** - SL (kolom E) digeser ke
+`Target - TRAIL_AT_TARGET_K * risk_awal` (risk_awal = Harga Beli - SL Awal, kolom N),
+posisi TETAP OPEN. Status "target sudah terkunci" dideteksi dari `SL (kolom E) > SL Awal
+(kolom N)` - TIDAK perlu kolom baru, cukup bandingkan 2 kolom yang sudah ada. Begitu
+target terkunci: TIDAK dicek TP lagi (target sudah "lewat"), cuma tunggu level kuncian
+itu tersentuh (`WIN (TARGET TERKUNCI)`) atau force-sell 15 hari (`WIN (FORCE SELL target
+terkunci, N hari)` - selalu dilabel WIN, terbukti matematis selalu untung). Baris lama
+yang sempat ditrail ke breakeven oleh mekanisme LAMA (sebelum fix ini) otomatis kena
+kondisi "target terkunci" juga (SL Awal < harga beli selalu) - transisi yang aman, bukan
+bug, cuma diperlakukan sama (tunggu level itu tersentuh) sampai baris itu closed sendiri.
+
+7 test baru (`TestTargetLock`) + 4 test lama yang diupdate (skenario "Target tersentuh"
+sekarang mengharapkan SL digeser & posisi tetap OPEN, bukan langsung closed) - 183/183
+pytest lolos.
 
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 

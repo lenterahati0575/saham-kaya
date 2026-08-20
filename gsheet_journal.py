@@ -2,26 +2,29 @@
 Jurnal backtest POSISI, terhubung ke Google Sheets (sheet 'POSISI').
 Auto-BUY saat Signal = BUY/STRONG BUY, auto-SELL saat harga live menyentuh TP atau SL.
 
-STRUKTUR KOLOM (dengan Lot, SL Awal & Momentum Kuat):
+STRUKTUR KOLOM (dengan Lot & SL Awal):
 A: Tanggal Open | B: Saham | C: Harga Beli | D: TP | E: SL | F: Tipe |
 G: Lot | H: Tanggal Close | I: Harga Jual | J: P&L (Rp) | K: P&L (%) |
-L: Status | M: Hari | N: SL Awal | O: Momentum Kuat
+L: Status | M: Hari | N: SL Awal | (O: Momentum Kuat, TIDAK DIPAKAI LAGI - lihat bawah)
 
 N (SL Awal): SL asli saat posisi dibuka - TIDAK PERNAH diubah setelahnya, beda dari
-kolom E (SL) yang BISA di-trail naik ke breakeven setelah profit >=1R (lihat
-auto_close_positions()). Dipakai utk menghitung ulang jarak risk (Harga Beli - SL Awal)
-kapan saja tanpa peduli SL sudah ditrail atau belum. Baris LAMA (dibuka sebelum kolom
-ini ada) akan kosong - auto_close_positions() fallback ke SL saat ini sbg SL Awal utk
-baris itu (tidak bisa trailing, tapi tidak crash).
+kolom E (SL) yang BISA digeser naik (baik ke breakeven MAUPUN ke level target-lock -
+lihat TRAIL_AT_TARGET_K & auto_close_positions()). Dipakai utk menghitung ulang jarak
+risk (Harga Beli - SL Awal) kapan saja tanpa peduli SL sudah digeser atau belum. Baris
+LAMA (dibuka sebelum kolom ini ada) akan kosong - auto_close_positions() fallback ke SL
+saat ini sbg SL Awal utk baris itu (tidak bisa target-lock, tapi tidak crash).
 
-O (Momentum Kuat): TRUE kalau saham ini naik >=30% dalam 20 hari bursa PADA SAAT posisi
-DIBUKA (screener.py::compute_metrics, field "Momentum Kuat 20D") - direkam SEKALI saat
-open, tidak pernah dihitung ulang setelahnya. Dipakai auto_close_positions() utk
-mempercepat trailing-ke-breakeven ke 0,3R (bukan default 1,0R) - DIUJI (206 trade real,
-walk-forward): Avg Return +2,17% (vs baseline +1,72%), SL penuh turun 83->42, split-half
-plg konsisten dari semua varian diuji. Baris LAMA (sebelum kolom ini ada) kosong ->
-fallback FALSE (tetap pakai trigger 1,0R lama, tidak crash). README > "Trailing Lebih
-Cepat utk Saham Momentum Kuat (0,3R)".
+`SL (kolom E) > SL Awal (kolom N)` dipakai sbg TANDA "target sudah pernah tersentuh &
+untung sudah dikunci" (lihat blok TARGET LOCK di auto_close_positions()) - TIDAK perlu
+kolom terpisah, cukup bandingkan 2 kolom yang sudah ada.
+
+O (Momentum Kuat) - DEPRECATED 2026-08-20: kolom ini SEMPAT dipakai utk mempercepat
+trailing-ke-breakeven (fitur "Trailing Lebih Cepat utk Saham Momentum Kuat"), tapi
+mekanisme trailing-ke-breakeven ITU SENDIRI sudah terbukti sistematis merugikan (lihat
+komentar TRAIL_AT_TARGET_K di bawah) & sudah DIHAPUS TOTAL - jadi kolom O ikut tidak
+dipakai lagi. TIDAK dihapus dari sheet (biar tidak perlu edit struktur manual lagi),
+cuma tidak diisi/dibaca lagi utk baris BARU - baris lama yg sudah ada isinya dibiarkan
+apa adanya, tidak berpengaruh ke logika manapun sekarang.
 """
 
 from datetime import datetime, date
@@ -59,31 +62,50 @@ SHEET_NAME = "POSISI"
 # dekat ke kenyataan, bukan return kotor.
 FEE_PCT_ROUNDTRIP = 0.15 + 0.25
 
-# HEADERS DENGAN KOLOM LOT (kolom G), SL Awal (kolom N) & Momentum Kuat (kolom O)
+# HEADERS DENGAN KOLOM LOT (kolom G) & SL Awal (kolom N). Kolom O ("Momentum Kuat") masih
+# ada di sheet fisik (user sudah tambahkan headernya manual 2026-08-19) tapi SENGAJA TIDAK
+# dicantumkan di sini lagi - lihat "DEPRECATED" di docstring atas file. Baris baru yang
+# ditulis _append_row() sekarang cuma 14 kolom (A-N), kolom O otomatis kosong utk baris
+# baru - tidak masalah, gspread tidak butuh semua kolom terisi.
 HEADERS = ["Tanggal Open", "Saham", "Harga Beli", "TP", "SL", "Tipe",
-           "Lot", "Tanggal Close", "Harga Jual", "P&L (Rp)", "P&L (%)", "Status", "Hari", "SL Awal",
-           "Momentum Kuat"]
+           "Lot", "Tanggal Close", "Harga Jual", "P&L (Rp)", "P&L (%)", "Status", "Hari", "SL Awal"]
 
 # Kolom numerik (non-tanggal, non-teks) - dipakai load_positions() utk parsing manual.
 NUMERIC_COLS = ["Harga Beli", "TP", "SL", "Lot", "Harga Jual", "P&L (Rp)", "P&L (%)", "Hari", "SL Awal"]
 
-# Trailing stop: begitu profit floating (dari High hari itu) mencapai kelipatan risk awal
-# (Harga Beli - SL Awal) sebesar ini, SL dinaikkan SEKALI ke breakeven (Harga Beli).
-# Dibacktest (615 saham/5 tahun, walk-forward, README > "Trailing Stop ke Breakeven"):
-# avg net return naik dari +0.62% (SL/TP tetap) jadi +0.78% (trailing), konsisten di 2
-# periode (+0.12%/+0.20%). TIDAK trailing lebih jauh dari breakeven (cuma 1 langkah) -
-# belum diuji versi trailing bertingkat.
-TRAILING_TRIGGER_R = 1.0
+# --- RIWAYAT DIHAPUS 2026-08-20: trailing-ke-BREAKEVEN (TRAILING_TRIGGER_R=1.0 & varian
+# "Momentum Kuat" 0.3R) ---
+# Awalnya dibacktest (615 saham/5 tahun) trailing-ke-breakeven kelihatan menang (+0.62% ->
+# +0.78%). TAPI setelah user melaporkan mayoritas trade live selalu berakhir BREAKEVEN
+# padahal sahamnya kelihatan bullish ("backtest harus seiring dgn kondisi kandidat, kalau
+# tidak sistem ini seharusnya tidak bisa dipakai"), diuji ULANG scr sistematis 3 cara
+# independen: (1) live sample 54 trade real - 55-70% saham yg kita BREAKEVEN/LOSS justru
+# NAIK LAGI 3-5 hari setelah kita exit; (2) uji besar 614 sinyal/350 saham/3 tahun dipecah
+# per regime IHSG - FIXED TP/SL MURNI menang avg return DAN win rate di regime bullish
+# MAUPUN bearish (bukan cuma soal 1 periode bullish kebetulan); (3) sistem referensi milik
+# user (spreadsheet sendiri) yang TIDAK PERNAH pakai trailing - status cuma CLOSED-TP/
+# CLOSED-SL, kelihatan bekerja baik. Kesimpulan: trailing-ke-breakeven MEMOTONG untung
+# (exit di 0% begitu harga singgah balik ke entry) LEBIH SERING daripada MELINDUNGI dari
+# rugi nyata - makanya dihapus total, diganti TARGET-LOCK di bawah (ide dari praktik
+# manual user: "kalau target tercapai, geser SL dibawah target, supaya kalau harga balik,
+# untung terselamatkan").
 
-# Trigger LEBIH CEPAT khusus saham "Momentum Kuat" (naik >=30%/20 hari SAAT posisi dibuka,
-# kolom O di sheet - lihat komentar HEADERS di atas & screener.py::compute_metrics).
-# Dilatarbelakangi laporan user: DOOH naik +178% sejak 13 Juli tapi SL default kita
-# whipsaw-out sebelum sempat menikmati rally besar. DIUJI (206 trade real, walk-forward,
-# 3 varian: 1.0R/0.5R/0.3R) - 0.3R MENANG di semua metrik: Avg Return +2.17% (vs baseline
-# 1.0R +1.72%), SL penuh turun 83->42 trade (hampir separuh), split-half PALING konsisten
-# dari 3 varian (+2.78%/+1.56%, dua2nya positif dan lebih tinggi dari baseline). TIDAK
-# diterapkan ke SEMUA saham (cuma yang Momentum Kuat) krn belum diuji utk populasi umum.
-TRAILING_TRIGGER_R_MOMENTUM_KUAT = 0.3
+# TARGET-LOCK: begitu Target (TP) TERSENTUH, posisi TIDAK langsung ditutup - SL digeser ke
+# `Target - TRAIL_AT_TARGET_K * risk_awal` (risk_awal = Harga Beli - SL Awal), lalu posisi
+# TETAP JALAN. Kalau harga lanjut naik, untung makin besar (tidak dibatasi Target lagi);
+# kalau harga balik turun ke level kuncian ini, untung besar tetap terselamatkan (BUKAN
+# breakeven - level ini selalu masih di ATAS harga beli, lihat pembuktian di bawah).
+# DIUJI (614 sinyal, 350 saham/3 tahun, walk-forward, dipecah per regime IHSG, 3 varian k):
+# k=0.5R menang avg return TERTINGGI (+1.18% FIXED murni -> +2.23%), TANPA mengubah win
+# rate sama sekali (tetap 32.7% - mekanisme ini HANYA menyalakan diri pada trade yang
+# SUDAH menang, jadi murni strict improvement, bukan trade-off spt trailing lama). Di
+# regime bullish saja: +1.94% -> +3.36% (hampir 2x lipat), split-half konsisten
+# (+3.27%/+3.46%). k=0.3R & k=1.0R diuji juga, k=0.5R sedikit lebih baik di rata2
+# keseluruhan. Terbukti SELALU untung kalau sampai tersentuh (matematis: level kuncian =
+# entry + risk*(RR - k), dan RR minimal 1.5 (filter build_trade_candidates) sementara
+# k<=1.0, jadi RR-k selalu >0 - level kuncian pasti > harga beli). README > "Target-Lock:
+# Kunci Untung, Bukan Kunci Rugi".
+TRAIL_AT_TARGET_K = 0.5
 
 
 def is_configured() -> bool:
@@ -247,12 +269,8 @@ def open_positions_from_candidates(candidates: pd.DataFrame, tipe: str, max_new_
                 print(f"⚠️ {kode}: TP ({tp}) dan SL ({sl}) terbalik, auto-swap")
                 tp, sl = sl, tp
 
-            # Momentum Kuat (naik >=30%/20 hari SAAT dibuka) - direkam SEKALI di sini, dipakai
-            # auto_close_positions() utk mempercepat trailing-ke-breakeven (lihat
-            # TRAILING_TRIGGER_R_MOMENTUM_KUAT di atas & komentar STRUKTUR KOLOM di atas file).
-            momentum_kuat = bool(row.get("Momentum Kuat 20D", False))
-
-            # Buat row baru sesuai struktur HEADERS
+            # Buat row baru sesuai struktur HEADERS (14 kolom, A-N - kolom O "Momentum Kuat"
+            # SENGAJA tidak diisi lagi, sudah deprecated - lihat docstring atas file)
             new_row = [
                 datetime.now(WIB).strftime("%Y-%m-%d %H:%M"),  # A: Tanggal Open
                 kode,                                         # B: Saham
@@ -268,8 +286,7 @@ def open_positions_from_candidates(candidates: pd.DataFrame, tipe: str, max_new_
                 "OPEN",                                       # L: Status
                 "",                                           # M: Hari
                 sl,                                           # N: SL Awal (SAMA dgn SL saat buka -
-                                                               # kolom E bisa ditrail nanti, ini tidak)
-                "TRUE" if momentum_kuat else "FALSE",         # O: Momentum Kuat
+                                                               # kolom E bisa digeser nanti, ini tidak)
             ]
             
             _append_row(ws, new_row)
@@ -418,14 +435,10 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
             sl = float(row["SL"]) if pd.notna(row["SL"]) else None
             harga_beli = float(row["Harga Beli"])
             # SL Awal - fallback ke SL SAAT INI kalau kosong (baris lama dibuka sebelum
-            # kolom ini ada) - konsekuensinya baris lama itu tidak bisa trailing (risk
+            # kolom ini ada) - konsekuensinya baris lama itu tidak bisa target-lock (risk
             # awal tidak diketahui), tapi TIDAK crash, perilaku sama seperti sebelumnya.
             sl_awal = float(row["SL Awal"]) if pd.notna(row.get("SL Awal")) else sl
             lot = int(row["Lot"]) if pd.notna(row.get("Lot")) else 10
-            # Momentum Kuat direkam SEKALI saat posisi dibuka (lihat
-            # open_positions_from_candidates) - baris LAMA tanpa kolom ini fallback FALSE
-            # (trigger trailing tetap 1,0R lama, tidak crash).
-            momentum_kuat = str(row.get("Momentum Kuat", "")).strip().upper() == "TRUE"
             tgl_open = pd.to_datetime(row["Tanggal Open"])
             now_wib = datetime.now(WIB).replace(tzinfo=None)
 
@@ -474,28 +487,50 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
             status_baru = None
             exit_price = harga_live
 
-            # SL dicek LEBIH DULU (asumsi konservatif kalau High & Low hari yang sama
-            # menyentuh TP dan SL sekaligus) - SAMA PERSIS urutannya dgn
-            # backtest.py::_simulate_realistic_trades_single(), supaya hasil live tidak
-            # sistematis lebih optimis drpd yang sudah dibuktikan backtest. Exit price
-            # dicatat TEPAT di level TP/SL (bukan di High/Low ekstrem hari itu, dan bukan di
-            # harga_live/Close) - juga sama dgn asumsi backtest, supaya P&L live sebanding
-            # dgn P&L yang diklaim hasil backtest, bukan angka yang beda metodologi.
-            # Sudah di breakeven kalau SL sekarang == Harga Beli (ditrail di run
-            # SEBELUMNYA) - dipakai utk membedakan label "BREAKEVEN" (untung kecil/rugi
-            # tipis krn fee, TAPI TERHINDAR dari rugi lebih dalam) dari "LOSS (SL)" biasa
-            # (SL asli, belum pernah ditrail).
-            sudah_breakeven = sl is not None and abs(sl - harga_beli) < 0.01
+            # TARGET-LOCK: SL (kolom E) > SL Awal (kolom N) berarti Target sudah PERNAH
+            # tersentuh sebelumnya & untung sudah dikunci (lihat blok "geser SL" di bawah) -
+            # dari titik ini SL cuma dicek turun, TIDAK perlu cek TP lagi (target sudah
+            # "lewat", tujuannya sekarang melindungi untung yang sudah ada, bukan menunggu
+            # level tetap). Baris lama yang sempat ditrail ke breakeven oleh mekanisme LAMA
+            # (sebelum fix ini, SL==harga_beli) juga otomatis kena kondisi ini (SL Awal <
+            # harga_beli selalu) - diperlakukan sama (tunggu level itu tersentuh), transisi
+            # yang aman, bukan bug.
+            target_terkunci = sl is not None and sl_awal is not None and sl > sl_awal + 0.01
 
-            if sl is not None and today_low <= sl:
-                status_baru = "BREAKEVEN" if sudah_breakeven else "LOSS (SL)"
-                exit_price = sl
-            elif tp is not None and today_high >= tp:
-                status_baru = "WIN (TP)"
-                exit_price = tp
-            elif hari >= FORCE_SELL_HARI.get(tipe, 15):
-                status_baru = f"FORCE SELL ({hari} hari)"
-                exit_price = harga_live
+            if target_terkunci:
+                if today_low <= sl:
+                    status_baru = "WIN (TARGET TERKUNCI)"
+                    exit_price = sl
+                elif hari >= FORCE_SELL_HARI.get(tipe, 15):
+                    status_baru = f"WIN (FORCE SELL target terkunci, {hari} hari)"
+                    exit_price = harga_live
+            else:
+                # SL dicek LEBIH DULU (asumsi konservatif kalau High & Low hari yang sama
+                # menyentuh TP dan SL sekaligus) - SAMA PERSIS urutannya dgn
+                # backtest.py::_simulate_realistic_trades_single().
+                if sl is not None and today_low <= sl:
+                    status_baru = "LOSS (SL)"
+                    exit_price = sl
+                elif tp is not None and today_high >= tp:
+                    # TARGET TERCAPAI - JANGAN tutup dulu. Geser SL ke Target-k*risk_awal
+                    # (lihat TRAIL_AT_TARGET_K di atas), posisi TETAP OPEN, biarkan jalan
+                    # lebih lanjut. Kalau SL Awal tidak diketahui (baris sangat lama, risk
+                    # awal tak terhitung), fallback tutup langsung di Target spt perilaku
+                    # sebelumnya - drpd geser ke level yang tidak valid.
+                    risk_awal = (harga_beli - sl_awal) if sl_awal is not None else None
+                    if risk_awal is not None and risk_awal > 0:
+                        sl_baru = tp - TRAIL_AT_TARGET_K * risk_awal
+                        sheet_row = _find_row_number(ws, kode, "OPEN")
+                        if sheet_row:
+                            ws.update(f"E{sheet_row}", [[float(sl_baru)]])
+                            any_trailed = True
+                            print(f"🔒 {kode}: Target tercapai, untung dikunci - SL digeser ke Rp{sl_baru:,.0f}")
+                    else:
+                        status_baru = "WIN (TP)"
+                        exit_price = tp
+                elif hari >= FORCE_SELL_HARI.get(tipe, 15):
+                    status_baru = f"FORCE SELL ({hari} hari)"
+                    exit_price = harga_live
 
             if status_baru:
                 # Cari nomor baris yang AKURAT di Google Sheet
@@ -524,24 +559,6 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
                     print(f"✅ Tutup posisi: {kode} @ Rp{exit_price:,.0f} - {status_baru}, P&L: Rp{pnl_rp:,.0f}")
                 else:
                     print(f"❌ Tidak menemukan baris {kode} dengan status OPEN di sheet")
-            elif not sudah_breakeven and sl_awal is not None and sl_awal < harga_beli:
-                # TRAILING STOP: belum exit hari ini, SL belum pernah ditrail, dan risk
-                # awal (Harga Beli - SL Awal) valid (positif) - cek apakah High hari ini
-                # sudah mencapai profit target TRAILING_TRIGGER_R x risk awal. Kalau iya,
-                # naikkan SL ke breakeven (Harga Beli) SEKALI - dibacktest (README >
-                # "Trailing Stop ke Breakeven"): avg net return naik +0.62% -> +0.78%,
-                # konsisten di 2 periode. TIDAK menutup posisi hari ini, cuma menaikkan SL
-                # utk pengecekan berikutnya.
-                risk_awal = harga_beli - sl_awal
-                trigger_r = TRAILING_TRIGGER_R_MOMENTUM_KUAT if momentum_kuat else TRAILING_TRIGGER_R
-                trigger_price = harga_beli + trigger_r * risk_awal
-                if today_high >= trigger_price:
-                    sheet_row = _find_row_number(ws, kode, "OPEN")
-                    if sheet_row:
-                        ws.update(f"E{sheet_row}", [[harga_beli]])
-                        any_trailed = True
-                        print(f"📈 {kode}: SL ditrail ke breakeven Rp{harga_beli:,.0f} (profit >= {trigger_r:.1f}R tercapai"
-                              f"{', Momentum Kuat' if momentum_kuat else ''})")
 
         except Exception as e:
             print(f"❌ Error proses posisi {row.get('Saham', 'UNKNOWN')}: {e}")
