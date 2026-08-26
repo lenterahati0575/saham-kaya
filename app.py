@@ -16,6 +16,7 @@ from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_wi
                       _donchian_levels, fetch_index_snapshot, ihsg_seasonality)
 from telegram_notify import send_telegram_message, format_watchlist_message
 import gsheet_journal as gj
+import riwayat_journal
 import indicators as ind
 import calculators as calc
 import sectors as sec
@@ -604,7 +605,7 @@ with st.sidebar:
     # filesystem saat runtime) supaya bisa dipastikan 100% apakah app benar2 menjalankan
     # kode ini atau bukan, tanpa tebak-tebakan lagi lain kali ada laporan serupa - UPDATE
     # string ini setiap kali push signifikan.
-    st.caption("🔖 Versi kode: 2026-08-20-target-lock")
+    st.caption("🔖 Versi kode: 2026-08-20-riwayat-saham")
     session = get_market_session()
     st.markdown(f"""<div style="background:{session['color']};border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;border:1px solid rgba(255,255,255,0.1);"><div style="font-size:11px;color:rgba(255,255,255,0.7);">MARKET SESSION</div><div style="font-size:16px;font-weight:700;color:#fff;margin:4px 0;">{session['session']}</div><div style="font-size:10px;color:rgba(255,255,255,0.6);">{session['desc']}</div></div>""", unsafe_allow_html=True)
     if session['next_open'] and session['countdown'] > 0:
@@ -872,8 +873,8 @@ with exp_col2:
 <div style="font-size:10px;color:#94a3b8;margin-top:2px;">{int(r['naik'])}↑ {int(r['turun'])}↓ dari {int(r['jumlah_saham'])} saham</div>
 </div>""", unsafe_allow_html=True)
 
-t_kandidat, t_openlow, t_gap, t_semua, t_grafik, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_broker, t_tutorial = st.tabs([
-    "🏆 Kandidat", "🕯️ Open=Low", "📊 Gap Up/Down", "📋 Semua", "📉 Grafik", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
+t_kandidat, t_openlow, t_gap, t_semua, t_grafik, t_riwayat, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_broker, t_tutorial = st.tabs([
+    "🏆 Kandidat", "🕯️ Open=Low", "📊 Gap Up/Down", "📋 Semua", "📉 Grafik", "📜 Riwayat Saham", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
     "🧮 Kalkulator", "📊 Fundamental", "🏛️ Value Invest", "📊 IHSG Analysis", "🔗 Correlation", "🌙 Astronacci", "📰 Sentiment", "🤖 ML Signal", "📉 Options", "🏦 Broker", "📚 Tutorial"
 ])
 # Tab "Open=Low" & "Gap Up/Down" SETARA dgn "Kandidat" (bukan sub-menu tersembunyi di
@@ -1776,6 +1777,69 @@ with t_perf:
                 display_cols = ["Saham", "Tipe", "Tanggal Close", "Harga Beli", "Harga Jual", "Lot", "P&L (Rp)", "P&L (%)", "Status"]
                 display_cols = [c for c in display_cols if c in positions_perf.columns]
                 st.dataframe(positions_perf[display_cols], use_container_width=True, hide_index=True, height=350)
+
+# ============================================================================
+# TAB: RIWAYAT SAHAM - log snapshot harian (Signal BUY/STRONG BUY), TERUS DITAMBAH
+# (append) ke 1 sheet Google Sheets, BUKAN download CSV terpisah tiap kali. User: "saya
+# berfikir otomatis dalam bentuk excel... mungkin ada cara supaya selalu dalam satu file.
+# bahkan bisa diketahui performa setiap saham karena adanya dalam satu tempat... karena
+# saya lihat ada saham yang cepat naik, turun dll." Snapshot ditambahkan otomatis 1x/hari
+# via auto_run.py (scan sore) - lihat riwayat_journal.py. Tab ini cuma utk MELIHAT &
+# MEMFILTER riwayat yang sudah terkumpul, bukan tempat menambah data manual.
+# ============================================================================
+with t_riwayat:
+    st.markdown("### 📜 Riwayat Saham")
+    st.caption("Snapshot harian saham Signal BUY/STRONG BUY, TERUS ditambah (append) "
+               "otomatis 1x/hari (scan sore) - bukan file CSV terpisah tiap download, "
+               "semua tersimpan di 1 sheet Google Sheets supaya performa tiap saham bisa "
+               "dilihat dari waktu ke waktu.")
+    if not riwayat_journal.is_configured():
+        st.warning("Riwayat Saham disimpan di Google Sheets - belum terhubung. Isi "
+                   "`gcp_service_account` dan `GOOGLE_SHEET_ID` di Settings > Secrets.")
+    else:
+        riwayat_df = riwayat_journal.load_riwayat()
+        if riwayat_df.empty:
+            st.info("Belum ada riwayat tersimpan - snapshot pertama akan tercatat otomatis "
+                    "pada scan sore berikutnya (via auto_run.py), atau isi manual dgn tombol "
+                    "di bawah.")
+        else:
+            daftar_kode = sorted(riwayat_df["Kode"].dropna().unique().tolist())
+            kode_pilih = st.selectbox("Cari kode saham", ["(Semua)"] + daftar_kode, key="riwayat_kode_pilih")
+            df_tampil = riwayat_df if kode_pilih == "(Semua)" else riwayat_df[riwayat_df["Kode"] == kode_pilih]
+
+            if kode_pilih != "(Semua)" and len(df_tampil) >= 2 and "Harga" in df_tampil.columns:
+                df_plot = df_tampil.dropna(subset=["Harga"]).sort_values("Tanggal")
+                if len(df_plot) >= 2:
+                    fig_riwayat = go.Figure()
+                    fig_riwayat.add_trace(go.Scatter(x=df_plot["Tanggal"], y=df_plot["Harga"],
+                                                      mode="lines+markers", name=kode_pilih,
+                                                      line=dict(color="#4ade80", width=2.5)))
+                    fig_riwayat.update_layout(height=320, template="plotly_dark",
+                                               margin=dict(l=10, r=10, t=30, b=10),
+                                               title=f"Pergerakan Harga {kode_pilih} (dari snapshot Signal BUY+)")
+                    st.plotly_chart(fig_riwayat, use_container_width=True)
+                    naik_total = (df_plot["Harga"].iloc[-1] - df_plot["Harga"].iloc[0]) / df_plot["Harga"].iloc[0] * 100
+                    st.caption(f"Dari snapshot pertama ({df_plot['Tanggal'].iloc[0]}) ke terakhir "
+                               f"({df_plot['Tanggal'].iloc[-1]}): {naik_total:+.1f}% - HANYA menghitung "
+                               f"hari-hari saat saham ini lolos Signal BUY/STRONG BUY, bukan tiap hari bursa.")
+
+            st.dataframe(df_tampil.sort_values("Tanggal", ascending=False), use_container_width=True,
+                        hide_index=True, height=400)
+            st.download_button("⬇️ Download CSV", df_tampil.to_csv(index=False).encode("utf-8"),
+                              file_name=f"riwayat_saham_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+
+        st.divider()
+        if st.button("➕ Tambah Snapshot Sekarang (manual)", key="riwayat_snapshot_manual",
+                     help="Biasanya otomatis 1x/hari via auto_run.py - tombol ini utk isi manual kalau perlu."):
+            with st.spinner("Menyimpan snapshot..."):
+                try:
+                    n_baru = riwayat_journal.append_daily_snapshot(table)
+                    if n_baru:
+                        st.success(f"✅ {n_baru} snapshot ditambahkan.")
+                    else:
+                        st.info("Tidak ada snapshot baru (sudah ada hari ini, atau tidak ada Signal BUY+).")
+                except Exception as e:
+                    st.error(f"Gagal menyimpan snapshot: {e}")
 
 # ============================================================================
 # TAB 8: JURNAL REAL (100% dari app.py asli)

@@ -2479,6 +2479,41 @@ bug, cuma diperlakukan sama (tunggu level itu tersentuh) sampai baris itu closed
 sekarang mengharapkan SL digeser & posisi tetap OPEN, bukan langsung closed) - 183/183
 pytest lolos.
 
+## Riwayat Saham: Satu File Terus Bertambah, Bukan CSV Terpisah Tiap Download
+
+User: "saya berfikir otomatis dalam bentuk excel. juga kelemahannya setiap download
+terbentuk file baru. mungkin ada cara supaya selalu dalam satu file. bahkan bisa
+diketahui performa setiap saham karena adanya dalam satu tempat. mungkin kamu punya
+cara. karena saya lihat ada saham yang cepat naik, turun dll." Diminta memilihkan sendiri
+desainnya ("kamu pilih yang menurut kamu terbaik") - 2 keputusan diambil:
+
+1. **Cakupan**: hanya saham Signal **BUY/STRONG BUY** (bukan semua 962 saham) - kalau
+   semua saham disimpan tiap hari, sheet akan cepat membengkak tak terkendali (962
+   baris/hari bisa kena batas praktis Google Sheets dlm hitungan bulan) - dan yang benar2
+   relevan utk "performa saham yang dipertimbangkan" ya yang lolos Signal, bukan semuanya.
+2. **Waktu**: SEKALI sehari, di scan SORE saja (bukan 2x/hari ikut jadwal pagi+sore) -
+   konsisten dgn alasan yang sudah ada (README > "BUY vs SELL Beda Jadwal"): data pagi
+   cuma sebagian kecil hari itu, tidak representatif & tidak sebanding kalau dicampur dgn
+   data sore yang sudah hampir 1 hari penuh.
+
+**Implementasi** (`riwayat_journal.py`, modul BARU - sengaja terpisah dari
+`gsheet_journal.py` yang tanggung jawabnya beda: itu jurnal TRANSAKSI buka/tutup posisi,
+ini LOG SNAPSHOT PASAR tanpa konsep posisi sama sekali): sheet baru **RIWAYAT_SAHAM**
+(AUTO-CREATE kalau belum ada - beda dari sheet POSISI yang butuh dibuat manual dulu,
+supaya user tidak perlu langkah manual lagi). Tiap kali `auto_run.py` jalan di scan sore,
+saham Signal BUY/STRONG BUY hari itu (Kode, Nama, Harga, Perubahan %, Signal, Score,
+Volume Ratio, Value Traded) ditambahkan (append) sbg baris baru - TIDAK PERNAH menimpa
+baris lama. Guard 1x/hari (cek tanggal baris terakhir di sheet) mencegah duplikat kalau
+auto_run.py dipanggil berkali-kali di hari yang sama.
+
+Tab baru **"📜 Riwayat Saham"** di dashboard: pilih 1 kode saham, lihat grafik
+pergerakan harganya dari snapshot ke snapshot (HANYA hari-hari saham itu lolos Signal
+BUY+, bukan tiap hari bursa - kalau saham itu berhenti muncul di Kandidat beberapa hari
+lalu muncul lagi, grafiknya akan "melompat" melewati hari-hari kosong itu, bukan bug),
+plus tombol download CSV dan tombol "Tambah Snapshot Sekarang" utk isi manual kalau perlu.
+
+10 test baru (`tests/test_riwayat_journal.py`) - 193/193 pytest lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
