@@ -1121,6 +1121,94 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
                             ascending=[False, False, False, False]).head(top_n).reset_index(drop=True)
 
 
+def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int = 20,
+                             min_rr: float = 1.5, top_n: int = 20,
+                             require_bullish_regime: bool = False, regime_status: str | None = None,
+                             total_equity: float | None = None, risk_pct: float = 1.0,
+                             sl_cap_pct: float = 0.05) -> pd.DataFrame:
+    """SCREENER SEDERHANA (pembanding) - user: "apakah perlu buat screener pembanding.
+    mungkin lebih sederhana tapi bisa winrate lebih tinggi dan buy/sellnya tepat", lalu
+    "target saya yang penting profit dengan risk rendah, tetap profesional."
+
+    Entry HANYA 3 syarat (BUKAN Score komposit teknikal+fundamental+RSI yang dipakai
+    `build_trade_candidates()`):
+    1. Breakout: Harga > Donchian High (lookback hari SEBELUM hari ini, no lookahead)
+    2. Posisi 52-minggu OK (Minervini) - SATU2NYA filter dari sistem lama yang dipertahankan
+    3. Volume Ratio <= 1.0 (volume hari ini DI BAWAH rata-rata 20 hari) - KEBALIKAN dari
+       intuisi umum "volume tinggi = konfirmasi kuat", TAPI terbukti lebih baik di data.
+
+    DIUJI (350 saham/3 tahun, walk-forward, step=1 resolusi maksimal utk kriteria volume,
+    dipecah per regime IHSG): N=381 sinyal (Volume<=1.0x saja, dari superset breakout+
+    minervini N=621), avg return +9,70%/trade, win rate 59,1%, Profit Factor 6,22,
+    split-half +8,49%/+10,91% (KONSISTEN, malah naik di paruh kedua - bukan overfitting).
+    Dibanding sistem Score-komposit (build_trade_candidates(), README > "Referensi Screener
+    Profesional"): avg +2,16%/trade, Profit Factor 1,68 - screener sederhana ini MENANG di
+    SEMUA dimensi (untung, presisi, risiko), bukan trade-off.
+
+    SL dibatasi 5% (sl_cap_pct=0.05), BUKAN 10% seperti build_trade_candidates() - diuji
+    terpisah (user: "apakah rugi terburuk bisa diturunkan misal maksimal 5%"): rugi
+    terburuk/trade turun hampir separuh (-10,4% -> -5,4%), avg return turun sedikit
+    (+7,54% -> +6,36% utk superset breakout+minervini SEBELUM filter volume ditambahkan),
+    TAPI Profit Factor malah naik (3,39 -> 3,79) - bukan trade-off merugikan.
+
+    Exit-nya BUKAN tanggung jawab fungsi ini (Target/SL di sini cuma level AWAL) - lihat
+    `simple_journal.py::auto_close_positions()` utk mekanisme Target-Lock + partial-lock
+    2-lapis yang dipasangkan dgn screener ini.
+
+    Sengaja fungsi TERPISAH dari `build_trade_candidates()` (bukan parameter baru di sana)
+    - biar sistem lama TIDAK BERUBAH sama sekali & bisa dibandingkan apel-ke-apel scr live
+    lewat jurnal terpisah (`simple_journal.py`, sheet Google Sheets sendiri), bukan cuma
+    backtest sekali jalan."""
+    if require_bullish_regime and regime_status != "BULLISH":
+        return pd.DataFrame()
+    rows = []
+    breakout = table["Harga"] > table["Donchian High"]
+    minervini_ok = table["Minervini Position OK"].fillna(False)
+    volume_rendah = table["Volume Ratio"].fillna(999) <= 1.0
+    picks = table[breakout & minervini_ok & volume_rendah]
+    for _, r in picks.iterrows():
+        kode = r["Kode"]
+        df = price_data.get(kode)
+        dh, dl = _donchian_levels(df, lookback)
+        if dh is None or dl is None or dl <= 0:
+            continue
+        entry = float(r["Harga"])
+        # SL = PALING KETAT dari (Donchian Low, MA20, sl_cap_pct di bawah entry) - SAMA
+        # pola dgn build_trade_candidates(), cuma sl_cap_pct=0.05 (bukan 0.10) - lihat
+        # komentar diuji di atas.
+        ma20 = float(df["Close"].rolling(20).mean().iloc[-1]) if df is not None and len(df) >= 20 else dl
+        sl_cap = entry * (1 - sl_cap_pct)
+        sl_candidates = [x for x in [dl, ma20, sl_cap] if x < entry]
+        sl = max(sl_candidates) if sl_candidates else sl_cap
+        if entry <= sl:
+            continue
+        target = dh + (dh - dl)
+        risk = entry - sl
+        reward = target - entry
+        if risk <= 0 or reward <= 0:
+            continue
+        rr = reward / risk
+        if rr < min_rr:
+            continue
+        row_out = {
+            "Saham": kode, "RR": round(rr, 2), "Entry": round(entry, 0),
+            "Target": round(target, 0), "Stop Loss": round(sl, 0),
+            "Chart": tradingview_url(kode),
+        }
+        if total_equity and total_equity > 0:
+            risiko_rp = total_equity * (risk_pct / 100)
+            lembar = risiko_rp / risk
+            lot = int(lembar // 100)
+            if lot < 1:
+                continue
+            row_out["Lot"] = lot
+        rows.append(row_out)
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return out.sort_values("RR", ascending=False).head(top_n).reset_index(drop=True)
+
+
 def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
     """Tentukan kondisi pasar keseluruhan (regime) dari IHSG."""
     if ihsg_df is None or ihsg_df.empty or len(ihsg_df) < ma_period:

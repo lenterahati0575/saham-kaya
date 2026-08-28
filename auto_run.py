@@ -22,11 +22,12 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 from screener import (
     DEFAULT_PARAMS, load_ticker_universe, get_price_history_with_report, build_screener_table,
-    build_trade_candidates, fetch_ihsg_history, market_regime,
+    build_trade_candidates, build_simple_candidates, fetch_ihsg_history, market_regime,
 )
 import gsheet_journal as gj
 import equity as eq
 import riwayat_journal as riwayat
+import simple_journal
 from telegram_notify import send_telegram_message
 
 WIB = ZoneInfo("Asia/Jakarta")
@@ -172,6 +173,28 @@ def main():
                  for kode, df in price_data.items() if df is not None and not df.empty}
     closed = gj.auto_close_positions(price_lookup, hl_lookup)
     log(f"Auto-SELL: {closed if closed else 'tidak ada posisi yang perlu ditutup'}")
+
+    # ---- Screener Sederhana (pembanding) - jurnal & sheet TERPISAH (simple_journal.py,
+    # sheet POSISI_SEDERHANA) - user: "target saya yang penting profit dengan risk rendah,
+    # tetap profesional... mungkin fokus ke screener dulu", lalu "ya" (setuju dibangun jadi
+    # sistem live). Entry: breakout + posisi 52-minggu + volume rendah, SL 5%
+    # (build_simple_candidates()); exit: 2 lapis (partial-lock 0,7R->0,5R + target-lock
+    # 0,5R, simple_journal.py). SENGAJA TIDAK digate regime IHSG spt Swing di atas - data
+    # uji (350 saham/3 tahun) menunjukkan regime BEARISH utk screener ini SUDAH positif
+    # (+0,49% avg), beda dari sistem lama yang memang net rugi kalau dipaksa aktif saat
+    # bearish - belum diuji A/B eksplisit apa gating regime akan menambah baik, jadi
+    # dibiarkan aktif di semua regime dulu sampai ada bukti sebaliknya.
+    try:
+        if simple_journal.is_configured():
+            cands_simple = build_simple_candidates(table, price_data, top_n=10,
+                                                    total_equity=total_equity_now, risk_pct=RISK_PCT_PER_TRADE)
+            opened_simple = simple_journal.open_positions_from_candidates(
+                cands_simple, max_new_per_day=MAX_POSISI_BARU_PER_HARI)
+            log(f"Auto-BUY Screener Sederhana: {opened_simple if opened_simple else 'tidak ada posisi baru'}")
+            closed_simple = simple_journal.auto_close_positions(price_lookup, hl_lookup)
+            log(f"Auto-SELL Screener Sederhana: {closed_simple if closed_simple else 'tidak ada posisi yang perlu ditutup'}")
+    except Exception as e:
+        log(f"⚠️ Screener Sederhana gagal diproses (tidak menghentikan alur utama): {e}")
 
     # ---- Kirim ringkasan ke Telegram (supaya Bro tahu hasilnya TANPA perlu buka GitHub/web) ----
     bot_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")

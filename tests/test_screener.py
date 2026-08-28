@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from screener import (DEFAULT_PARAMS, compute_metrics, market_regime, build_trade_candidates,
-                      ihsg_seasonality, build_screener_table)
+                      ihsg_seasonality, build_screener_table, build_simple_candidates)
 
 
 def _flat_ohlcv(n: int, price: float = 1000.0, volume: float = 2_000_000.0) -> pd.DataFrame:
@@ -413,6 +413,93 @@ class TestBuildTradeCandidates:
             **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)})}
         out = build_trade_candidates(table, price_data, lookback=20, min_rr=1.5, top_n=10, require_minervini_position=False,
                                       total_equity=100.0, risk_pct=1.0)
+        assert out.empty
+
+
+class TestBuildSimpleCandidates:
+    """Screener SEDERHANA (pembanding) - user: "apakah perlu buat screener pembanding.
+    mungkin lebih sederhana tapi bisa winrate lebih tinggi dan buy/sellnya tepat", lalu
+    "target saya yang penting profit dengan risk rendah, tetap profesional." 3 syarat
+    entry (breakout + posisi 52-minggu + volume RENDAH), SL dibatasi 5% (bukan 10% spt
+    build_trade_candidates()) - DIUJI (350 saham/3 tahun, walk-forward): N=381, avg
+    +9,70%/trade, win rate 59,1%, Profit Factor 6,22 - jauh lebih baik dari sistem Score-
+    komposit (+2,16%/trade, PF 1,68). README > "Screener Sederhana: Breakout + Posisi
+    52-Minggu + Volume Rendah"."""
+
+    def _price_data(self, low_override_2nd_last=900.0):
+        return {"AAA": _flat_ohlcv(25, price=1000).assign(
+            **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], low_override_2nd_last)})}
+
+    def _table(self, harga=1010.0, minervini_ok=True, volume_ratio=0.8, donchian_high=1000.0):
+        return pd.DataFrame([{
+            "Kode": "AAA", "Harga": harga, "Donchian High": donchian_high,
+            "Minervini Position OK": minervini_ok, "Volume Ratio": volume_ratio,
+        }])
+
+    def test_lolos_semua_3_kriteria_muncul_di_hasil(self):
+        out = build_simple_candidates(self._table(), self._price_data(), lookback=20, min_rr=1.5)
+        assert list(out["Saham"]) == ["AAA"]
+
+    def test_tanpa_breakout_dikeluarkan(self):
+        # Harga (990) TIDAK di atas Donchian High (1000) - bukan breakout.
+        out = build_simple_candidates(self._table(harga=990.0), self._price_data(), lookback=20, min_rr=1.5)
+        assert out.empty
+
+    def test_minervini_gagal_dikeluarkan(self):
+        out = build_simple_candidates(self._table(minervini_ok=False), self._price_data(), lookback=20, min_rr=1.5)
+        assert out.empty
+
+    def test_volume_tinggi_dikeluarkan(self):
+        # Volume Ratio 1.5 (>1.0) - KEBALIKAN dari yang diinginkan (volume RENDAH).
+        out = build_simple_candidates(self._table(volume_ratio=1.5), self._price_data(), lookback=20, min_rr=1.5)
+        assert out.empty
+
+    def test_volume_persis_1_0_tetap_lolos(self):
+        # Ambang inklusif (<=1.0), bukan eksklusif (<1.0).
+        out = build_simple_candidates(self._table(volume_ratio=1.0), self._price_data(), lookback=20, min_rr=1.5)
+        assert not out.empty
+
+    def test_sl_dibatasi_5_persen_bukan_10_persen(self):
+        # Breakout jauh (entry=1200, dh=1000) & Donchian Low sangat rendah (500) & MA20~1000
+        # - keduanya JAUH dari entry, jadi cap 5% (1200*0.95=1140) yang MENGIKAT.
+        table = self._table(harga=1200.0, donchian_high=1000.0)
+        price_data = self._price_data(low_override_2nd_last=500.0)
+        out = build_simple_candidates(table, price_data, lookback=20, min_rr=1.5)
+        assert not out.empty
+        assert out.iloc[0]["Stop Loss"] == 1140.0  # 1200 * (1 - 0.05)
+
+    def test_sl_cap_pct_bisa_dikustom(self):
+        table = self._table(harga=1200.0, donchian_high=1000.0)
+        price_data = self._price_data(low_override_2nd_last=500.0)
+        out = build_simple_candidates(table, price_data, lookback=20, min_rr=1.5, sl_cap_pct=0.10)
+        assert out.iloc[0]["Stop Loss"] == 1080.0  # 1200 * (1 - 0.10)
+
+    def test_regime_bearish_kosongkan_kandidat(self):
+        out_bearish = build_simple_candidates(self._table(), self._price_data(), lookback=20, min_rr=1.5,
+                                               require_bullish_regime=True, regime_status="BEARISH")
+        assert out_bearish.empty
+        out_bullish = build_simple_candidates(self._table(), self._price_data(), lookback=20, min_rr=1.5,
+                                               require_bullish_regime=True, regime_status="BULLISH")
+        assert not out_bullish.empty
+
+    def test_total_equity_menghitung_lot(self):
+        table = self._table(harga=1200.0, donchian_high=1000.0)
+        price_data = self._price_data(low_override_2nd_last=500.0)
+        # risk = 1200-1140 = 60/lembar. Modal 10jt, risiko 1% = Rp100rb -> lembar=1666 -> lot=16.
+        out = build_simple_candidates(table, price_data, lookback=20, min_rr=1.5,
+                                       total_equity=10_000_000, risk_pct=1.0)
+        assert "Lot" in out.columns
+        assert out.iloc[0]["Lot"] == 16
+
+    def test_tanpa_total_equity_lot_tidak_diisi(self):
+        out = build_simple_candidates(self._table(), self._price_data(), lookback=20, min_rr=1.5)
+        assert "Lot" not in out.columns
+
+    def test_rr_di_bawah_minimum_dikeluarkan(self):
+        # entry=1001 (breakout tipis di atas dh=1000), dl=900, ma20~1000 -> sl=max(900,1000,
+        # 1001*0.95=950.95)=1000 (ma20 mengikat) -> risk=1, target=1000+100=1100,
+        # reward=99 -> rr=99 (lolos), jadi utk uji GAGAL rr, pakai min_rr sangat tinggi.
+        out = build_simple_candidates(self._table(harga=1001.0), self._price_data(), lookback=20, min_rr=200.0)
         assert out.empty
 
 

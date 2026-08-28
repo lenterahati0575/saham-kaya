@@ -2514,6 +2514,69 @@ plus tombol download CSV dan tombol "Tambah Snapshot Sekarang" utk isi manual ka
 
 10 test baru (`tests/test_riwayat_journal.py`) - 193/193 pytest lolos.
 
+## Screener Sederhana: Breakout + Posisi 52-Minggu + Volume Rendah (Sistem Live Terpisah)
+
+User: "apakah perlu buat screener pembanding. mungkin lebih sederhana tapi bisa winrate
+lebih tinggi dan buy/sellnya tepat" -> "target saya yang penting profit dengan risk
+rendah, tetap profesional. mungkin fokus ke screener dulu" -> diminta bikin **sistem live
+terpisah** (bukan cuma backtest sekali jalan), dgn catatan: "mungkin versi baru tidak
+perlu banyak header, kecuali sudah sukses bisa migrasi yang lama."
+
+**Kenapa ini dibangun**: sistem utama (`build_trade_candidates()`, Score komposit
+teknikal+fundamental+RSI) dibandingkan dgn 4 kandidat kriteria entry LEBIH SEDERHANA di
+data yang sama (350 saham/3 tahun, walk-forward, dipecah per regime IHSG):
+
+| Kriteria | N | Avg Return | Win Rate | Profit Factor |
+|---|---|---|---|---|
+| Sistem sekarang (Score komposit) | 614 | +2,16% | 54,2% | 1,68 |
+| Breakout + Posisi 52-Minggu | 621 | +7,54% | 60,4% | 3,39 |
+| **+ Volume DI BAWAH rata-rata** | 381 | **+9,70%** | **59,1%** | **6,22** |
+
+Breakout dengan **volume RENDAH** (Volume Ratio <=1,0x, KEBALIKAN dari intuisi umum
+"volume tinggi = konfirmasi") justru paling bagus - kemungkinan krn breakout itu belum
+"ramai" diperhatikan pasar (belum banyak FOMO ikut beli), masih ada ruang naik sebelum
+volume/perhatian pasar besar menyusul - konsisten dgn pola VCP (kontraksi sebelum
+ekspansi) yang sudah divalidasi sebelumnya. Diuji ulang dgn sampel lebih besar (step=1,
+N=381 bukan 132) - hasilnya BERTAHAN, split-half +8,49%/+10,91% (konsisten, malah naik
+di paruh kedua, bukan overfitting).
+
+**SL dibatasi 5%** (bukan 10% spt sistem utama) - diuji terpisah (user: "apakah rugi
+terburuk bisa diturunkan misal maksimal 5%"): rugi terburuk/trade turun hampir separuh
+(-10,4% -> -5,4%), avg return turun sedikit TAPI Profit Factor malah NAIK (3,39 -> 3,79)
+- bukan trade-off merugikan.
+
+**Exit 2 lapis** (user: "dalam banyak kasus saya terlambat menjual karena target belum
+tercapai sudah balik arah" - Target-Lock yang sudah ada cuma melindungi SETELAH Target
+tersentuh, TIDAK ada perlindungan di tengah jalan):
+- **Lapis 1 (partial-lock, SEBELUM Target)**: begitu profit (High) capai 0,7x risiko
+  awal, SL digeser ke 0,5x risiko awal (BUKAN breakeven penuh spt trailing-ke-breakeven
+  lama yang terbukti buruk - MASIH ada jarak, bukan mengunci ke 0). DIUJI: avg return
+  cuma turun sedikit (+2,23% -> +2,16% di sistem lama, diterapkan sama di sini) TAPI win
+  rate NAIK HAMPIR 2X (32,7% -> 54,2%), performa regime bearish berubah dari rugi jadi
+  untung.
+- **Lapis 2 (target-lock, SETELAH Target)**: SAMA dgn `gsheet_journal.py` - SL digeser
+  ke Target-0,5x risiko, posisi TETAP OPEN, dibiarkan jalan kalau tren lanjut.
+
+**Implementasi**:
+- `screener.py::build_simple_candidates()` - entry HANYA 3 syarat, fungsi TERPISAH dari
+  `build_trade_candidates()` (sistem lama TIDAK berubah sama sekali).
+- `simple_journal.py` (modul BARU) - sheet Google Sheets TERPISAH **POSISI_SEDERHANA**
+  (auto-create), struktur kolom SENGAJA lebih ringkas dari POSISI (12 kolom, tanpa
+  Tipe/Hari/Momentum Kuat - user: "tidak perlu banyak header"). "Lapis mana yang aktif"
+  dideteksi dari perbandingan SL saat ini vs level partial-lock/target-lock yang mungkin
+  - TIDAK perlu kolom status tersendiri.
+- `auto_run.py` - scan sore yang SAMA (tidak ada fetch data terpisah), buka/tutup posisi
+  Screener Sederhana SEJAJAR dgn Swing, TIDAK menghentikan alur utama kalau gagal.
+  SENGAJA TIDAK digate regime IHSG (data uji: bearish sudah positif +0,49% utk screener
+  ini, beda dari sistem lama) - belum diuji A/B eksplisit, dibiarkan aktif semua regime
+  dulu.
+- Tab baru **"🔬 Screener Sederhana"** - tampilan MINIMAL (Kode/Entry/Target/SL/RR/Lot/
+  Chart saja), tombol buka/cek posisi manual, ringkasan Win Rate/Total P&L dari jurnal
+  terpisah.
+
+26 test baru (11 `TestBuildSimpleCandidates` + 15 `tests/test_simple_journal.py`) -
+219/219 pytest lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

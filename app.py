@@ -12,11 +12,12 @@ import numpy as np
 from scipy import stats
 from scipy.stats import norm
 from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_with_report, build_screener_table,
-                      build_trade_candidates, fetch_ihsg_history, market_regime,
+                      build_trade_candidates, build_simple_candidates, fetch_ihsg_history, market_regime,
                       _donchian_levels, fetch_index_snapshot, ihsg_seasonality)
 from telegram_notify import send_telegram_message, format_watchlist_message
 import gsheet_journal as gj
 import riwayat_journal
+import simple_journal
 import indicators as ind
 import calculators as calc
 import sectors as sec
@@ -605,7 +606,7 @@ with st.sidebar:
     # filesystem saat runtime) supaya bisa dipastikan 100% apakah app benar2 menjalankan
     # kode ini atau bukan, tanpa tebak-tebakan lagi lain kali ada laporan serupa - UPDATE
     # string ini setiap kali push signifikan.
-    st.caption("🔖 Versi kode: 2026-08-20-riwayat-saham")
+    st.caption("🔖 Versi kode: 2026-08-28-screener-sederhana")
     session = get_market_session()
     st.markdown(f"""<div style="background:{session['color']};border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;border:1px solid rgba(255,255,255,0.1);"><div style="font-size:11px;color:rgba(255,255,255,0.7);">MARKET SESSION</div><div style="font-size:16px;font-weight:700;color:#fff;margin:4px 0;">{session['session']}</div><div style="font-size:10px;color:rgba(255,255,255,0.6);">{session['desc']}</div></div>""", unsafe_allow_html=True)
     if session['next_open'] and session['countdown'] > 0:
@@ -873,8 +874,8 @@ with exp_col2:
 <div style="font-size:10px;color:#94a3b8;margin-top:2px;">{int(r['naik'])}↑ {int(r['turun'])}↓ dari {int(r['jumlah_saham'])} saham</div>
 </div>""", unsafe_allow_html=True)
 
-t_kandidat, t_openlow, t_gap, t_semua, t_grafik, t_riwayat, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_broker, t_tutorial = st.tabs([
-    "🏆 Kandidat", "🕯️ Open=Low", "📊 Gap Up/Down", "📋 Semua", "📉 Grafik", "📜 Riwayat Saham", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
+t_kandidat, t_sederhana, t_openlow, t_gap, t_semua, t_grafik, t_riwayat, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_broker, t_tutorial = st.tabs([
+    "🏆 Kandidat", "🔬 Screener Sederhana", "🕯️ Open=Low", "📊 Gap Up/Down", "📋 Semua", "📉 Grafik", "📜 Riwayat Saham", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
     "🧮 Kalkulator", "📊 Fundamental", "🏛️ Value Invest", "📊 IHSG Analysis", "🔗 Correlation", "🌙 Astronacci", "📰 Sentiment", "🤖 ML Signal", "📉 Options", "🏦 Broker", "📚 Tutorial"
 ])
 # Tab "Open=Low" & "Gap Up/Down" SETARA dgn "Kandidat" (bukan sub-menu tersembunyi di
@@ -1075,6 +1076,83 @@ with t_kandidat:
     chart_kode = st.selectbox("Pilih saham untuk melihat chart:", options=["-- Pilih Saham --"] + (show["Kode"].drop_duplicates().tolist() if not picks.empty else []), key="chart_selector")
     if chart_kode and chart_kode != "-- Pilih Saham --":
         embed_tradingview_chart(chart_kode, height=500)
+
+# ============================================================================
+# TAB: SCREENER SEDERHANA (pembanding) - user: "apakah perlu buat screener pembanding.
+# mungkin lebih sederhana tapi bisa winrate lebih tinggi dan buy/sellnya tepat", lalu
+# "target saya yang penting profit dengan risk rendah, tetap profesional", diminta jadi
+# "sistem screener terpisah yang jalan live" (bukan cuma backtest). Entry HANYA 3 syarat
+# (breakout + posisi 52-minggu + volume rendah, TANPA Score komposit) - lihat
+# screener.py::build_simple_candidates(). Jurnal & sheet Google Sheets TERPISAH
+# (simple_journal.py, "POSISI_SEDERHANA") - supaya bisa dibandingkan apel-ke-apel dgn
+# sistem utama scr live, bukan cuma backtest sekali jalan.
+#
+# TAMPILAN SENGAJA MINIMAL (user: "mungkin versi baru tidak perlu banyak header, kecuali
+# sudah sukses bisa migrasi yang lama") - kolom secukupnya saja, BUKAN semua kolom yang
+# ada di tab Kandidat. Baru ditambah kalau screener ini terbukti bagus & dipertimbangkan
+# utk migrasi sistem utama.
+# ============================================================================
+with t_sederhana:
+    st.markdown("### 🔬 Screener Sederhana (Pembanding)")
+    st.caption("Entry: breakout 20-hari + posisi 52-minggu + volume DI BAWAH rata-rata "
+               "(bukan Score komposit). SL dibatasi 5%. Keluar: kunci untung 2 lapis "
+               "(sebelum & sesudah Target tercapai). Diuji (350 saham/3 tahun): avg "
+               "+9,70%/trade, win rate 59%, Profit Factor 6,2 - dibandingkan LIVE di sini "
+               "dgn jurnal & sheet Google Sheets terpisah dari sistem utama.")
+
+    cands_sederhana = build_simple_candidates(
+        table, price_data, top_n=int(jumlah_kandidat_tampil),
+        total_equity=total_equity_now, risk_pct=risk_pct_per_trade,
+    )
+    if cands_sederhana.empty:
+        st.info("Tidak ada kandidat yang lolos ketiga syarat (breakout + posisi 52-minggu "
+                "+ volume rendah) hari ini.")
+    else:
+        tampil_sederhana = cands_sederhana.rename(columns={"Saham": "Kode"})
+        kolom_tampil_sederhana = [c for c in ["Kode", "Entry", "Target", "Stop Loss", "RR", "Lot", "Chart"]
+                                  if c in tampil_sederhana.columns]
+        dataframe_with_chart(tampil_sederhana[kolom_tampil_sederhana], kode_col="Kode",
+                              height=350, key="df_sederhana")
+
+    st.divider()
+    if not simple_journal.is_configured():
+        st.warning("Jurnal Screener Sederhana disimpan di Google Sheets - belum terhubung. "
+                   "Isi `gcp_service_account` dan `GOOGLE_SHEET_ID` di Settings > Secrets.")
+    else:
+        col_ss1, col_ss2 = st.columns(2)
+        with col_ss1:
+            if st.button("🟢 Buka Posisi (Sederhana)", key="btn_buka_sederhana"):
+                with st.spinner("Membuka posisi..."):
+                    try:
+                        opened = simple_journal.open_positions_from_candidates(
+                            cands_sederhana, max_new_per_day=int(max_posisi_per_hari))
+                        st.success(f"✅ Dibuka: {', '.join(opened)}" if opened else "Tidak ada posisi baru dibuka.")
+                    except Exception as e:
+                        st.error(f"Gagal buka posisi: {e}")
+        with col_ss2:
+            if st.button("🔴 Cek TP/SL (Sederhana)", key="btn_cek_sederhana"):
+                with st.spinner("Mengecek posisi..."):
+                    try:
+                        price_lookup_ss = dict(zip(table["Kode"], table["Harga"]))
+                        hl_lookup_ss = {kode: (float(df_p["High"].iloc[-1]), float(df_p["Low"].iloc[-1]))
+                                        for kode, df_p in price_data.items() if df_p is not None and not df_p.empty}
+                        closed = simple_journal.auto_close_positions(price_lookup_ss, hl_lookup_ss)
+                        st.success(f"✅ Ditutup: {', '.join(closed)}" if closed else "Tidak ada posisi yang perlu ditutup.")
+                    except Exception as e:
+                        st.error(f"Gagal cek posisi: {e}")
+
+        positions_sederhana = simple_journal.load_positions()
+        if not positions_sederhana.empty:
+            stats_sederhana = simple_journal.summarize(positions_sederhana)
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total Posisi", stats_sederhana["total"])
+            c2.metric("OPEN", stats_sederhana["open"])
+            c3.metric("Win Rate", f"{stats_sederhana['winrate']:.1f}%")
+            c4.metric("Total P&L (%)", f"{stats_sederhana['total_pnl_pct']:+.1f}%")
+            st.dataframe(positions_sederhana.sort_values("Tanggal Open", ascending=False),
+                        use_container_width=True, hide_index=True, height=350)
+        else:
+            st.info("Belum ada posisi tercatat di jurnal Screener Sederhana.")
 
 # ============================================================================
 # TAB: OPEN=LOW (Shaven Bottom) - EKSPLORATIF. Konfirmasi order book "Makan Kanan"
