@@ -1284,6 +1284,11 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
         row_out = {
             "Saham": kode, "RR": round(rr, 2), "Entry": round(entry, 0),
             "Target": round(target, 0), "Stop Loss": round(sl, 0),
+            # Jarak SL dari Entry dlm % - risiko sebenarnya per trade (bisa LEBIH KETAT dari
+            # sl_cap_pct kalau Donchian Low/MA20 lebih dekat ke entry & jadi yang mengikat,
+            # bukan cap-nya) - user minta ditampilkan biar kelihatan risiko riil, bukan cuma
+            # asumsi selalu 5%.
+            "% SL": round(risk / entry * 100, 2),
             "Tipe Sinyal": tipe_map.get(kode, "Breakout"),
             "Chart": tradingview_url(kode),
         }

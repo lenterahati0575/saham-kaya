@@ -1113,7 +1113,7 @@ with t_sederhana:
                 "hari ini.")
     else:
         tampil_sederhana = cands_sederhana.rename(columns={"Saham": "Kode"})
-        kolom_tampil_sederhana = [c for c in ["Kode", "Tipe Sinyal", "Entry", "Target", "Stop Loss", "RR", "Lot", "Chart"]
+        kolom_tampil_sederhana = [c for c in ["Kode", "Tipe Sinyal", "Entry", "Target", "Stop Loss", "% SL", "RR", "Lot", "Chart"]
                                   if c in tampil_sederhana.columns]
         dataframe_with_chart(tampil_sederhana[kolom_tampil_sederhana], kode_col="Kode",
                               height=350, key="df_sederhana")

@@ -475,6 +475,18 @@ class TestBuildSimpleCandidates:
         out = build_simple_candidates(table, price_data, lookback=20, min_rr=1.5, sl_cap_pct=0.10)
         assert out.iloc[0]["Stop Loss"] == 1080.0  # 1200 * (1 - 0.10)
 
+    def test_kolom_persen_sl_menghitung_jarak_riil_bukan_selalu_cap(self):
+        # entry=1010 (breakout TIPIS di atas dh=1000) -> sl_cap 5% = 959,5, TAPI MA20 (~1000,
+        # dari histori flat) LEBIH TINGGI drpd cap - MA20 yang mengikat (SL=1000), BUKAN cap -
+        # jarak riilnya jauh LEBIH KETAT dari 5% & harus tercermin di kolom "% SL".
+        table = self._table(harga=1010.0, donchian_high=1000.0)
+        out = build_simple_candidates(table, self._price_data(), lookback=20, min_rr=1.5)
+        sl = out.iloc[0]["Stop Loss"]
+        assert sl == 1000.0
+        expected_pct = round((1010.0 - sl) / 1010.0 * 100, 2)
+        assert out.iloc[0]["% SL"] == expected_pct
+        assert out.iloc[0]["% SL"] < 5.0  # SL riil lebih ketat dari cap 5%, harus tercermin
+
     def test_regime_bearish_kosongkan_kandidat(self):
         out_bearish = build_simple_candidates(self._table(), self._price_data(), lookback=20, min_rr=1.5,
                                                require_bullish_regime=True, regime_status="BEARISH")
