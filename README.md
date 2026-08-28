@@ -2577,6 +2577,68 @@ tersentuh, TIDAK ada perlindungan di tengah jalan):
 26 test baru (11 `TestBuildSimpleCandidates` + 15 `tests/test_simple_journal.py`) -
 219/219 pytest lolos.
 
+## Zig Zag: Entry Tambahan, Bukan Pengganti Breakout
+
+User, setelah pakai Screener Sederhana: "setelah menggunakan screener saya merasa belum
+percaya diri. mungkin kesalahannya adalah terlambat mendeteksi harga akan rebound.
+setelah harga sudah tinggi baru ditangkap screener" -> "mungkin perlu diuji juga
+penggunaan zig zag."
+
+**Kenapa Zig Zag**: Breakout (`Harga > Donchian High 20-hari`) secara desain baru
+menyala SETELAH harga menembus level tertinggi 20 hari - selalu melewatkan sebagian
+rally. Zig Zag mendeteksi TITIK BALIK (swing low->high) begitu terbentuk - lebih dini,
+sebelum breakout resistance.
+
+**Diuji BERTAHAP, bukan asumsi langsung bagus** (350 saham/3 tahun, walk-forward):
+
+| Tahap | N | Avg Return | Win Rate | Profit Factor |
+|---|---|---|---|---|
+| Zig Zag Low (5%) + Minervini, SENDIRIAN | 2.741 | +3,18% | 61,6% | 3,04 |
+| Breakout (vol<=1,0x) + Minervini, SENDIRIAN | 798 | +6,36% | 55,5% | 3,79 |
+
+Win rate Zig Zag lebih tinggi tapi PF & avg return lebih rendah - trade-off jujur (lebih
+banyak sinyal & lebih dini, tapi tiap sinyal untungnya lebih kecil), BUKAN kemenangan
+mutlak salah satu arah.
+
+**Uji GABUNGAN (Breakout OR Zig Zag) dengan simulasi realistis** - bukan cuma
+menjumlahkan 2 hasil terpisah, krn keduanya berebut slot posisi baru yang SAMA di hari
+yang sama: batas 5 posisi baru/hari (`MAX_POSISI_BARU_PER_HARI`), diprioritaskan RR
+tertinggi (SAMA logika `open_positions_from_candidates()`):
+
+| | N | Avg Return | Win Rate | Profit Factor |
+|---|---|---|---|---|
+| **GABUNGAN (Breakout OR Zig Zag)** | 2.280 | +6,10% | 60,1% | **4,91** |
+| — via Breakout | 478 | +16,28% | 67,4% | 11,35 |
+| — via Zig Zag | 1.802 | +3,41% | 58,2% | 3,18 |
+
+Profit Factor GABUNGAN (4,91) lebih tinggi dari kedua sistem SENDIRIAN (3,79 & 3,04) -
+BUKAN didilusi. Karena sortir pakai RR tertinggi, sinyal Breakout yang bagus (RR
+biasanya lebih tinggi) tetap menang duluan setiap hari - Zig Zag cuma mengisi slot
+KOSONG di hari-hari Breakout TIDAK menyala, menambah ~3-4x jumlah kesempatan tanpa
+merebut/merusak kualitas slot Breakout yang sudah bagus. Trade-off yang tetap ada:
+avg return gabungan (+6,10%) lebih kecil dari Breakout sendirian (+16,28% dlm gabungan,
++6,36% saat diuji sendirian tanpa slot cap) - krn trade Zig Zag secara alami lebih kecil
+untungnya - tapi jumlah total kesempatan & PF keseluruhan naik, jadi pertukarannya
+sepadan.
+
+**Implementasi**:
+- `screener.py::compute_zigzag_pivots()` - fungsi MURNI, walk-forward-safe, mendeteksi
+  rangkaian pivot High/Low (harga berbalik >=threshold% dari extreme yang berjalan,
+  threshold default 5%).
+- `screener.py::build_simple_candidates()` - entry Zig Zag = hari ini TEPAT 1 hari
+  setelah pivot Low baru terkonfirmasi + Minervini Position OK (SAMA syarat posisi
+  52-minggu dgn Breakout - SATU2NYA filter yang WAJIB di kedua jalur). TANPA filter
+  volume (Zig Zag diuji tanpa itu). Setiap kandidat ditandai kolom "Tipe Sinyal"
+  ('Breakout'/'ZigZag') - kalau lolos KEDUA jalur, ditandai 'Breakout'.
+- `simple_journal.py` - kolom baru **M: Tipe Sinyal** direkam saat posisi dibuka (label
+  saja, TIDAK dipakai di logika exit). Sheet yang sudah live SEBELUM kolom ini ada
+  otomatis dilengkapi header-nya oleh `_get_worksheet()` - TIDAK perlu langkah manual.
+- Tab "🔬 Screener Sederhana" - kolom "Tipe Sinyal" ditambahkan ke tabel kandidat.
+
+14 test baru (3 `TestComputeZigzagPivots` + 4 `TestBuildSimpleCandidatesZigZag` +
+2 `TestOpenPositionsFromCandidates` tambahan + 2 `TestGetWorksheetMigrasiHeader`) -
+230/230 pytest lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

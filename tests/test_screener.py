@@ -10,7 +10,8 @@ import pandas as pd
 import pytest
 
 from screener import (DEFAULT_PARAMS, compute_metrics, market_regime, build_trade_candidates,
-                      ihsg_seasonality, build_screener_table, build_simple_candidates)
+                      ihsg_seasonality, build_screener_table, build_simple_candidates,
+                      compute_zigzag_pivots)
 
 
 def _flat_ohlcv(n: int, price: float = 1000.0, volume: float = 2_000_000.0) -> pd.DataFrame:
@@ -500,6 +501,95 @@ class TestBuildSimpleCandidates:
         # 1001*0.95=950.95)=1000 (ma20 mengikat) -> risk=1, target=1000+100=1100,
         # reward=99 -> rr=99 (lolos), jadi utk uji GAGAL rr, pakai min_rr sangat tinggi.
         out = build_simple_candidates(self._table(harga=1001.0), self._price_data(), lookback=20, min_rr=200.0)
+        assert out.empty
+
+
+class TestComputeZigzagPivots:
+    """Fungsi murni, walk-forward-safe - dites dgn seri harga yg swing-nya dikontrol persis
+    (naik >=5% dari titik awal -> arah 'up', turun >=5% dari peak -> pivot H, turun lagi ->
+    extreme baru, naik >=5% dari situ -> pivot L) supaya index & tipe pivot bisa diverifikasi
+    tepat, bukan cuma 'jalan tanpa error'."""
+
+    def test_pivot_h_dan_l_terdeteksi_di_index_yang_benar(self):
+        closes = ([1000] * 9 +
+                  [1000, 1010, 1020, 1040, 1060, 1080, 1100,  # naik ke 1100 (idx 15) -> peak
+                   1080, 1050, 1010, 990,                      # turun >=5% dari 1100 -> pivot H @ idx15
+                   970, 950, 920, 900,                         # turun lagi, extreme baru 900 @ idx23
+                   950])                                       # naik +5,56% dari 900 -> pivot L @ idx23
+        s = pd.Series(closes)
+        pivots = compute_zigzag_pivots(s, threshold_pct=5.0)
+        assert pivots == [(15, 1100, "H"), (23, 900, "L")]
+
+    def test_harga_flat_tidak_ada_pivot(self):
+        s = pd.Series([1000] * 30)
+        assert compute_zigzag_pivots(s, threshold_pct=5.0) == []
+
+    def test_ambang_lebih_tinggi_menyaring_swing_kecil(self):
+        # Swing cuma +/-6% - lolos threshold 5%, tersaring kalau threshold dinaikkan ke 10%.
+        closes = [1000] * 5 + [1000, 1060, 1000, 940, 1000]
+        s = pd.Series(closes)
+        assert len(compute_zigzag_pivots(s, threshold_pct=5.0)) > 0
+        assert compute_zigzag_pivots(s, threshold_pct=10.0) == []
+
+
+class TestBuildSimpleCandidatesZigZag:
+    """Zig Zag sbg entry TAMBAHAN (OR, bukan pengganti Breakout) - user: "mungkin perlu
+    diuji juga penggunaan zig zag" setelah mengeluhkan entry Breakout terlambat ("setelah
+    harga sudah tinggi baru ditangkap screener"). DIUJI GABUNGAN dgn batas realistis 5
+    slot/hari (README > "Zig Zag: Entry Tambahan"): Profit Factor gabungan (4,9) lebih
+    tinggi dari Breakout (11,4) *dan* ZigZag (3,2) [avg tertimbang - PF gabungan BUKAN
+    rata-rata sederhana kedua PF], krn ZigZag cuma mengisi slot yg Breakout tidak menyala."""
+
+    def _zigzag_price_data(self, harga_hari_ini=950.0):
+        pad = [1000] * 9
+        closes = (pad +
+                  [1000, 1010, 1020, 1040, 1060, 1080, 1100,
+                   1080, 1050, 1010, 990,
+                   970, 950, 920, 900,
+                   harga_hari_ini])
+        idx = pd.date_range("2024-01-01", periods=len(closes), freq="B")
+        return {"BBB": pd.DataFrame({"Open": closes, "High": closes, "Low": closes,
+                                      "Close": closes, "Volume": 5_000_000.0}, index=idx)}
+
+    def _table_zigzag(self, minervini_ok=True, harga=950.0, volume_ratio=5.0):
+        # Volume Ratio TINGGI (5.0) & Harga (950) DI BAWAH Donchian High (1100) - sengaja
+        # GAGAL syarat Breakout, supaya sinyal yang lolos di sini PASTI datang dari jalur
+        # Zig Zag, bukan kebetulan lolos Breakout juga.
+        return pd.DataFrame([{
+            "Kode": "BBB", "Harga": harga, "Donchian High": 1100.0,
+            "Minervini Position OK": minervini_ok, "Volume Ratio": volume_ratio,
+        }])
+
+    def test_zigzag_low_terkonfirmasi_masuk_walau_bukan_breakout(self):
+        out = build_simple_candidates(self._table_zigzag(), self._zigzag_price_data(),
+                                       lookback=20, min_rr=0.1)
+        assert list(out["Saham"]) == ["BBB"]
+        assert out.iloc[0]["Tipe Sinyal"] == "ZigZag"
+
+    def test_zigzag_tanpa_minervini_tetap_dikeluarkan(self):
+        # Minervini tetap wajib utk KEDUA jalur, bukan cuma Breakout.
+        out = build_simple_candidates(self._table_zigzag(minervini_ok=False), self._zigzag_price_data(),
+                                       lookback=20, min_rr=0.1)
+        assert out.empty
+
+    def test_lolos_breakout_dan_zigzag_bersamaan_ditandai_breakout(self):
+        # Harga hari ini dinaikkan sampai breakout (>1100) + volume rendah (<=1.0) - lolos
+        # KEDUA jalur sekaligus. Pivot Low @ idx23 (2 hari sebelum hari terakhir) tidak
+        # berubah krn cuma nilai hari TERAKHIR (idx24) yang diubah.
+        table = self._table_zigzag(harga=1150.0, volume_ratio=0.5)
+        price_data = self._zigzag_price_data(harga_hari_ini=1150.0)
+        out = build_simple_candidates(table, price_data, lookback=20, min_rr=0.1)
+        assert list(out["Saham"]) == ["BBB"]
+        assert out.iloc[0]["Tipe Sinyal"] == "Breakout"
+
+    def test_bukan_breakout_dan_bukan_zigzag_dikeluarkan(self):
+        # Harga hari ini diturunkan supaya BUKAN 1 hari setelah pivot Low (geser pola-nya).
+        price_data = self._zigzag_price_data(harga_hari_ini=901.0)
+        # Timpa 2 bar terakhir supaya pivot Low TIDAK lagi persis di idx n-2.
+        df = price_data["BBB"]
+        df.iloc[-2, df.columns.get_loc("Close")] = 905.0
+        out = build_simple_candidates(self._table_zigzag(harga=901.0), price_data,
+                                       lookback=20, min_rr=0.1)
         assert out.empty
 
 

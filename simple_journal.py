@@ -23,7 +23,15 @@ dipertimbangkan utk migrasi sistem utama.
 
 STRUKTUR KOLOM:
 A: Tanggal Open | B: Saham | C: Harga Beli | D: TP | E: SL | F: Lot |
-G: Tanggal Close | H: Harga Jual | I: P&L (Rp) | J: P&L (%) | K: Status | L: SL Awal
+G: Tanggal Close | H: Harga Jual | I: P&L (Rp) | J: P&L (%) | K: Status | L: SL Awal |
+M: Tipe Sinyal
+
+M ("Tipe Sinyal": 'Breakout'/'ZigZag') ditambahkan setelah user - "mungkin perlu diuji
+juga penggunaan zig zag" - divalidasi (README > "Zig Zag: Entry Tambahan") sbg entry
+TAMBAHAN (OR, bukan pengganti) di `screener.py::build_simple_candidates()`. Kolom ini
+CUMA label asal sinyal (utk breakdown performa live per tipe nanti) - TIDAK dipakai di
+logika exit sama sekali. Sheet yang sudah live SEBELUM kolom ini ada otomatis
+dilengkapi header-nya oleh `_get_worksheet()` - user TIDAK perlu tambah kolom manual.
 """
 
 from datetime import datetime
@@ -47,7 +55,8 @@ SCOPES = [
 SHEET_NAME = "POSISI_SEDERHANA"
 
 HEADERS = ["Tanggal Open", "Saham", "Harga Beli", "TP", "SL", "Lot",
-           "Tanggal Close", "Harga Jual", "P&L (Rp)", "P&L (%)", "Status", "SL Awal"]
+           "Tanggal Close", "Harga Jual", "P&L (Rp)", "P&L (%)", "Status", "SL Awal",
+           "Tipe Sinyal"]
 NUMERIC_COLS = ["Harga Beli", "TP", "SL", "Lot", "Harga Jual", "P&L (Rp)", "P&L (%)", "SL Awal"]
 
 FEE_PCT_ROUNDTRIP = 0.15 + 0.25
@@ -84,11 +93,23 @@ def _get_client():
 
 def _get_worksheet():
     """Auto-create kalau sheet POSISI_SEDERHANA belum ada - user tidak perlu bikin tab
-    manual dulu, sama seperti riwayat_journal.py."""
+    manual dulu, sama seperti riwayat_journal.py.
+
+    Kalau sheet-nya SUDAH ada (live dari sebelum kolom baru ditambahkan ke HEADERS, mis.
+    "Tipe Sinyal") - header row dilengkapi otomatis di sini juga, supaya kolom baru TIDAK
+    perlu ditambah manual oleh user tiap kali HEADERS bertambah."""
     client = _get_client()
     sh = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"])
     try:
-        return sh.worksheet(SHEET_NAME)
+        ws = sh.worksheet(SHEET_NAME)
+        current_headers = ws.row_values(1)
+        if len(current_headers) < len(HEADERS):
+            from gspread.utils import rowcol_to_a1
+            missing = HEADERS[len(current_headers):]
+            start_cell = rowcol_to_a1(1, len(current_headers) + 1)
+            end_cell = rowcol_to_a1(1, len(HEADERS))
+            ws.update(f"{start_cell}:{end_cell}", [missing], value_input_option="USER_ENTERED")
+        return ws
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet(title=SHEET_NAME, rows=1000, cols=len(HEADERS))
         ws.append_row(HEADERS, value_input_option="USER_ENTERED")
@@ -172,6 +193,7 @@ def open_positions_from_candidates(candidates: pd.DataFrame, max_new_per_day: in
                 lot = 10
             if tp <= entry and sl >= entry:
                 tp, sl = sl, tp
+            tipe_sinyal = row.get("Tipe Sinyal", "Breakout")  # fallback utk caller lama/test
 
             new_row = [
                 datetime.now(WIB).strftime("%Y-%m-%d %H:%M"),  # A: Tanggal Open
@@ -186,6 +208,7 @@ def open_positions_from_candidates(candidates: pd.DataFrame, max_new_per_day: in
                 "",                                            # J: P&L (%)
                 "OPEN",                                        # K: Status
                 sl,                                            # L: SL Awal
+                tipe_sinyal,                                   # M: Tipe Sinyal
             ]
             _append_row(ws, new_row)
             opened.append(kode)

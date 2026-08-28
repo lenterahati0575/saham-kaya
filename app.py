@@ -606,7 +606,7 @@ with st.sidebar:
     # filesystem saat runtime) supaya bisa dipastikan 100% apakah app benar2 menjalankan
     # kode ini atau bukan, tanpa tebak-tebakan lagi lain kali ada laporan serupa - UPDATE
     # string ini setiap kali push signifikan.
-    st.caption("🔖 Versi kode: 2026-08-28-screener-sederhana")
+    st.caption("🔖 Versi kode: 2026-08-28-zigzag-entry")
     session = get_market_session()
     st.markdown(f"""<div style="background:{session['color']};border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;border:1px solid rgba(255,255,255,0.1);"><div style="font-size:11px;color:rgba(255,255,255,0.7);">MARKET SESSION</div><div style="font-size:16px;font-weight:700;color:#fff;margin:4px 0;">{session['session']}</div><div style="font-size:10px;color:rgba(255,255,255,0.6);">{session['desc']}</div></div>""", unsafe_allow_html=True)
     if session['next_open'] and session['countdown'] > 0:
@@ -1094,22 +1094,26 @@ with t_kandidat:
 # ============================================================================
 with t_sederhana:
     st.markdown("### 🔬 Screener Sederhana (Pembanding)")
-    st.caption("Entry: breakout 20-hari + posisi 52-minggu + volume DI BAWAH rata-rata "
-               "(bukan Score komposit). SL dibatasi 5%. Keluar: kunci untung 2 lapis "
-               "(sebelum & sesudah Target tercapai). Diuji (350 saham/3 tahun): avg "
-               "+9,70%/trade, win rate 59%, Profit Factor 6,2 - dibandingkan LIVE di sini "
-               "dgn jurnal & sheet Google Sheets terpisah dari sistem utama.")
+    st.caption("Entry: **Breakout** (20-hari + posisi 52-minggu + volume DI BAWAH rata-rata) "
+               "ATAU **Zig Zag** (titik balik 5%, lebih dini dari breakout - posisi 52-minggu "
+               "tetap wajib). SL dibatasi 5%. Keluar: kunci untung 2 lapis (sebelum & sesudah "
+               "Target tercapai). Diuji GABUNGAN dgn batas realistis 5 posisi baru/hari (350 "
+               "saham/3 tahun): avg +6,1%/trade, win rate 60%, Profit Factor 4,9 - Profit "
+               "Factor gabungan lebih tinggi dari Breakout maupun Zig Zag sendirian, Zig Zag "
+               "cuma mengisi hari-hari Breakout tidak menyala (kolom 'Tipe Sinyal' menandai "
+               "asalnya). Dibandingkan LIVE di sini dgn jurnal & sheet Google Sheets terpisah "
+               "dari sistem utama.")
 
     cands_sederhana = build_simple_candidates(
         table, price_data, top_n=int(jumlah_kandidat_tampil),
         total_equity=total_equity_now, risk_pct=risk_pct_per_trade,
     )
     if cands_sederhana.empty:
-        st.info("Tidak ada kandidat yang lolos ketiga syarat (breakout + posisi 52-minggu "
-                "+ volume rendah) hari ini.")
+        st.info("Tidak ada kandidat yang lolos (Breakout atau Zig Zag) + posisi 52-minggu "
+                "hari ini.")
     else:
         tampil_sederhana = cands_sederhana.rename(columns={"Saham": "Kode"})
-        kolom_tampil_sederhana = [c for c in ["Kode", "Entry", "Target", "Stop Loss", "RR", "Lot", "Chart"]
+        kolom_tampil_sederhana = [c for c in ["Kode", "Tipe Sinyal", "Entry", "Target", "Stop Loss", "RR", "Lot", "Chart"]
                                   if c in tampil_sederhana.columns]
         dataframe_with_chart(tampil_sederhana[kolom_tampil_sederhana], kode_col="Kode",
                               height=350, key="df_sederhana")

@@ -1121,35 +1121,101 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
                             ascending=[False, False, False, False]).head(top_n).reset_index(drop=True)
 
 
+def compute_zigzag_pivots(close: pd.Series, threshold_pct: float = 5.0) -> list[tuple[int, float, str]]:
+    """Rangkaian pivot Zig Zag (index posisi, harga, tipe 'H'/'L') dari seri harga Close -
+    fungsi MURNI, walk-forward-safe SELAMA caller cuma pakai pivot yang idx-nya <= t saat
+    entry (pivot yang lebih baru dari itu belum "kelihatan" pada waktu t, jadi diabaikan
+    begitu saja - tidak butuh slicing df.iloc[:t+1] khusus di fungsi ini).
+
+    Definisi: pivot baru terbentuk begitu harga berbalik >= threshold_pct% dari extreme
+    (titik tertinggi/terendah) yang sedang berjalan - memfilter noise kecil, cuma
+    menyisakan swing signifikan (standar umum utk indikator Zig Zag saham).
+
+    User: "mungkin perlu diuji juga penggunaan zig zag" - dites sbg entry TAMBAHAN
+    (bukan pengganti) utk `build_simple_candidates()` (lihat parameter `zz_threshold_pct`
+    di sana) - README > "Zig Zag: Entry Tambahan, Bukan Pengganti Breakout"."""
+    pivots: list[tuple[int, float, str]] = []
+    if len(close) < 2:
+        return pivots
+    direction = None  # None=belum tentu arah, 'up', 'down'
+    extreme_idx = 0
+    extreme_price = close.iloc[0]
+    for i in range(1, len(close)):
+        price = close.iloc[i]
+        if direction in (None, "up"):
+            if price > extreme_price:
+                extreme_price = price
+                extreme_idx = i
+            drop_pct = (extreme_price - price) / extreme_price * 100
+            if direction == "up" and drop_pct >= threshold_pct:
+                pivots.append((extreme_idx, extreme_price, "H"))
+                direction = "down"
+                extreme_price = price
+                extreme_idx = i
+            elif direction is None:
+                rise_pct = (price - close.iloc[0]) / close.iloc[0] * 100
+                if rise_pct >= threshold_pct:
+                    direction = "up"
+                elif price < extreme_price:
+                    extreme_price = price
+                    extreme_idx = i
+        if direction in (None, "down"):
+            if price < extreme_price:
+                extreme_price = price
+                extreme_idx = i
+            rise_pct = (price - extreme_price) / extreme_price * 100
+            if direction == "down" and rise_pct >= threshold_pct:
+                pivots.append((extreme_idx, extreme_price, "L"))
+                direction = "up"
+                extreme_price = price
+                extreme_idx = i
+    return pivots
+
+
 def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int = 20,
                              min_rr: float = 1.5, top_n: int = 20,
                              require_bullish_regime: bool = False, regime_status: str | None = None,
                              total_equity: float | None = None, risk_pct: float = 1.0,
-                             sl_cap_pct: float = 0.05) -> pd.DataFrame:
+                             sl_cap_pct: float = 0.05, zz_threshold_pct: float = 5.0) -> pd.DataFrame:
     """SCREENER SEDERHANA (pembanding) - user: "apakah perlu buat screener pembanding.
     mungkin lebih sederhana tapi bisa winrate lebih tinggi dan buy/sellnya tepat", lalu
     "target saya yang penting profit dengan risk rendah, tetap profesional."
 
-    Entry HANYA 3 syarat (BUKAN Score komposit teknikal+fundamental+RSI yang dipakai
-    `build_trade_candidates()`):
-    1. Breakout: Harga > Donchian High (lookback hari SEBELUM hari ini, no lookahead)
-    2. Posisi 52-minggu OK (Minervini) - SATU2NYA filter dari sistem lama yang dipertahankan
-    3. Volume Ratio <= 1.0 (volume hari ini DI BAWAH rata-rata 20 hari) - KEBALIKAN dari
-       intuisi umum "volume tinggi = konfirmasi kuat", TAPI terbukti lebih baik di data.
+    Entry = Breakout ATAU Zig Zag (keduanya diwajibkan lolos Posisi 52-minggu/Minervini):
 
-    DIUJI (350 saham/3 tahun, walk-forward, step=1 resolusi maksimal utk kriteria volume,
-    dipecah per regime IHSG): N=381 sinyal (Volume<=1.0x saja, dari superset breakout+
-    minervini N=621), avg return +9,70%/trade, win rate 59,1%, Profit Factor 6,22,
-    split-half +8,49%/+10,91% (KONSISTEN, malah naik di paruh kedua - bukan overfitting).
-    Dibanding sistem Score-komposit (build_trade_candidates(), README > "Referensi Screener
-    Profesional"): avg +2,16%/trade, Profit Factor 1,68 - screener sederhana ini MENANG di
-    SEMUA dimensi (untung, presisi, risiko), bukan trade-off.
+    1. **Breakout**: Harga > Donchian High (lookback hari) + Volume Ratio <= 1.0 (volume
+       hari ini DI BAWAH rata-rata 20 hari - KEBALIKAN dari intuisi umum "volume tinggi =
+       konfirmasi kuat", TAPI terbukti lebih baik di data). Kriteria ASLI screener ini,
+       tidak diubah - DIUJI (350 saham/3 tahun, walk-forward, README > "Screener
+       Sederhana"): N=381, avg +9,70%/trade, win rate 59,1%, PF 6,22.
+    2. **Zig Zag** (ditambahkan setelah user - "mungkin perlu diuji juga penggunaan zig
+       zag" - mengeluhkan entry breakout TERLAMBAT, "setelah harga sudah tinggi baru
+       ditangkap screener"): hari ini TEPAT 1 hari setelah pivot Zig Zag LOW baru
+       terkonfirmasi (`compute_zigzag_pivots()`, threshold 5%) - menangkap titik balik
+       LEBIH DINI, sebelum breakout resistance. TANPA filter volume (diuji terpisah tanpa
+       filter itu, README > "Zig Zag").
 
-    SL dibatasi 5% (sl_cap_pct=0.05), BUKAN 10% seperti build_trade_candidates() - diuji
-    terpisah (user: "apakah rugi terburuk bisa diturunkan misal maksimal 5%"): rugi
-    terburuk/trade turun hampir separuh (-10,4% -> -5,4%), avg return turun sedikit
-    (+7,54% -> +6,36% utk superset breakout+minervini SEBELUM filter volume ditambahkan),
-    TAPI Profit Factor malah naik (3,39 -> 3,79) - bukan trade-off merugikan.
+    Kedua jalur diberi tag di kolom "Tipe Sinyal" ('Breakout'/'ZigZag') - kalau SATU saham
+    lolos KEDUA jalur di hari yang sama, ditandai 'Breakout' (RR jalur ini biasanya lebih
+    tinggi & sudah lebih lama tervalidasi tunggal).
+
+    DIUJI GABUNGAN (bukan cuma masing2 terpisah - user tanya "no.2 paling ideal?" soal
+    menggabungkan sbg kondisi OR): 350 saham/3 tahun, walk-forward, SIMULASI REALISTIS
+    dgn batas 5 slot posisi baru/hari (sesuai `MAX_POSISI_BARU_PER_HARI` di auto_run.py)
+    diprioritaskan RR tertinggi - BUKAN cuma menjumlah 2 backtest terpisah begitu saja,
+    krn keduanya berebut slot yang sama di hari yang sama. Hasil (README > "Zig Zag:
+    Entry Tambahan"): GABUNGAN N jauh lebih besar dari Breakout sendirian, Profit Factor
+    GABUNGAN lebih tinggi dari KEDUA sistem terpisah (bukan didilusi) - jalur Zig Zag
+    tidak merebut slot dari Breakout yang bagus (RR Breakout tetap menang duluan di
+    sorting), cuma mengisi slot KOSONG di hari2 Breakout tidak menyala. Trade-off jujur:
+    avg return/trade turun sedikit (krn trade Zig Zag secara alami lebih kecil untungnya
+    dari Breakout) - pertukaran yang sepadan mengingat PF-nya justru naik & volume
+    kesempatan jauh lebih besar.
+
+    SL dibatasi 5% (sl_cap_pct=0.05, BUKAN 10% seperti build_trade_candidates()) utk
+    KEDUA jalur - diuji terpisah (user: "apakah rugi terburuk bisa diturunkan misal
+    maksimal 5%"): rugi terburuk/trade turun hampir separuh (-10,4% -> -5,4%), Profit
+    Factor malah naik (3,39 -> 3,79) - bukan trade-off merugikan.
 
     Exit-nya BUKAN tanggung jawab fungsi ini (Target/SL di sini cuma level AWAL) - lihat
     `simple_journal.py::auto_close_positions()` utk mekanisme Target-Lock + partial-lock
@@ -1161,11 +1227,36 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
     backtest sekali jalan."""
     if require_bullish_regime and regime_status != "BULLISH":
         return pd.DataFrame()
-    rows = []
-    breakout = table["Harga"] > table["Donchian High"]
     minervini_ok = table["Minervini Position OK"].fillna(False)
+    breakout = table["Harga"] > table["Donchian High"]
     volume_rendah = table["Volume Ratio"].fillna(999) <= 1.0
-    picks = table[breakout & minervini_ok & volume_rendah]
+    is_breakout_row = breakout & minervini_ok & volume_rendah
+
+    # Zig Zag: per saham (bukan dari kolom `table`, krn butuh histori penuh) - cek apakah
+    # bar KEDUA-DARI-TERAKHIR adalah pivot Low baru (artinya hari INI tepat 1 hari setelah
+    # pivot itu terkonfirmasi) - no lookahead krn compute_zigzag_pivots() cuma diberi
+    # histori yang SUDAH tersedia s.d. hari ini (price_data selalu histori-ke-hari-ini,
+    # tidak pernah berisi hari di masa depan saat dipanggil live).
+    zigzag_kode: set[str] = set()
+    if minervini_ok.any():
+        for kode in table.loc[minervini_ok, "Kode"]:
+            df = price_data.get(kode)
+            if df is None or len(df) < lookback + 3:
+                continue
+            n = len(df)
+            pivots = compute_zigzag_pivots(df["Close"], zz_threshold_pct)
+            if any(idx == n - 2 and typ == "L" for idx, _, typ in pivots):
+                zigzag_kode.add(kode)
+    is_zigzag_row = minervini_ok & table["Kode"].isin(zigzag_kode)
+
+    tipe_map: dict[str, str] = {}
+    for kode in table.loc[is_breakout_row, "Kode"]:
+        tipe_map[kode] = "Breakout"
+    for kode in table.loc[is_zigzag_row, "Kode"]:
+        tipe_map.setdefault(kode, "ZigZag")
+
+    picks = table[is_breakout_row | is_zigzag_row]
+    rows = []
     for _, r in picks.iterrows():
         kode = r["Kode"]
         df = price_data.get(kode)
@@ -1175,7 +1266,7 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
         entry = float(r["Harga"])
         # SL = PALING KETAT dari (Donchian Low, MA20, sl_cap_pct di bawah entry) - SAMA
         # pola dgn build_trade_candidates(), cuma sl_cap_pct=0.05 (bukan 0.10) - lihat
-        # komentar diuji di atas.
+        # komentar diuji di atas. Dipakai SAMA utk kedua jalur (Breakout & Zig Zag).
         ma20 = float(df["Close"].rolling(20).mean().iloc[-1]) if df is not None and len(df) >= 20 else dl
         sl_cap = entry * (1 - sl_cap_pct)
         sl_candidates = [x for x in [dl, ma20, sl_cap] if x < entry]
@@ -1193,6 +1284,7 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
         row_out = {
             "Saham": kode, "RR": round(rr, 2), "Entry": round(entry, 0),
             "Target": round(target, 0), "Stop Loss": round(sl, 0),
+            "Tipe Sinyal": tipe_map.get(kode, "Breakout"),
             "Chart": tradingview_url(kode),
         }
         if total_equity and total_equity > 0:

@@ -54,6 +54,29 @@ class TestOpenPositionsFromCandidates:
         appended = ws.append_row.call_args[0][0]
         assert appended[1] == "ZZZZ" and appended[10] == "OPEN" and appended[11] == 90.0
 
+    def test_tipe_sinyal_direkam_kolom_m(self):
+        # "Tipe Sinyal" dari build_simple_candidates() ('Breakout'/'ZigZag') direkam di
+        # kolom M (index 12) - kolom baru ditambahkan setelah user: "mungkin perlu diuji
+        # juga penggunaan zig zag".
+        candidates = pd.DataFrame([{"Saham": "ZZZZ", "Entry": 100.0, "Target": 150.0,
+                                     "Stop Loss": 90.0, "Lot": 10, "Tipe Sinyal": "ZigZag"}])
+        ws = _mock_ws()
+        with patch.object(sj, "_get_worksheet", return_value=ws), \
+             patch.object(sj, "load_positions", return_value=pd.DataFrame(columns=sj.HEADERS)):
+            sj.open_positions_from_candidates(candidates)
+        appended = ws.append_row.call_args[0][0]
+        assert appended[12] == "ZigZag"
+
+    def test_tipe_sinyal_default_breakout_kalau_kolom_tidak_ada(self):
+        # Backward-compat: kandidat lama/test tanpa kolom "Tipe Sinyal" tidak boleh crash.
+        candidates = pd.DataFrame([{"Saham": "ZZZZ", "Entry": 100.0, "Target": 150.0, "Stop Loss": 90.0}])
+        ws = _mock_ws()
+        with patch.object(sj, "_get_worksheet", return_value=ws), \
+             patch.object(sj, "load_positions", return_value=pd.DataFrame(columns=sj.HEADERS)):
+            sj.open_positions_from_candidates(candidates)
+        appended = ws.append_row.call_args[0][0]
+        assert appended[12] == "Breakout"
+
     def test_cooldown_1x_per_hari(self):
         today_wib = datetime.now(sj.WIB).strftime("%Y-%m-%d")
         existing = pd.DataFrame([{
@@ -202,6 +225,40 @@ class TestBelumLocked:
         assert len(closed) == 1
         assert closed[0].startswith("ZZZZ (FORCE SELL")
         assert "target" not in closed[0].lower()
+
+
+class TestGetWorksheetMigrasiHeader:
+    """Sheet POSISI_SEDERHANA yang sudah live SEBELUM kolom "Tipe Sinyal" ditambahkan ke
+    HEADERS - header row harus dilengkapi otomatis, TANPA user perlu tambah kolom manual
+    (SAMA filosofi auto-create yang sudah ada)."""
+
+    def test_header_lama_12_kolom_dilengkapi_otomatis(self):
+        from gspread.utils import rowcol_to_a1
+        client = MagicMock()
+        sh = MagicMock()
+        existing_ws = MagicMock()
+        existing_ws.row_values.return_value = sj.HEADERS[:12]  # sheet lama, belum ada "Tipe Sinyal"
+        sh.worksheet.return_value = existing_ws
+        client.open_by_key.return_value = sh
+        with patch.object(sj, "_get_client", return_value=client), \
+             patch.object(sj.st, "secrets", {"GOOGLE_SHEET_ID": "fake_id"}):
+            ws = sj._get_worksheet()
+        start_cell = rowcol_to_a1(1, 13)
+        existing_ws.update.assert_called_once_with(
+            f"{start_cell}:{start_cell}", [["Tipe Sinyal"]], value_input_option="USER_ENTERED")
+        assert ws is existing_ws
+
+    def test_header_sudah_lengkap_tidak_diubah(self):
+        client = MagicMock()
+        sh = MagicMock()
+        existing_ws = MagicMock()
+        existing_ws.row_values.return_value = list(sj.HEADERS)  # sudah lengkap 13 kolom
+        sh.worksheet.return_value = existing_ws
+        client.open_by_key.return_value = sh
+        with patch.object(sj, "_get_client", return_value=client), \
+             patch.object(sj.st, "secrets", {"GOOGLE_SHEET_ID": "fake_id"}):
+            sj._get_worksheet()
+        existing_ws.update.assert_not_called()
 
 
 class TestSummarize:
