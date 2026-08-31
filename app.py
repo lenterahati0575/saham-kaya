@@ -799,6 +799,31 @@ if failed_tickers:
                       "diabaikan - hasil scan di bawah TIDAK lengkap)", expanded=False):
         st.write(", ".join(failed_tickers))
 
+# PERINGATAN DATA BASI (2026-09-01) - user melaporkan "Tanggal Harga" nyangkut di 28
+# Agustus walau sudah refresh berulang kali DAN reboot app penuh - dikonfirmasi via tes
+# langsung: fetch_price_history() yang SAMA persis, dijalankan dari luar, berhasil dapat
+# data terbaru (bukan bug di kode kita) - kemungkinan besar Yahoo Finance sendiri yang
+# menahan/menyajikan respons basi khusus utk jaringan cloud hosting (Streamlit Cloud),
+# masalah yang sudah dikenal luas utk aplikasi berbasis yfinance yang dihosting gratis -
+# BUKAN sesuatu yang bisa diperbaiki dari sisi kode kita. Yang BISA dilakukan: beri tahu
+# user SECARA JELAS begitu ini terjadi lagi, drpd diam-diam menampilkan data basi seolah
+# normal - modus tanggal bar TERAKHIR di seluruh saham yang berhasil diambil, dibandingkan
+# hari ini (buffer 3 hari kalender, bukan hari bursa persis, supaya TIDAK salah alarm di
+# akhir pekan biasa - Sabtu/Minggu, tanpa perlu kalender libur bursa yang presisi).
+if price_data:
+    _tgl_terakhir_per_saham = [df.index[-1].date() for df in price_data.values() if df is not None and not df.empty]
+    if _tgl_terakhir_per_saham:
+        from collections import Counter
+        _tgl_modus = Counter(_tgl_terakhir_per_saham).most_common(1)[0][0]
+        _selisih_hari = (datetime.now(WIB).date() - _tgl_modus).days
+        if _selisih_hari > 3:
+            st.error(f"🚨 Data yang diambil kelihatannya BASI - mayoritas saham baru sampai "
+                     f"**{_tgl_modus.strftime('%d %b %Y')}** ({_selisih_hari} hari lalu), padahal "
+                     f"harusnya lebih baru. Ini BUKAN cache aplikasi (sudah dicek: fetch data yang "
+                     f"sama dari luar app berhasil dapat data terbaru) - kemungkinan besar Yahoo "
+                     f"Finance menahan respons basi khusus utk jaringan cloud hosting. Coba lagi "
+                     f"beberapa saat, atau tunggu - biasanya pulih sendiri.")
+
 # Sektor & Syariah dari data resmi BEI (tickers_idx.csv) - statis, instan, tanpa fetch
 # tambahan (beda dgn versi lama yg fetch live per-saham ke Yahoo Finance & opt-in krn lambat).
 table["Sektor"] = table["Kode"].map(dict(zip(universe["Kode"], universe["Sektor"])))

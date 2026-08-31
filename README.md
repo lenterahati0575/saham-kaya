@@ -3105,6 +3105,29 @@ SEKALIGUS cocok locale ID) + BOM UTF-8 (`encoding="utf-8-sig"`, supaya Excel det
 UTF-8 dgn benar - tanpa ini simbol/emoji bisa tampil mojibake kalau dibuka langsung
 tanpa import manual).
 
+## Peringatan Data Basi - Kemungkinan Throttling Yahoo Finance (2026-09-01)
+
+User melaporkan "Tanggal Harga" di tab Kandidat nyangkut di 28 Agustus, padahal sudah
+klik "Refresh Data Live" berulang kali DAN reboot app penuh via "Manage app" - keduanya
+TIDAK memperbaiki.
+
+**Didiagnosis**: dites LANGSUNG (`fetch_price_history()` + `compute_metrics()`, fungsi
+yang SAMA persis dipakai app) dari luar app - berhasil dapat data 31 Agustus (hari bursa
+TERBARU saat itu) TANPA masalah. Ini membuktikan kode kita BENAR, bukan bug logika.
+Kesimpulan: kemungkinan besar **Yahoo Finance sendiri** yang menahan/menyajikan respons
+basi khusus utk request dari jaringan cloud hosting (Streamlit Cloud) - masalah yang
+sudah dikenal luas utk aplikasi berbasis yfinance yang dihosting gratis (Yahoo sering
+membatasi/throttle IP shared-hosting). **Reboot app TIDAK menghapus ini** krn bukan
+cache di sisi kita - baik `st.cache_data.clear()` (tombol Refresh) maupun restart proses
+(reboot) tidak menyentuh apa pun yang terjadi di jaringan/server Yahoo sendiri.
+
+**Yang BISA diperbaiki**: peringatan otomatis di app.py - begitu modus tanggal bar
+TERAKHIR di seluruh saham yang berhasil diambil lebih dari 3 hari kalender di belakang
+hari ini (buffer longgar supaya TIDAK salah alarm di akhir pekan biasa, tanpa perlu
+kalender libur bursa presisi), muncul kotak merah PERINGATAN JELAS - drpd diam-diam
+menampilkan data basi seolah normal & user harus menyadari sendiri dari kolom "Tanggal
+Harga" satu-satu.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
