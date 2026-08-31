@@ -1177,7 +1177,7 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
                              require_bullish_regime: bool = False, regime_status: str | None = None,
                              total_equity: float | None = None, risk_pct: float = 1.0,
                              sl_cap_pct: float = 0.05, zz_threshold_pct: float = 10.0,
-                             min_value_traded: float = 0.0) -> pd.DataFrame:
+                             min_value_traded: float = 0.0, target_proj_mult: float = 0.5) -> pd.DataFrame:
     """SCREENER SEDERHANA (pembanding) - user: "apakah perlu buat screener pembanding.
     mungkin lebih sederhana tapi bisa winrate lebih tinggi dan buy/sellnya tepat", lalu
     "target saya yang penting profit dengan risk rendah, tetap profesional."
@@ -1329,7 +1329,17 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
         sl = max(sl_candidates) if sl_candidates else sl_cap
         if entry <= sl:
             continue
-        target = dh + (dh - dl)
+        # TARGET (2026-09-01, user: "uji juga target rr") - dulu proyeksi PENUH (dh+1x
+        # range) - diuji ULANG (350 saham/3 tahun, sistem gabungan+slot-cap, RR>=2.0): (1)
+        # target RR TETAP (entry+K*risk, K=2-5x) KALAH di semua K vs proyeksi Donchian
+        # (PF 6,50-6,71 vs 7,17) - RR seragam bikin prioritas slot kehilangan sinyal
+        # kualitas asli. (2) Kelipatan proyeksi (M) DIUJI 0,25x-2,0x - PUNCAK jelas di
+        # 0,3-0,5x (BUKAN tren mengejar ekstrem - turun tajam di 0,25x DAN melandai lagi
+        # di atas 0,5x, tanda genuine optimum interior, bukan overfitting). Dipilih 0,5x
+        # (PF 9,44, avg +10,00%, winrate 74,4%, split-half PALING stabil +11,64%/+8,38% -
+        # sedikit di bawah 0,4x tapi lebih konsisten). README > "Target Proyeksi Donchian
+        # Diperketat 1,0x->0,5x".
+        target = dh + target_proj_mult * (dh - dl)
         risk = entry - sl
         reward = target - entry
         if risk <= 0 or reward <= 0:

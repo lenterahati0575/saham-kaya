@@ -704,12 +704,16 @@ with st.sidebar:
     sl_cap_label_sederhana = st.selectbox(
         "Batas SL Screener Sederhana", options=["3% (Risk Rendah)", "5% (Seimbang - default)", "10% (Return Tertinggi)"],
         index=1,
-        help="Diuji (350 saham/3 tahun, sistem gabungan+slot-cap): 3% = Profit Factor "
+        help="Diuji (350 saham/3 tahun, sistem gabungan+slot-cap, SEBELUM target proyeksi "
+             "diperketat ke 0,5x - lihat catatan itu di README): 3% = Profit Factor "
              "tertinggi (8,05) & rugi terburuk terkecil (-3,4%/trade), TAPI avg return & "
              "winrate paling rendah (+7,93%/64,9%). 10% = avg return & winrate tertinggi "
              "(+9,02%/75,0%), TAPI PF terendah & rugi terburuk terbesar (-10,4%/trade) - "
              "lebih rawan kalau klaster SL bersamaan terulang (pernah terjadi: 7 saham "
-             "kena SL 1 hari). 5% = titik tengah yang sudah tervalidasi sebelumnya.")
+             "kena SL 1 hari). 5% = titik tengah yang sudah tervalidasi. Pola relatifnya "
+             "(longgar=return&winrate naik, PF&rugi terburuk memburuk) kemungkinan tetap "
+             "berlaku, TAPI angka persisnya belum diuji ulang dgn target 0,5x - anggap "
+             "sbg estimasi arah, bukan angka final.")
     sl_cap_pct_sederhana = {"3% (Risk Rendah)": 0.03, "5% (Seimbang - default)": 0.05,
                              "10% (Return Tertinggi)": 0.10}[sl_cap_label_sederhana]
     st.divider()
@@ -1170,19 +1174,20 @@ with t_sederhana:
     # Statistik per pilihan SL cap (350 saham/3 tahun, sistem gabungan+slot-cap, RR>=2.0,
     # likuiditas ON) - README > "SL Cap: Trade-off Risk vs Return, Dibuat Bisa Dipilih".
     _stat_sl_cap = {
-        0.03: "avg +7,93%/trade, win rate 64,9%, Profit Factor 8,05 (tertinggi), rugi terburuk -3,4%/trade (terkecil)",
-        0.05: "avg +8,36%/trade, win rate 71,2%, Profit Factor 7,17, rugi terburuk -5,4%/trade",
-        0.10: "avg +9,02%/trade, win rate 75,0% (tertinggi), Profit Factor 6,06 (terendah), rugi terburuk -10,4%/trade (terbesar)",
+        0.03: "avg +7,93%/trade, win rate 64,9%, Profit Factor 8,05 (tertinggi) (angka target proyeksi 1,0x lama, belum diuji ulang dgn 0,5x)",
+        0.05: "avg +10,00%/trade, win rate 74,4%, Profit Factor 9,44 (target proyeksi 0,5x)",
+        0.10: "avg +9,02%/trade, win rate 75,0% (tertinggi) (angka target proyeksi 1,0x lama, belum diuji ulang dgn 0,5x)",
     }
     st.caption("Entry: **Breakout** (20-hari + posisi 52-minggu + volume DI BAWAH rata-rata) "
                "ATAU **Zig Zag** (titik balik 10%, lebih dini dari breakout - posisi 52-minggu "
-               f"& volume DI BAWAH rata-rata SAMA wajib), RR minimum 2,0x. SL dibatasi "
-               f"{sl_cap_pct_sederhana*100:.0f}% (bisa diubah di sidebar). Keluar: Sinyal Jual "
-               "Dini (turun >=5% dari puncak sejak dibeli, sambil masih profit) + kunci untung "
-               "2 lapis (sebelum & sesudah Target tercapai). Diuji GABUNGAN dgn batas realistis "
-               f"5 posisi baru/hari (350 saham/3 tahun): {_stat_sl_cap[sl_cap_pct_sederhana]}. "
-               "Dibandingkan LIVE di sini dgn jurnal & sheet Google Sheets terpisah dari "
-               "sistem utama.")
+               f"& volume DI BAWAH rata-rata SAMA wajib), RR minimum 2,0x. Target = proyeksi "
+               "0,5x rentang Donchian (diperketat dari 1,0x - lebih dekat, lebih sering "
+               f"tercapai). SL dibatasi {sl_cap_pct_sederhana*100:.0f}% (bisa diubah di "
+               "sidebar). Keluar: Sinyal Jual Dini (turun >=5% dari puncak sejak dibeli, "
+               "sambil masih profit) + kunci untung 2 lapis (sebelum & sesudah Target "
+               "tercapai). Diuji GABUNGAN dgn batas realistis 5 posisi baru/hari (350 "
+               f"saham/3 tahun): {_stat_sl_cap[sl_cap_pct_sederhana]}. Dibandingkan LIVE di "
+               "sini dgn jurnal & sheet Google Sheets terpisah dari sistem utama.")
 
     cands_sederhana = build_simple_candidates(
         table, price_data, top_n=int(jumlah_kandidat_tampil),

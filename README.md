@@ -3018,6 +3018,40 @@ dunia nyata drpd yang terlihat di rata-rata backtest. Default TETAP 5% (titik te
 sudah lama tervalidasi) - `sl_cap_pct` diteruskan ke `build_simple_candidates()` sesuai
 pilihan, caption tab ikut berubah menampilkan statistik yang sesuai.
 
+## Target Proyeksi Donchian Diperketat 1,0x -> 0,5x (2026-09-01)
+
+User: "uji juga target rr" - diuji 2 ide berbeda soal TARGET (bukan Entry/SL):
+
+**1. Target RR TETAP** (`entry + K*risk`, K=2,0-5,0) vs proyeksi Donchian yang sudah live
+- KALAH di SEMUA K (PF 6,50-6,71 vs baseline 7,17). Sebabnya: RR seragam (semua sinyal
+persis =K) menghilangkan variasi RR ASLI yang dipakai buat prioritas slot 5/hari -
+proyeksi Donchian (RR bervariasi per saham sesuai struktur harga riil) justru lebih
+informatif utk memilih sinyal terbaik.
+
+**2. Kelipatan proyeksi** (`dh + M*(dh-dl)`, M=0,25-2,0) - **PUNCAK JELAS di 0,3-0,5x**
+(bukan tren mengejar ekstrem - turun TAJAM di 0,25x DAN melandai lagi di atas 0,5x, tanda
+genuine optimum interior):
+
+| M | N | Avg | Win Rate | Profit Factor | Split-half |
+|---|---|---|---|---|---|
+| 0,25x | 275 | +5,08% | 76,0% | 6,10 | +6,23%/+3,94% (melemah) |
+| 0,3x | 329 | +9,27% | 75,7% | 9,73 | +10,16%/+8,39% |
+| 0,4x | 391 | +10,03% | 74,4% | 9,63 | +12,41%/+7,66% |
+| **0,5x (dipilih)** | 433 | +10,00% | 74,4% | 9,44 | **+11,64%/+8,38%** (paling stabil) |
+| 0,6x | 460 | +9,31% | 73,5% | 8,51 | +10,73%/+7,89% |
+| 1,0x (lama) | 545 | +8,36% | 71,2% | 7,17 | +9,13%/+7,59% |
+| 2,0x | 579 | +8,45% | 70,1% | 7,02 | +8,47%/+8,44% |
+
+Dipilih **0,5x** - sedikit di bawah 0,4x (PF 9,44 vs 9,63) tapi split-half paling stabil
+(gap +11,64%/+8,38% ~3,3pp, vs 0,4x yang gap-nya ~4,8pp). Perbaikan besar dari baseline:
+PF 7,17->9,44, avg +8,36%->+10,00%, winrate 71,2%->74,4%.
+
+**Implementasi**: parameter baru `target_proj_mult` (default 0,5, sebelumnya hardcode
+1,0) di `build_simple_candidates()`. **Catatan**: perbandingan SL Cap 3%/5%/10%
+(README > "SL Cap: Trade-off Risk vs Return") divalidasi SEBELUM perubahan ini - hanya
+titik 5% yang sudah diuji ulang dgn target 0,5x (PF 9,44); 3%/10% belum, tooltip di app.py
+sudah diberi catatan supaya tidak disalahartikan sbg angka final.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

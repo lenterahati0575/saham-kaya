@@ -463,16 +463,19 @@ class TestBuildSimpleCandidates:
     def test_sl_dibatasi_5_persen_bukan_10_persen(self):
         # Breakout jauh (entry=1200, dh=1000) & Donchian Low sangat rendah (500) & MA20~1000
         # - keduanya JAUH dari entry, jadi cap 5% (1200*0.95=1140) yang MENGIKAT.
+        # target_proj_mult=1.0 dipertahankan (bukan default baru 0.5) - test ini soal SL
+        # cap, bukan target, biar RR (dgn range dh-dl=500) tetap jauh di atas min_rr=1.5.
         table = self._table(harga=1200.0, donchian_high=1000.0)
         price_data = self._price_data(low_override_2nd_last=500.0)
-        out = build_simple_candidates(table, price_data, lookback=20, min_rr=1.5)
+        out = build_simple_candidates(table, price_data, lookback=20, min_rr=1.5, target_proj_mult=1.0)
         assert not out.empty
         assert out.iloc[0]["Stop Loss"] == 1140.0  # 1200 * (1 - 0.05)
 
     def test_sl_cap_pct_bisa_dikustom(self):
         table = self._table(harga=1200.0, donchian_high=1000.0)
         price_data = self._price_data(low_override_2nd_last=500.0)
-        out = build_simple_candidates(table, price_data, lookback=20, min_rr=1.5, sl_cap_pct=0.10)
+        out = build_simple_candidates(table, price_data, lookback=20, min_rr=1.5, sl_cap_pct=0.10,
+                                       target_proj_mult=1.0)
         assert out.iloc[0]["Stop Loss"] == 1080.0  # 1200 * (1 - 0.10)
 
     def test_kolom_persen_sl_menghitung_jarak_riil_bukan_selalu_cap(self):
@@ -500,7 +503,7 @@ class TestBuildSimpleCandidates:
         price_data = self._price_data(low_override_2nd_last=500.0)
         # risk = 1200-1140 = 60/lembar. Modal 10jt, risiko 1% = Rp100rb -> lembar=1666 -> lot=16.
         out = build_simple_candidates(table, price_data, lookback=20, min_rr=1.5,
-                                       total_equity=10_000_000, risk_pct=1.0)
+                                       total_equity=10_000_000, risk_pct=1.0, target_proj_mult=1.0)
         assert "Lot" in out.columns
         assert out.iloc[0]["Lot"] == 16
 
@@ -514,6 +517,24 @@ class TestBuildSimpleCandidates:
         # reward=99 -> rr=99 (lolos), jadi utk uji GAGAL rr, pakai min_rr sangat tinggi.
         out = build_simple_candidates(self._table(harga=1001.0), self._price_data(), lookback=20, min_rr=200.0)
         assert out.empty
+
+    def test_default_target_proj_mult_sekarang_0_5_bukan_1_0(self):
+        # User: "uji juga target rr" - dulu target = dh + 1,0x(dh-dl) - diuji ulang di
+        # sistem gabungan (RR tetap KALAH vs proyeksi Donchian; kelipatan proyeksi 0,25x-
+        # 2,0x DIUJI, puncak jelas di 0,3-0,5x - dipilih 0,5x, PF 9,44 vs 7,17 lama, split-
+        # half paling stabil). entry=1200, dh=1000, dl=500 (range=500) -> target default
+        # BARU = 1000+0,5*500=1250 (BUKAN 1500 spt default lama).
+        table = self._table(harga=1200.0, donchian_high=1000.0)
+        price_data = self._price_data(low_override_2nd_last=500.0)
+        out = build_simple_candidates(table, price_data, lookback=20, min_rr=0.1)  # target_proj_mult TIDAK diisi -> pakai default
+        assert not out.empty
+        assert out.iloc[0]["Target"] == 1250.0
+
+    def test_target_proj_mult_bisa_dikustom(self):
+        table = self._table(harga=1200.0, donchian_high=1000.0)
+        price_data = self._price_data(low_override_2nd_last=500.0)
+        out = build_simple_candidates(table, price_data, lookback=20, min_rr=0.1, target_proj_mult=1.0)
+        assert out.iloc[0]["Target"] == 1500.0  # 1000 + 1.0*(1000-500)
 
     def test_default_min_rr_sekarang_2_0_bukan_1_5(self):
         # User: "uji juga filter likuiditas dan rr minimum" - disweep di sistem gabungan
