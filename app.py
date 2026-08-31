@@ -2042,6 +2042,37 @@ with t_real:
     if not gj.is_configured():
         st.warning("Jurnal Real butuh koneksi Google Sheets. Isi `gcp_service_account` dan `GOOGLE_SHEET_ID` di Settings > Secrets.")
     else:
+        # SINYAL JUAL (posisi REAL - lihat catatan lengkap di real_journal.py::
+        # preview_sinyal_jual_dini()) - user: "berarti sinyal jual kapan. bagaimana saya
+        # menghubungkan antara yang saya beli dengan sistem ini. apakah akan memanfaatkan
+        # riwayat trade atau seperti apa." Jawaban: YA, lewat Jurnal Real (trade yang
+        # Bro CATAT SENDIRI di sini) - BUKAN sheet POSISI (jurnal backtest otomatis, yang
+        # tidak mencerminkan pembelian riil). READ-ONLY - tidak ada tombol tutup otomatis,
+        # ini uang beneran, keputusan jual tetap manual lewat sub-tab "Tutup Posisi".
+        try:
+            trades_sj = rj.load_trades()
+            harga_live_lookup_rj = dict(zip(table["Kode"], table["Harga"])) if not table.empty else {}
+            sinyal_jual_rj = rj.preview_sinyal_jual_dini(trades_sj, price_data, harga_live_lookup_rj)
+        except Exception as e:
+            sinyal_jual_rj = pd.DataFrame()
+            st.error(f"❌ Gagal memuat Sinyal Jual: {e}")
+        else:
+            st.markdown("""<div style="background:#7f1d1d;border-radius:8px;padding:10px 14px;margin-bottom:10px;border:1px solid #dc2626;">
+<div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:0.3px;">🔴 SINYAL JUAL - Posisi Sudah Profit, Mulai Turun</div>
+<div style="font-size:12px;color:#fecaca;margin-top:3px;">Dari trade yang Bro CATAT SENDIRI di bawah (bukan jurnal backtest otomatis) - harga sudah turun cukup jauh dari puncaknya sejak entry, TAPI masih untung. Berpotensi lanjut turun - segera evaluasi & tutup manual kalau perlu di sub-tab "Tutup Posisi".</div>
+</div>""", unsafe_allow_html=True)
+            if sinyal_jual_rj.empty:
+                st.info("Tidak ada posisi OPEN yang memenuhi kriteria Sinyal Jual Dini saat ini "
+                        "(turun >=10% dari puncak sejak entry, sambil masih profit).")
+            else:
+                tampil_jual_rj = sinyal_jual_rj.copy()
+                for col in ["Entry (Rp)", "Harga Sekarang", "Puncak Sejak Entry"]:
+                    tampil_jual_rj[col] = tampil_jual_rj[col].map(lambda x: f"Rp{x:,.0f}")
+                for col in ["Turun dari Puncak (%)", "P&L Saat Ini (%)"]:
+                    tampil_jual_rj[col] = tampil_jual_rj[col].map(lambda x: f"{x:+.2f}%")
+                st.dataframe(tampil_jual_rj, use_container_width=True, hide_index=True, key="df_sinyal_jual_real")
+        st.divider()
+
         sub1, sub2, sub3, sub4, sub5 = st.tabs(["➕ Catat Trade", "🔓 Tutup Posisi", "Performance Real", "⚙️ Sekuritas", "✏️ Edit/Hapus"])
         with sub1:
             st.markdown("**Catat posisi baru (OPEN)**")

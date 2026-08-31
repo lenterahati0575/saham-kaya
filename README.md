@@ -2866,6 +2866,29 @@ closed sekarang) yang MENCEMARI angka mentah - checkbox exclude-nya sudah ada di
 Performance (default aktif) tapi belum divalidasi silang dgn data live user secara
 lengkap (export CSV user tidak ikut kolom "Tanggal Open" yg dibutuhkan filter itu).
 
+## Sinyal Jual di Jurnal Real - Menjawab "Sinyal Jual Kapan?" (2026-08-31)
+
+User: "berarti sinyal jual kapan. bagaimana saya menghubungkan antara yang saya beli
+dengan sistem ini. apakah akan memanfaatkan riwayat trade atau seperti apa." - pertanyaan
+ini muncul SETELAH user mengungkap dia TIDAK PERNAH memakai sheet POSISI sbg acuan beli
+(dia beli manual via broker sendiri, dicatat di **Jurnal Real**, bukan lewat "Buka Posisi
+Otomatis"). Kotak Sinyal Jual yang sebelumnya cuma ada di Kandidat/Screener Sederhana
+(berbasis POSISI/POSISI_SEDERHANA) TIDAK RELEVAN sama sekali utk pola pakai user yg
+sesungguhnya.
+
+**Jawaban & implementasi**: `real_journal.py::preview_sinyal_jual_dini()` - kriteria SAMA
+(turun >=10% dari puncak sejak entry, sambil masih profit) tapi sumber datanya **Jurnal
+Real** (trade yang user CATAT SENDIRI, lewat tombol "Kirim ke Jurnal Real" di Kandidat
+atau isi manual) - BUKAN sheet POSISI. BEDA teknis penting: Jurnal Real TIDAK punya cron
+harian (`auto_run.py`) yang rutin memperbarui apa pun, jadi TIDAK ada kolom "Harga Puncak"
+tersimpan spt di POSISI/POSISI_SEDERHANA - puncak dihitung LANGSUNG dari histori harga
+(`price_data`, High tertinggi sejak "Tanggal Entry" s.d. hari ini) setiap kali dipanggil -
+lebih akurat & tidak bisa basi drpd kolom tersimpan.
+
+**READ-ONLY tanpa tombol tutup otomatis** (beda dari Kandidat/Screener Sederhana) - ini
+UANG BENERAN, keputusan jual WAJIB manual lewat sub-tab "Tutup Posisi" yang sudah ada,
+sistem cuma memberi peringatan.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

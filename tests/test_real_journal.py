@@ -356,6 +356,66 @@ class TestNoNumpyLeakKeSheet:
         self._assert_json_serializable(captured["vals"])
 
 
+class TestPreviewSinyalJualDini:
+    """User: "berarti sinyal jual kapan. bagaimana saya menghubungkan antara yang saya
+    beli dengan sistem ini. apakah akan memanfaatkan riwayat trade atau seperti apa." -
+    dijawab lewat Jurnal Real (trade yang dicatat SENDIRI oleh user), BUKAN sheet POSISI.
+    Puncak dihitung LANGSUNG dari histori harga (price_data), TIDAK ada kolom tersimpan."""
+
+    def _trades(self, saham="ZZZZ", entry=100.0, tanggal_entry="2026-08-01", status="OPEN"):
+        return pd.DataFrame([{
+            "Saham": saham, "Entry (Rp)": entry, "Tanggal Entry": tanggal_entry, "Status": status,
+        }])
+
+    def _price_data(self, kode="ZZZZ", peak=130.0):
+        idx = pd.date_range("2026-08-01", periods=10, freq="D")
+        highs = [100.0] * 5 + [peak] + [peak - 5] * 4
+        return {kode: pd.DataFrame({"High": highs}, index=idx)}
+
+    def test_trigger_kalau_turun_10_persen_dari_puncak_sambil_masih_profit(self):
+        trades = self._trades(entry=100.0)
+        price_data = self._price_data(peak=130.0)
+        preview = rj.preview_sinyal_jual_dini(trades, price_data, {"ZZZZ": 117.0})
+        assert list(preview["Saham"]) == ["ZZZZ"]
+        assert preview.iloc[0]["Puncak Sejak Entry"] == 130.0
+        assert preview.iloc[0]["Turun dari Puncak (%)"] == 10.0
+
+    def test_kosong_kalau_drawdown_di_bawah_threshold(self):
+        trades = self._trades(entry=100.0)
+        price_data = self._price_data(peak=130.0)
+        preview = rj.preview_sinyal_jual_dini(trades, price_data, {"ZZZZ": 125.0})
+        assert preview.empty
+
+    def test_kosong_kalau_sudah_tidak_profit(self):
+        trades = self._trades(entry=100.0)
+        price_data = self._price_data(peak=130.0)
+        preview = rj.preview_sinyal_jual_dini(trades, price_data, {"ZZZZ": 95.0})
+        assert preview.empty
+
+    def test_kosong_kalau_bukan_status_open(self):
+        trades = self._trades(entry=100.0, status="PROFIT")
+        price_data = self._price_data(peak=130.0)
+        preview = rj.preview_sinyal_jual_dini(trades, price_data, {"ZZZZ": 117.0})
+        assert preview.empty
+
+    def test_tanpa_histori_harga_fallback_pakai_entry_dan_harga_live(self):
+        # price_data tidak punya kode ini sama sekali - puncak fallback ke max(entry,
+        # harga_live) SAJA, tidak crash.
+        trades = self._trades(entry=100.0)
+        preview = rj.preview_sinyal_jual_dini(trades, {}, {"ZZZZ": 105.0})
+        assert preview.empty  # drawdown dari puncak=105 (fallback) ke 105 = 0%, di bawah threshold
+
+    def test_dataframe_kosong_tidak_crash(self):
+        preview = rj.preview_sinyal_jual_dini(pd.DataFrame(columns=rj.TRADES_HEADERS), {}, {})
+        assert preview.empty
+
+    def test_harga_live_tidak_tersedia_dilewati(self):
+        trades = self._trades(entry=100.0)
+        price_data = self._price_data(peak=130.0)
+        preview = rj.preview_sinyal_jual_dini(trades, price_data, {})
+        assert preview.empty
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v"]))

@@ -397,6 +397,71 @@ def portfolio_risk_summary(trades: pd.DataFrame, total_equity: float | None) -> 
     }
 
 
+SELL_DRAWDOWN_PCT_REAL = 10.0  # SAMA threshold dgn Kandidat (gsheet_journal.py) - lihat
+# README > "Sinyal Jual Tampil Langsung di Tab Kandidat".
+
+
+def preview_sinyal_jual_dini(trades: pd.DataFrame, price_data: dict, harga_live_lookup: dict) -> pd.DataFrame:
+    """Sinyal Jual Dini utk posisi REAL (uang beneran) - user: "berarti sinyal jual kapan.
+    bagaimana saya menghubungkan antara yang saya beli dengan sistem ini. apakah akan
+    memanfaatkan riwayat trade atau seperti apa." Jawabannya: YA, lewat Jurnal Real -
+    tempat Bro sendiri MENCATAT pembelian ASLI (via tombol "Kirim ke Jurnal Real" di tab
+    Kandidat, atau isi manual) - BUKAN dari sheet POSISI/POSISI_SEDERHANA (jurnal
+    backtest otomatis, yang TIDAK MENCERMINKAN pembelian riil Bro - lihat README).
+
+    BEDA dari gsheet_journal.py/simple_journal.py: TIDAK ada kolom "Harga Puncak" yang
+    disimpan (Jurnal Real tidak punya cron yang jalan tiap hari spt auto_run.py, jadi
+    tidak ada yang rutin memperbaruinya) - puncak dihitung LANGSUNG dari histori harga
+    (`price_data`, High tertinggi sejak "Tanggal Entry" s.d. hari ini) tiap kali dipanggil,
+    JAUH lebih akurat drpd andalkan kolom yang bisa basi.
+
+    READ-ONLY - TIDAK ada tombol "tutup otomatis" (beda dari Kandidat/Screener Sederhana)
+    krn ini UANG BENERAN, keputusan jual/tutup transaksi WAJIB manual oleh Bro sendiri
+    (klik "Tutup Posisi" di tab Jurnal Real spt biasa), sistem cuma memberi PERINGATAN."""
+    cols = ["Saham", "Entry (Rp)", "Harga Sekarang", "Puncak Sejak Entry", "Turun dari Puncak (%)", "P&L Saat Ini (%)"]
+    if trades.empty or "Status" not in trades.columns:
+        return pd.DataFrame(columns=cols)
+    open_t = trades[trades["Status"] == "OPEN"]
+    if open_t.empty:
+        return pd.DataFrame(columns=cols)
+
+    rows = []
+    for _, row in open_t.iterrows():
+        try:
+            kode = str(row["Saham"]).strip().upper()
+            entry = float(row["Entry (Rp)"])
+            if entry <= 0:
+                continue
+            harga_live = harga_live_lookup.get(kode)
+            if harga_live is None:
+                continue
+            tgl_entry = pd.to_datetime(row["Tanggal Entry"], errors="coerce")
+            if pd.isna(tgl_entry):
+                continue
+
+            df_harga = price_data.get(kode)
+            peak = entry
+            if df_harga is not None and not df_harga.empty and "High" in df_harga.columns:
+                sejak_entry = df_harga[df_harga.index >= tgl_entry.normalize()]
+                if not sejak_entry.empty:
+                    peak = max(entry, float(sejak_entry["High"].max()))
+            peak = max(peak, harga_live)  # harga_live hari ini blm tentu masuk price_data histori
+
+            drawdown = (peak - harga_live) / peak * 100 if peak > 0 else 0.0
+            if harga_live <= entry or drawdown < SELL_DRAWDOWN_PCT_REAL:
+                continue
+
+            pnl_pct = (harga_live - entry) / entry * 100
+            rows.append({
+                "Saham": kode, "Entry (Rp)": entry, "Harga Sekarang": harga_live,
+                "Puncak Sejak Entry": peak, "Turun dari Puncak (%)": round(drawdown, 2),
+                "P&L Saat Ini (%)": round(pnl_pct, 2),
+            })
+        except Exception:
+            continue
+    return pd.DataFrame(rows, columns=cols) if rows else pd.DataFrame(columns=cols)
+
+
 def compute_stats(trades: pd.DataFrame) -> dict:
     empty = {"total": 0, "open": 0, "win": 0, "loss": 0, "winrate": 0,
              "net_pl": 0, "profit_factor": 0, "expectancy": 0,
