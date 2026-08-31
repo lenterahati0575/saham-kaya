@@ -687,6 +687,17 @@ with st.sidebar:
                                          "58%) khusus utk trader modal kecil yang butuh frekuensi lebih "
                                          "sering - matikan checkbox ini kalau masih terasa terlalu sedikit.")
     st.divider()
+    st.subheader("🔬 Screener Sederhana")
+    filter_likuiditas_sederhana = st.checkbox(
+        "Wajib likuiditas tinggi (Value Traded >= Rp 3 M/hari) di Screener Sederhana",
+        value=True,
+        help="Gate yang SAMA dipakai tab Kandidat, TAPI baru ditemukan bahwa Screener "
+             "Sederhana sebelumnya TIDAK PERNAH cek ini sama sekali - saham tidak likuid "
+             "bisa lolos jadi kandidat tanpa disaring. Default AKTIF supaya konsisten "
+             "dgn tab Kandidat - matikan kalau kandidat terasa terlalu sedikit (belum "
+             "diuji dampaknya scr spesifik ke sistem ini, beda dari filter lain yang "
+             "sudah divalidasi lewat backtest).")
+    st.divider()
     st.subheader("🔮 IHSG Gann + Time Cycle")
     st.caption("Sudah diuji historis (10 tahun IHSG) - hit rate-nya SETARA hari acak, bukan lebih akurat. "
                "Detail di tab 'IHSG Analysis'.")
@@ -1095,18 +1106,18 @@ with t_kandidat:
 with t_sederhana:
     st.markdown("### 🔬 Screener Sederhana (Pembanding)")
     st.caption("Entry: **Breakout** (20-hari + posisi 52-minggu + volume DI BAWAH rata-rata) "
-               "ATAU **Zig Zag** (titik balik 5%, lebih dini dari breakout - posisi 52-minggu "
-               "tetap wajib). SL dibatasi 5%. Keluar: kunci untung 2 lapis (sebelum & sesudah "
+               "ATAU **Zig Zag** (titik balik 10%, lebih dini dari breakout - posisi 52-minggu "
+               "tetap wajib). SL dibatasi 5%. Keluar: Sinyal Jual Dini (turun >=5% dari puncak "
+               "sejak dibeli, sambil masih profit) + kunci untung 2 lapis (sebelum & sesudah "
                "Target tercapai). Diuji GABUNGAN dgn batas realistis 5 posisi baru/hari (350 "
-               "saham/3 tahun): avg +6,1%/trade, win rate 60%, Profit Factor 4,9 - Profit "
-               "Factor gabungan lebih tinggi dari Breakout maupun Zig Zag sendirian, Zig Zag "
-               "cuma mengisi hari-hari Breakout tidak menyala (kolom 'Tipe Sinyal' menandai "
-               "asalnya). Dibandingkan LIVE di sini dgn jurnal & sheet Google Sheets terpisah "
-               "dari sistem utama.")
+               "saham/3 tahun): avg +8,05%/trade, win rate 60,9%, Profit Factor 5,27. "
+               "Dibandingkan LIVE di sini dgn jurnal & sheet Google Sheets terpisah dari "
+               "sistem utama.")
 
     cands_sederhana = build_simple_candidates(
         table, price_data, top_n=int(jumlah_kandidat_tampil),
         total_equity=total_equity_now, risk_pct=risk_pct_per_trade,
+        min_value_traded=(DEFAULT_PARAMS["min_value_traded"] if filter_likuiditas_sederhana else 0),
     )
     if cands_sederhana.empty:
         st.info("Tidak ada kandidat yang lolos (Breakout atau Zig Zag) + posisi 52-minggu "

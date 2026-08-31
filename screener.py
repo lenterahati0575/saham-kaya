@@ -1176,7 +1176,8 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
                              min_rr: float = 1.5, top_n: int = 20,
                              require_bullish_regime: bool = False, regime_status: str | None = None,
                              total_equity: float | None = None, risk_pct: float = 1.0,
-                             sl_cap_pct: float = 0.05, zz_threshold_pct: float = 10.0) -> pd.DataFrame:
+                             sl_cap_pct: float = 0.05, zz_threshold_pct: float = 10.0,
+                             min_value_traded: float = 0.0) -> pd.DataFrame:
     """SCREENER SEDERHANA (pembanding) - user: "apakah perlu buat screener pembanding.
     mungkin lebih sederhana tapi bisa winrate lebih tinggi dan buy/sellnya tepat", lalu
     "target saya yang penting profit dengan risk rendah, tetap profesional."
@@ -1229,6 +1230,14 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
     `simple_journal.py::auto_close_positions()` utk mekanisme Target-Lock + partial-lock
     2-lapis yang dipasangkan dgn screener ini.
 
+    GATE LIKUIDITAS (`min_value_traded`, 2026-08-31): user minta checkbox serupa yg sudah
+    ada di tab Kandidat ("Wajib posisi 52-minggu"). Ketemu SAAT itu: fungsi ini TIDAK
+    PERNAH cek "Layak Likuiditas" sama sekali (beda dgn `build_trade_candidates()` yg
+    dilindungi gate Rp 3 M/hari via Score=-99 di `compute_metrics()`) - saham tidak
+    likuid bisa lolos jadi kandidat di sini tanpa disaring. Default 0 (nonaktif, SAMA
+    perilaku sblm diperbaiki) - checkbox di app.py mengaktifkannya ke
+    `DEFAULT_PARAMS["min_value_traded"]` (Rp 3 M) kalau dicentang.
+
     Sengaja fungsi TERPISAH dari `build_trade_candidates()` (bukan parameter baru di sana)
     - biar sistem lama TIDAK BERUBAH sama sekali & bisa dibandingkan apel-ke-apel scr live
     lewat jurnal terpisah (`simple_journal.py`, sheet Google Sheets sendiri), bukan cuma
@@ -1238,7 +1247,15 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
     minervini_ok = table["Minervini Position OK"].fillna(False)
     breakout = table["Harga"] > table["Donchian High"]
     volume_rendah = table["Volume Ratio"].fillna(999) <= 1.0
-    is_breakout_row = breakout & minervini_ok & volume_rendah
+    # Gate likuiditas OPSIONAL (min_value_traded=0 -> nonaktif, SAMA perilaku sblm ini
+    # ditambahkan - lihat catatan checkbox di app.py). BUKAN duplikat gate di
+    # compute_metrics() (yang cuma menghukum Score, TIDAK memfilter baris keluar dari
+    # `table` - jadi fungsi ini SEBELUMNYA bisa lolos saham tidak likuid sama sekali).
+    if min_value_traded and min_value_traded > 0 and "Value Traded (Rp)" in table.columns:
+        likuiditas_ok = table["Value Traded (Rp)"].fillna(0) >= min_value_traded
+    else:
+        likuiditas_ok = pd.Series(True, index=table.index)
+    is_breakout_row = breakout & minervini_ok & volume_rendah & likuiditas_ok
 
     # Zig Zag: per saham (bukan dari kolom `table`, krn butuh histori penuh) - cek apakah
     # bar KEDUA-DARI-TERAKHIR adalah pivot Low baru (artinya hari INI tepat 1 hari setelah
@@ -1255,7 +1272,7 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
             pivots = compute_zigzag_pivots(df["Close"], zz_threshold_pct)
             if any(idx == n - 2 and typ == "L" for idx, _, typ in pivots):
                 zigzag_kode.add(kode)
-    is_zigzag_row = minervini_ok & table["Kode"].isin(zigzag_kode)
+    is_zigzag_row = minervini_ok & table["Kode"].isin(zigzag_kode) & likuiditas_ok
 
     tipe_map: dict[str, str] = {}
     for kode in table.loc[is_breakout_row, "Kode"]:

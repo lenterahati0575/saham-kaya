@@ -187,7 +187,8 @@ def main():
     try:
         if simple_journal.is_configured():
             cands_simple = build_simple_candidates(table, price_data, top_n=10,
-                                                    total_equity=total_equity_now, risk_pct=RISK_PCT_PER_TRADE)
+                                                    total_equity=total_equity_now, risk_pct=RISK_PCT_PER_TRADE,
+                                                    min_value_traded=DEFAULT_PARAMS["min_value_traded"])
             opened_simple = simple_journal.open_positions_from_candidates(
                 cands_simple, max_new_per_day=MAX_POSISI_BARU_PER_HARI)
             log(f"Auto-BUY Screener Sederhana: {opened_simple if opened_simple else 'tidak ada posisi baru'}")

@@ -515,6 +515,35 @@ class TestBuildSimpleCandidates:
         out = build_simple_candidates(self._table(harga=1001.0), self._price_data(), lookback=20, min_rr=200.0)
         assert out.empty
 
+    def test_min_value_traded_default_nonaktif_tidak_menyaring(self):
+        # Default 0 -> gate likuiditas nonaktif SAMA SEKALI (perilaku sblm gate ini ada) -
+        # kandidat tidak likuid (Value Traded kecil) tetap lolos kalau parameter tidak diisi.
+        table = self._table()
+        table["Value Traded (Rp)"] = 100_000_000  # Rp 100 juta - jauh di bawah gate 3 M
+        out = build_simple_candidates(table, self._price_data(), lookback=20, min_rr=1.5)
+        assert not out.empty
+
+    def test_min_value_traded_aktif_menyaring_saham_tidak_likuid(self):
+        table = self._table()
+        table["Value Traded (Rp)"] = 100_000_000  # Rp 100 juta - di bawah gate
+        out = build_simple_candidates(table, self._price_data(), lookback=20, min_rr=1.5,
+                                       min_value_traded=3_000_000_000)
+        assert out.empty
+
+    def test_min_value_traded_aktif_meloloskan_saham_likuid(self):
+        table = self._table()
+        table["Value Traded (Rp)"] = 5_000_000_000  # Rp 5 M - di atas gate
+        out = build_simple_candidates(table, self._price_data(), lookback=20, min_rr=1.5,
+                                       min_value_traded=3_000_000_000)
+        assert not out.empty
+
+    def test_min_value_traded_aktif_tanpa_kolom_tidak_crash(self):
+        # Kolom "Value Traded (Rp)" tidak ada sama sekali di table (mis. caller lama/test
+        # lain) - gate diabaikan drpd KeyError, TIDAK memblokir semua kandidat diam-diam.
+        out = build_simple_candidates(self._table(), self._price_data(), lookback=20, min_rr=1.5,
+                                       min_value_traded=3_000_000_000)
+        assert not out.empty
+
 
 class TestComputeZigzagPivots:
     """Fungsi murni, walk-forward-safe - dites dgn seri harga yg swing-nya dikontrol persis

@@ -24,14 +24,25 @@ dipertimbangkan utk migrasi sistem utama.
 STRUKTUR KOLOM:
 A: Tanggal Open | B: Saham | C: Harga Beli | D: TP | E: SL | F: Lot |
 G: Tanggal Close | H: Harga Jual | I: P&L (Rp) | J: P&L (%) | K: Status | L: SL Awal |
-M: Tipe Sinyal
+M: Tipe Sinyal | N: Harga Puncak
 
 M ("Tipe Sinyal": 'Breakout'/'ZigZag') ditambahkan setelah user - "mungkin perlu diuji
 juga penggunaan zig zag" - divalidasi (README > "Zig Zag: Entry Tambahan") sbg entry
 TAMBAHAN (OR, bukan pengganti) di `screener.py::build_simple_candidates()`. Kolom ini
 CUMA label asal sinyal (utk breakdown performa live per tipe nanti) - TIDAK dipakai di
-logika exit sama sekali. Sheet yang sudah live SEBELUM kolom ini ada otomatis
-dilengkapi header-nya oleh `_get_worksheet()` - user TIDAK perlu tambah kolom manual.
+logika exit sama sekali.
+
+N ("Harga Puncak") ditambahkan setelah user cerita masalah nyata: "hari ini muncul
+sinyal buy, lalu besok... harga turun, tapi masih profit... saya tahan tidak jual
+karena target belum tercapai... ternyata trader profesional... sempat jual dalam
+kondisi profit, sedangkan saya tahan dan akhirnya rugi/nyangkut... apakah memungkinkan
+saham yang sudah pernah masuk screener buy tetap dikawal jika muncul sinyal sell...
+saya belum sampai dilevel prediksi seperti itu." Dipakai utk SINYAL JUAL DINI (lihat
+SELL_DRAWDOWN_PCT di bawah) - TIDAK butuh prediksi arah, cuma deteksi harga SUDAH
+turun sekian % dari titik tertingginya sejak dibeli, SAMBIL masih profit.
+
+Sheet yang sudah live SEBELUM kolom M/N ada otomatis dilengkapi header-nya oleh
+`_get_worksheet()` - user TIDAK perlu tambah kolom manual.
 """
 
 from datetime import datetime
@@ -56,8 +67,9 @@ SHEET_NAME = "POSISI_SEDERHANA"
 
 HEADERS = ["Tanggal Open", "Saham", "Harga Beli", "TP", "SL", "Lot",
            "Tanggal Close", "Harga Jual", "P&L (Rp)", "P&L (%)", "Status", "SL Awal",
-           "Tipe Sinyal"]
-NUMERIC_COLS = ["Harga Beli", "TP", "SL", "Lot", "Harga Jual", "P&L (Rp)", "P&L (%)", "SL Awal"]
+           "Tipe Sinyal", "Harga Puncak"]
+NUMERIC_COLS = ["Harga Beli", "TP", "SL", "Lot", "Harga Jual", "P&L (Rp)", "P&L (%)", "SL Awal",
+                "Harga Puncak"]
 
 FEE_PCT_ROUNDTRIP = 0.15 + 0.25
 FORCE_SELL_HARI = 15
@@ -73,6 +85,22 @@ FORCE_SELL_HARI = 15
 PARTIAL_TRIGGER_R = 0.7
 PARTIAL_LOCK_R = 0.5
 TARGET_LOCK_K = 0.5
+
+# SINYAL JUAL DINI (2026-08-31, user: lihat catatan kolom "Harga Puncak" di atas) - dicek
+# LEBIH DULU drpd lapis 1/2 di atas: begitu harga TUTUP hari ini turun >=SELL_DRAWDOWN_PCT%
+# dari titik TERTINGGI sejak posisi dibuka, SAMBIL masih profit (harga_live > harga beli),
+# jual SEKARANG - TIDAK menunggu SL/Target/lapis manapun. Ini BUKAN prediksi arah (Anda
+# tidak perlu level analisis Astronacci) - cuma deteksi pelemahan yg SUDAH kejadian.
+#
+# DIUJI (350 saham/3 tahun, walk-forward, sbg tambahan di ATAS 2-lapis yang sudah ada):
+# threshold 3%/5%/8%/10% SEMUANYA memperbaiki hasil (avg +7,34%->+7,90-8,05%, PF
+# 4,73->5,16-5,27) - dipilih 5% (avg +8,05%, winrate 59,3%->60,9%, PF 5,27), DIVALIDASI
+# split-half stabil (+8,84%/+7,26%) & KEDUA regime naik (Bullish PF 5,66->5,93, Bearish
+# 3,42->4,33). Trade yang keluar via jalur ini winrate-nya ~100% by construction (syarat
+# "masih profit" sudah di kode) & avg return jauh lebih tinggi (+23,4%) drpd trade yg
+# keluar via SL/Target/ForceSell (+1,4%) - artinya rule ini menyelamatkan untung BESAR yg
+# dulu dibiarkan jalan sampai balik ke level lock lama yg jauh dari puncak.
+SELL_DRAWDOWN_PCT = 5.0
 
 
 def is_configured() -> bool:
@@ -209,6 +237,7 @@ def open_positions_from_candidates(candidates: pd.DataFrame, max_new_per_day: in
                 "OPEN",                                        # K: Status
                 sl,                                            # L: SL Awal
                 tipe_sinyal,                                   # M: Tipe Sinyal
+                entry,                                         # N: Harga Puncak (mulai dari harga beli)
             ]
             _append_row(ws, new_row)
             opened.append(kode)
@@ -284,6 +313,21 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
             status_baru = None
             exit_price = harga_live
 
+            # Update "Harga Puncak" (kolom N) - fallback ke Harga Beli utk posisi lama yg
+            # dibuka SEBELUM kolom ini ada (migrasi header otomatis, tapi nilai lama tetap
+            # kosong sampai baris ini pernah diproses sekali).
+            peak_lama = float(row["Harga Puncak"]) if pd.notna(row.get("Harga Puncak")) and row.get("Harga Puncak") != "" else harga_beli
+            peak_baru = max(peak_lama, today_high)
+
+            # SINYAL JUAL DINI (lihat catatan SELL_DRAWDOWN_PCT) - dicek PALING AWAL,
+            # sebelum lapis partial/target - user: "apakah memungkinkan saham yang sudah
+            # pernah masuk screener buy tetap dikawal jika muncul sinyal sell akan muncul
+            # di screener walau tidak mencapai target."
+            drawdown_dari_peak = (peak_baru - harga_live) / peak_baru * 100 if peak_baru > 0 else 0.0
+            if harga_live > harga_beli and drawdown_dari_peak >= SELL_DRAWDOWN_PCT:
+                status_baru = "WIN (SINYAL JUAL DINI)"
+                exit_price = harga_live
+
             risk_awal = (harga_beli - sl_awal) if sl_awal is not None else None
             # Lapis mana yang sudah aktif, dideteksi dari SL SAAT INI vs SL Awal vs harga
             # beli - TIDAK perlu kolom status terpisah:
@@ -300,7 +344,9 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
             sudah_partial = partial_lock_level is not None and sl is not None and sl >= partial_lock_level - 0.01
             sudah_target = target_lock_level is not None and sl is not None and sl >= target_lock_level - 0.01
 
-            if sudah_target:
+            if status_baru is not None:
+                pass  # Sinyal Jual Dini sudah memutuskan di atas - lewati lapis 1/2 di bawah.
+            elif sudah_target:
                 if today_low <= sl:
                     status_baru = "WIN (TARGET TERKUNCI)"
                     exit_price = sl
@@ -354,6 +400,16 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
                 elif hari >= FORCE_SELL_HARI:
                     status_baru = f"FORCE SELL ({hari} hari)"
                     exit_price = harga_live
+
+            # Simpan "Harga Puncak" terbaru (kolom N) kalau posisi TETAP OPEN & puncaknya
+            # naik - biar deteksi Sinyal Jual Dini besok jalan dari titik tertinggi yg
+            # BENAR, bukan cuma harga beli. Kalau posisi mau ditutup di bawah (status_baru
+            # sudah terisi), tidak perlu ditulis - sudah tidak relevan.
+            if status_baru is None and peak_baru > peak_lama:
+                sheet_row = _find_row_number(ws, kode, "OPEN")
+                if sheet_row:
+                    ws.update(f"N{sheet_row}", [[float(peak_baru)]])
+                    any_trailed = True
 
             if status_baru:
                 sheet_row = _find_row_number(ws, kode, "OPEN")

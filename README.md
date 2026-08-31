@@ -2703,6 +2703,71 @@ kalau ada % SL") - jarak SL riil dari Entry dlm persen, bisa LEBIH KETAT dari ca
 kalau Donchian Low/MA20 yang mengikat (bukan cap-nya) - supaya risiko riil per trade
 kelihatan, bukan diasumsikan selalu 5%.
 
+## Sinyal Jual Dini: Kunci Untung Sebelum Balik Arah (2026-08-31)
+
+User cerita masalah nyata: "hari ini muncul sinyal buy, lalu besok...harga turun, tapi
+masih profit...saya tahan tidak jual karena target belum tercapai...ternyata trader
+profesional...sempat jual dalam kondisi profit, sedangkan saya tahan dan akhirnya
+rugi/nyangkut...apakah memungkinkan saham yang sudah pernah masuk screener buy tetap
+dikawal jika muncul sinyal sell...saya belum sampai dilevel prediksi seperti itu."
+
+**Bukan soal prediksi arah** (yang butuh level analisis tinggi ala Astronacci) - cukup
+deteksi pelemahan yang SUDAH terjadi: harga TUTUP hari ini turun >=X% dari titik
+TERTINGGI sejak posisi dibuka, SAMBIL masih profit -> jual SEKARANG, jangan menunggu
+Target/SL/lapis manapun.
+
+**Diuji sbg tambahan DI ATAS 2-lapis yang sudah ada** (350 saham/3 tahun, walk-forward,
+sistem gabungan Breakout+Zig Zag @ threshold 10%):
+
+| Threshold Jual Dini | Avg Return | Win Rate | Profit Factor | % trade keluar via jalur ini |
+|---|---|---|---|---|
+| (baseline, tanpa rule ini) | +7,34% | 59,3% | 4,73 | - |
+| 3% | +7,90% | 61,5% | 5,26 | 39,8% |
+| **5% (dipilih)** | +8,05% | 60,9% | **5,27** | 30,1% |
+| 8% | +8,05% | 60,3% | 5,20 | 22,9% |
+| 10% | +8,03% | 60,1% | 5,16 | 19,0% |
+
+Threshold 5% dipilih (PF tertinggi + winrate lebih baik dari 8-10%). **Divalidasi**:
+
+| | N | Avg Return | Win Rate | Profit Factor |
+|---|---|---|---|---|
+| Semua | 2.711 | +8,05% | 60,9% | 5,27 |
+| Split-half 1 | 1.355 | +8,84% | 59,4% | 5,49 |
+| Split-half 2 | 1.356 | +7,26% | 62,4% | 5,02 |
+| Bullish | 1.616 | +9,12% | 62,1% | 5,93 |
+| Bearish | 1.095 | +6,48% | 59,1% | 4,33 |
+| Hanya keluar via Sinyal Jual Dini | 817 | +23,42% | 99,4% | sangat tinggi (by construction, syarat "masih profit" sudah di kode) |
+| Hanya keluar via SL/Target/ForceSell (cara lama) | 1.894 | +1,42% | 44,3% | 1,53 |
+
+Trade yang keluar via Sinyal Jual Dini rata-rata untungnya jauh lebih besar (+23,4%)
+drpd sisa trade yang masih menunggu cara lama (+1,4%) - artinya rule ini menyelamatkan
+untung BESAR yang dulu dibiarkan jalan sampai balik ke level kuncian lama (jauh dari
+puncak), persis masalah yang diceritakan user.
+
+**Implementasi**: kolom baru **"Harga Puncak"** (N) di `simple_journal.py` - melacak
+titik tertinggi sejak posisi dibuka, diperbarui tiap hari posisi masih OPEN. Dicek
+PALING AWAL di `auto_close_positions()`, sebelum lapis partial-lock/target-lock -
+`SELL_DRAWDOWN_PCT = 5.0`. Sheet yang sudah live otomatis dilengkapi kolom ini oleh
+`_get_worksheet()` - TIDAK perlu langkah manual.
+
+## Checkbox Gate Likuiditas di Screener Sederhana (2026-08-31)
+
+User minta checkbox serupa yang sudah ada di tab Kandidat. Ditemukan SAAT itu:
+`build_simple_candidates()` **TIDAK PERNAH cek "Layak Likuiditas" sama sekali** - beda
+dari `build_trade_candidates()` yang dilindungi gate Rp 3 M/hari (lewat Score=-99 di
+`compute_metrics()`). Saham tidak likuid bisa lolos jadi kandidat Screener Sederhana
+tanpa disaring - gap yang sudah ada sejak fungsi ini dibuat, baru ketemu sekarang.
+
+**Perbaikan**: parameter baru `min_value_traded` (default 0 = nonaktif, SAMA perilaku
+sblm ini) di `build_simple_candidates()`. Checkbox baru di sidebar - "Wajib likuiditas
+tinggi (Value Traded >= Rp 3 M/hari) di Screener Sederhana" - default AKTIF, mengirim
+`DEFAULT_PARAMS["min_value_traded"]` (gate yang SAMA dgn tab Kandidat) kalau dicentang.
+`auto_run.py` (cron otomatis) ikut memakai gate ini secara default (tidak ada UI di
+sana). Belum ada backtest khusus yang menguji dampak gate ini ke sistem Screener
+Sederhana secara spesifik (universe backtest 350 saham kemungkinan sudah cukup likuid
+semua) - checkbox ini soal KONSISTENSI & menutup gap yang ditemukan, bukan optimasi yang
+divalidasi dgn angka backtest baru.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
