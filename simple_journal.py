@@ -251,6 +251,55 @@ def open_positions_from_candidates(candidates: pd.DataFrame, max_new_per_day: in
     return opened
 
 
+def preview_sinyal_jual_dini(price_lookup: dict, hl_lookup: dict | None = None) -> pd.DataFrame:
+    """Preview READ-ONLY (TIDAK menutup posisi apa pun, TIDAK menulis ke sheet sama sekali)
+    - SAMA fungsi dgn gsheet_journal.py::preview_sinyal_jual_dini(), direplikasi di sini
+    supaya tab "🔬 Screener Sederhana" juga bisa menampilkan kotak "Sinyal Jual" seperti
+    tab Kandidat. User: "lakukan juga discreener sederhana."""
+    df = load_positions()
+    if df.empty or "Status" not in df.columns:
+        return pd.DataFrame()
+
+    open_df = df[df["Status"] == "OPEN"]
+    rows = []
+    for _, row in open_df.iterrows():
+        try:
+            kode = row["Saham"]
+            harga_live = price_lookup.get(kode)
+            if harga_live is None:
+                continue
+            sl = float(row["SL"]) if pd.notna(row["SL"]) else None
+            harga_beli = float(row["Harga Beli"])
+            tgl_open = pd.to_datetime(row["Tanggal Open"])
+            now_wib = datetime.now(WIB).replace(tzinfo=None)
+            if tgl_open.date() == now_wib.date():
+                continue  # SAMA guard sama-hari dgn auto_close_positions()
+
+            hl = hl_lookup.get(kode) if hl_lookup else None
+            today_high, today_low = hl if hl is not None else (harga_live, harga_live)
+
+            peak_lama = float(row["Harga Puncak"]) if pd.notna(row.get("Harga Puncak")) and row.get("Harga Puncak") != "" else harga_beli
+            peak_baru = max(peak_lama, today_high)
+
+            sl_kena_hari_ini = sl is not None and today_low <= sl
+            drawdown = (peak_baru - harga_live) / peak_baru * 100 if peak_baru > 0 else 0.0
+            if sl_kena_hari_ini or harga_live <= harga_beli or drawdown < SELL_DRAWDOWN_PCT:
+                continue
+
+            pnl_pct = (harga_live - harga_beli) / harga_beli * 100
+            rows.append({
+                "Kode": kode,
+                "Harga Beli": harga_beli,
+                "Harga Sekarang": harga_live,
+                "Puncak Sejak Beli": peak_baru,
+                "Turun dari Puncak (%)": round(drawdown, 2),
+                "P&L Saat Ini (%)": round(pnl_pct, 2),
+            })
+        except Exception:
+            continue
+    return pd.DataFrame(rows)
+
+
 def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> list[str]:
     """2 lapis perlindungan (lihat komentar PARTIAL_TRIGGER_R/PARTIAL_LOCK_R/TARGET_LOCK_K
     di atas) + guard SAMA-HARI (SAMA persis bug & fix di gsheet_journal.py: posisi yang

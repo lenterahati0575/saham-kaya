@@ -1057,28 +1057,38 @@ with t_kandidat:
             hl_lookup_kandidat = {kode: (float(df["High"].iloc[-1]), float(df["Low"].iloc[-1]))
                                    for kode, df in price_data.items() if df is not None and not df.empty}
             sinyal_jual = gj.preview_sinyal_jual_dini(price_lookup_kandidat, hl_lookup_kandidat)
-        except Exception:
+        except Exception as e:
             sinyal_jual = pd.DataFrame()
-        if not sinyal_jual.empty:
+            st.divider()
+            st.error(f"❌ Gagal memuat Sinyal Jual: {e}")
+        else:
+            # SELALU tampilkan kotak ini (bukan hanya kalau ada isinya) - user melaporkan
+            # "tidak menemukan kotak merah" saat kotak ini disembunyikan total ketika
+            # kosong; sekarang kelihatan jelas apakah memang tidak ada sinyal (state
+            # normal) vs fitur tidak jalan sama sekali (akan muncul sbg error di atas).
             st.divider()
             st.markdown("""<div style="background:#7f1d1d;border-radius:8px;padding:10px 14px;margin-bottom:10px;border:1px solid #dc2626;">
 <div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:0.3px;">🔴 SINYAL JUAL - Posisi Sudah Profit, Mulai Turun</div>
 <div style="font-size:12px;color:#fecaca;margin-top:3px;">Saham ini pernah muncul BUY & masih OPEN - harga sekarang sudah turun cukup jauh dari puncaknya sejak dibeli, TAPI masih untung. Berpotensi lanjut turun - segera evaluasi.</div>
 </div>""", unsafe_allow_html=True)
-            tampil_jual = sinyal_jual.copy()
-            for col in ["Harga Beli", "Harga Sekarang", "Puncak Sejak Beli"]:
-                tampil_jual[col] = tampil_jual[col].map(lambda x: f"Rp{x:,.0f}")
-            for col in ["Turun dari Puncak (%)", "P&L Saat Ini (%)"]:
-                tampil_jual[col] = tampil_jual[col].map(lambda x: f"{x:+.2f}%")
-            st.dataframe(tampil_jual, use_container_width=True, hide_index=True, key="df_sinyal_jual_kandidat")
-            if st.button("🔴 Proses Sinyal Jual Sekarang", key="btn_proses_jual_dini_kandidat"):
-                with st.spinner("Menutup posisi yang memenuhi Sinyal Jual Dini..."):
-                    diproses = gj.auto_close_positions(price_lookup_kandidat, hl_lookup_kandidat)
-                if diproses:
-                    st.success(f"✅ Ditutup: {', '.join(diproses)}")
-                    st.rerun()
-                else:
-                    st.info("Tidak ada yang berubah (harga mungkin sudah bergerak sejak tabel di atas dimuat).")
+            if sinyal_jual.empty:
+                st.info("Tidak ada posisi OPEN yang memenuhi kriteria Sinyal Jual Dini saat ini "
+                        "(turun >=10% dari puncak sejak dibeli, sambil masih profit).")
+            else:
+                tampil_jual = sinyal_jual.copy()
+                for col in ["Harga Beli", "Harga Sekarang", "Puncak Sejak Beli"]:
+                    tampil_jual[col] = tampil_jual[col].map(lambda x: f"Rp{x:,.0f}")
+                for col in ["Turun dari Puncak (%)", "P&L Saat Ini (%)"]:
+                    tampil_jual[col] = tampil_jual[col].map(lambda x: f"{x:+.2f}%")
+                st.dataframe(tampil_jual, use_container_width=True, hide_index=True, key="df_sinyal_jual_kandidat")
+                if st.button("🔴 Proses Sinyal Jual Sekarang", key="btn_proses_jual_dini_kandidat"):
+                    with st.spinner("Menutup posisi yang memenuhi Sinyal Jual Dini..."):
+                        diproses = gj.auto_close_positions(price_lookup_kandidat, hl_lookup_kandidat)
+                    if diproses:
+                        st.success(f"✅ Ditutup: {', '.join(diproses)}")
+                        st.rerun()
+                    else:
+                        st.info("Tidak ada yang berubah (harga mungkin sudah bergerak sejak tabel di atas dimuat).")
 
     st.divider()
     st.markdown("### Kirim ke Jurnal Real")
@@ -1165,6 +1175,43 @@ with t_sederhana:
                                   if c in tampil_sederhana.columns]
         dataframe_with_chart(tampil_sederhana[kolom_tampil_sederhana], kode_col="Kode",
                               height=350, key="df_sederhana")
+
+    # SINYAL JUAL (SAMA fitur dgn tab Kandidat, README > "Sinyal Jual Tampil Langsung di
+    # Tab Kandidat") - user: "lakukan juga discreener sederhana."
+    if simple_journal.is_configured():
+        try:
+            price_lookup_sj = dict(zip(table["Kode"], table["Harga"])) if not table.empty else {}
+            hl_lookup_sj = {kode: (float(df["High"].iloc[-1]), float(df["Low"].iloc[-1]))
+                            for kode, df in price_data.items() if df is not None and not df.empty}
+            sinyal_jual_ss = simple_journal.preview_sinyal_jual_dini(price_lookup_sj, hl_lookup_sj)
+        except Exception as e:
+            sinyal_jual_ss = pd.DataFrame()
+            st.divider()
+            st.error(f"❌ Gagal memuat Sinyal Jual: {e}")
+        else:
+            st.divider()
+            st.markdown("""<div style="background:#7f1d1d;border-radius:8px;padding:10px 14px;margin-bottom:10px;border:1px solid #dc2626;">
+<div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:0.3px;">🔴 SINYAL JUAL - Posisi Sudah Profit, Mulai Turun</div>
+<div style="font-size:12px;color:#fecaca;margin-top:3px;">Saham ini pernah muncul BUY di sini & masih OPEN - harga sekarang sudah turun cukup jauh dari puncaknya sejak dibeli, TAPI masih untung. Berpotensi lanjut turun - segera evaluasi.</div>
+</div>""", unsafe_allow_html=True)
+            if sinyal_jual_ss.empty:
+                st.info("Tidak ada posisi OPEN yang memenuhi kriteria Sinyal Jual Dini saat ini "
+                        "(turun >=5% dari puncak sejak dibeli, sambil masih profit).")
+            else:
+                tampil_jual_ss = sinyal_jual_ss.copy()
+                for col in ["Harga Beli", "Harga Sekarang", "Puncak Sejak Beli"]:
+                    tampil_jual_ss[col] = tampil_jual_ss[col].map(lambda x: f"Rp{x:,.0f}")
+                for col in ["Turun dari Puncak (%)", "P&L Saat Ini (%)"]:
+                    tampil_jual_ss[col] = tampil_jual_ss[col].map(lambda x: f"{x:+.2f}%")
+                st.dataframe(tampil_jual_ss, use_container_width=True, hide_index=True, key="df_sinyal_jual_sederhana")
+                if st.button("🔴 Proses Sinyal Jual Sekarang (Sederhana)", key="btn_proses_jual_dini_sederhana"):
+                    with st.spinner("Menutup posisi yang memenuhi Sinyal Jual Dini..."):
+                        diproses_ss = simple_journal.auto_close_positions(price_lookup_sj, hl_lookup_sj)
+                    if diproses_ss:
+                        st.success(f"✅ Ditutup: {', '.join(diproses_ss)}")
+                        st.rerun()
+                    else:
+                        st.info("Tidak ada yang berubah (harga mungkin sudah bergerak sejak tabel di atas dimuat).")
 
     st.divider()
     if not simple_journal.is_configured():

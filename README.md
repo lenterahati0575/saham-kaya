@@ -2801,6 +2801,19 @@ merah "🔴 SINYAL JUAL" berisi saham OPEN yang memenuhi kriteria ini, plus tomb
 Sinyal Jual Sekarang" yang memanggil `auto_close_positions()` yang SEBENARNYA (bukan
 cuma preview) kalau user mau langsung menutup dari situ juga.
 
+**Direplikasi ke Screener Sederhana juga** (user: "lakukan juga discreener sederhana") -
+`simple_journal.py::preview_sinyal_jual_dini()`, kotak & tombol yang SAMA di tab "🔬
+Screener Sederhana", threshold 5% (SAMA dgn `SELL_DRAWDOWN_PCT` sistem itu).
+
+**Fix diagnosability** (user: "namun saya tidak menemukan kotak merah sinya jual") - versi
+AWAL kotak ini CUMA muncul kalau ADA hasilnya (`if not sinyal_jual.empty`), jadi kalau
+memang tidak ada posisi yang memenuhi kriteria hari itu (state NORMAL - threshold 5-10%
+butuh pullback cukup dalam, tidak setiap hari kejadian), kotak-nya SAMA SEKALI tidak
+tampil - user tidak bisa membedakan "memang tidak ada sinyal" dari "fitur tidak jalan".
+Fix: kotak SEKARANG SELALU tampil begitu jurnal terhubung - isinya tabel kalau ADA sinyal,
+atau pesan info "Tidak ada posisi yang memenuhi kriteria" kalau kosong; exception saat
+menghitung ditampilkan sbg pesan error yang jelas (bukan diam-diam jadi kosong).
+
 ## Checkbox Gate Likuiditas di Screener Sederhana (2026-08-31)
 
 User minta checkbox serupa yang sudah ada di tab Kandidat. Ditemukan SAAT itu:

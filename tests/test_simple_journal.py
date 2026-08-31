@@ -323,6 +323,45 @@ class TestSinyalJualDini:
         ws.update.assert_called_once_with("N2", [[106.0]])
 
 
+class TestPreviewSinyalJualDini:
+    """Preview READ-ONLY - direplikasi dari gsheet_journal.py utk tab '🔬 Screener
+    Sederhana' (user: "lakukan juga discreener sederhana")."""
+
+    def test_muncul_kalau_kriteria_terpenuhi(self):
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=150.0, sl=90.0,
+                                            sl_awal=90.0, harga_puncak=120.0,
+                                            tanggal_open=_tanggal_open_recent())
+        with patch.object(sj, "load_positions", return_value=df_positions):
+            preview = sj.preview_sinyal_jual_dini({"ZZZZ": 114.0}, {"ZZZZ": (116.0, 113.0)})
+        assert list(preview["Kode"]) == ["ZZZZ"]
+        assert preview.iloc[0]["Turun dari Puncak (%)"] == 5.0
+
+    def test_kosong_kalau_drawdown_di_bawah_threshold(self):
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=150.0, sl=90.0,
+                                            sl_awal=90.0, harga_puncak=120.0,
+                                            tanggal_open=_tanggal_open_recent())
+        with patch.object(sj, "load_positions", return_value=df_positions):
+            preview = sj.preview_sinyal_jual_dini({"ZZZZ": 116.4}, {"ZZZZ": (117.0, 115.0)})
+        assert preview.empty
+
+    def test_kosong_kalau_sl_kena_hari_yang_sama(self):
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=150.0, sl=90.0,
+                                            sl_awal=90.0, harga_puncak=120.0,
+                                            tanggal_open=_tanggal_open_recent())
+        with patch.object(sj, "load_positions", return_value=df_positions):
+            preview = sj.preview_sinyal_jual_dini({"ZZZZ": 114.0}, {"ZZZZ": (116.0, 89.0)})
+        assert preview.empty
+
+    def test_tidak_menulis_apa_pun_ke_sheet(self):
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=150.0, sl=90.0,
+                                            sl_awal=90.0, harga_puncak=120.0,
+                                            tanggal_open=_tanggal_open_recent())
+        with patch.object(sj, "load_positions", return_value=df_positions), \
+             patch.object(sj, "_get_worksheet") as mock_ws_getter:
+            sj.preview_sinyal_jual_dini({"ZZZZ": 114.0}, {"ZZZZ": (116.0, 113.0)})
+        mock_ws_getter.assert_not_called()
+
+
 class TestBelumLocked:
     def test_sl_asli_tersentuh_dilabel_loss(self):
         df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=150.0, sl=90.0,
