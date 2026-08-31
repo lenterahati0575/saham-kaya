@@ -2995,6 +2995,29 @@ nyata thd risiko eksekusi riil. **Gate TETAP dipertahankan aktif** (checkbox def
 keputusan ini TIDAK diubah oleh temuan backtest ini, justru dicatat di sini supaya tidak
 salah tafsir & dites ulang di masa depan dgn asumsi yang sama.
 
+## SL Cap: Trade-off Risk vs Return, Dibuat Bisa Dipilih (2026-09-01)
+
+User: "uji juga stop loss 3%,5%,10%". BEDA dari filter volume/RR minimum (yang jelas
+menang di satu arah) - hasil SL cap adalah **trade-off nyata**, tidak ada yang menang
+mutlak:
+
+| SL Cap | N | Avg Return | Win Rate | Profit Factor | Rugi Terburuk |
+|---|---|---|---|---|---|
+| 3% | 570 | +7,93% | 64,9% | **8,05** (tertinggi) | **-3,4%** (terkecil) |
+| 5% (lama) | 545 | +8,36% | 71,2% | 7,17 | -5,4% |
+| 10% | 492 | **+9,02%** (tertinggi) | **75,0%** (tertinggi) | 6,06 (terendah) | -10,4% (terbesar) |
+
+Makin longgar SL -> makin tinggi winrate & avg return, TAPI makin rendah Profit Factor &
+makin besar rugi terburuk/trade - preferensi risiko, bukan angka benar/salah.
+
+User: "mungkin dikondisikan" - dibuat **pilihan di sidebar** (selectbox "Batas SL Screener
+Sederhana": 3%/5%/10%), bukan dipatok 1 nilai, supaya Bro bisa sesuaikan sendiri toleransi
+risiko - relevan mengingat pernah ada klaster SL bersamaan (7 saham kena SL 1 hari,
+README > "Bug Skala: Modal Awal Backtest") yang membuat SL longgar lebih berisiko di
+dunia nyata drpd yang terlihat di rata-rata backtest. Default TETAP 5% (titik tengah yang
+sudah lama tervalidasi) - `sl_cap_pct` diteruskan ke `build_simple_candidates()` sesuai
+pilihan, caption tab ikut berubah menampilkan statistik yang sesuai.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
