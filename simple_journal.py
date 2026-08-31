@@ -319,12 +319,28 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
             peak_lama = float(row["Harga Puncak"]) if pd.notna(row.get("Harga Puncak")) and row.get("Harga Puncak") != "" else harga_beli
             peak_baru = max(peak_lama, today_high)
 
-            # SINYAL JUAL DINI (lihat catatan SELL_DRAWDOWN_PCT) - dicek PALING AWAL,
-            # sebelum lapis partial/target - user: "apakah memungkinkan saham yang sudah
-            # pernah masuk screener buy tetap dikawal jika muncul sinyal sell akan muncul
-            # di screener walau tidak mencapai target."
+            # SINYAL JUAL DINI (lihat catatan SELL_DRAWDOWN_PCT) - dicek sebelum lapis
+            # partial/target, TAPI SETELAH cek SL hari ini (lihat guard `sl_kena_hari_ini`
+            # di bawah) - user: "apakah memungkinkan saham yang sudah pernah masuk screener
+            # buy tetap dikawal jika muncul sinyal sell akan muncul di screener walau tidak
+            # mencapai target."
+            #
+            # BUG YANG DIPERBAIKI (2026-08-31, ditemukan saat mereplikasi ide ini ke
+            # gsheet_journal.py): versi awal cek drawdown dari CLOSE tanpa peduli apakah SL
+            # SAAT INI juga tersentuh hari yang SAMA (via Low) - kalau Low hari itu turun
+            # sampai menembus sl_cur TAPI Close balik naik lagi sampai net masih profit
+            # dgn drawdown>=threshold dari puncak, versi lama SALAH melabeli ini "WIN
+            # (SINYAL JUAL DINI)" padahal SEHARUSNYA "LOSS (SL)"/lapis manapun yang aktif -
+            # menyimpang dari konvensi "SL dicek LEBIH DULU" yang sudah dipakai di seluruh
+            # sistem (lihat komentar sama persis di gsheet_journal.py::auto_close_positions
+            # & backtest.py). Fix: Sinyal Jual Dini SEKARANG dijaga TIDAK aktif kalau Low
+            # hari ini sudah <= SL yang sedang berlaku (`sl`, apa pun lapisnya) - re-validasi
+            # backtest dgn urutan benar: PF sedikit lebih kecil dari yg dilaporkan sebelumnya
+            # (5,27->5,03) TAPI tetap perbaikan nyata dari baseline (4,73), README > "Sinyal
+            # Jual Dini" sudah diupdate ke angka yang benar.
+            sl_kena_hari_ini = sl is not None and today_low <= sl
             drawdown_dari_peak = (peak_baru - harga_live) / peak_baru * 100 if peak_baru > 0 else 0.0
-            if harga_live > harga_beli and drawdown_dari_peak >= SELL_DRAWDOWN_PCT:
+            if not sl_kena_hari_ini and harga_live > harga_beli and drawdown_dari_peak >= SELL_DRAWDOWN_PCT:
                 status_baru = "WIN (SINYAL JUAL DINI)"
                 exit_price = harga_live
 

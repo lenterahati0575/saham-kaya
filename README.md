@@ -2722,33 +2722,66 @@ sistem gabungan Breakout+Zig Zag @ threshold 10%):
 | Threshold Jual Dini | Avg Return | Win Rate | Profit Factor | % trade keluar via jalur ini |
 |---|---|---|---|---|
 | (baseline, tanpa rule ini) | +7,34% | 59,3% | 4,73 | - |
-| 3% | +7,90% | 61,5% | 5,26 | 39,8% |
-| **5% (dipilih)** | +8,05% | 60,9% | **5,27** | 30,1% |
-| 8% | +8,05% | 60,3% | 5,20 | 22,9% |
-| 10% | +8,03% | 60,1% | 5,16 | 19,0% |
+| **5% (dipilih)** | +7,91% | 59,4% | **5,03** | ~30% |
 
-Threshold 5% dipilih (PF tertinggi + winrate lebih baik dari 8-10%). **Divalidasi**:
+Threshold 5% dipilih. **Divalidasi**:
 
 | | N | Avg Return | Win Rate | Profit Factor |
 |---|---|---|---|---|
-| Semua | 2.711 | +8,05% | 60,9% | 5,27 |
-| Split-half 1 | 1.355 | +8,84% | 59,4% | 5,49 |
-| Split-half 2 | 1.356 | +7,26% | 62,4% | 5,02 |
-| Bullish | 1.616 | +9,12% | 62,1% | 5,93 |
-| Bearish | 1.095 | +6,48% | 59,1% | 4,33 |
-| Hanya keluar via Sinyal Jual Dini | 817 | +23,42% | 99,4% | sangat tinggi (by construction, syarat "masih profit" sudah di kode) |
-| Hanya keluar via SL/Target/ForceSell (cara lama) | 1.894 | +1,42% | 44,3% | 1,53 |
+| Semua | 2.711 | +7,91% | 59,4% | 5,03 |
+| Split-half 1 | 1.355 | +8,72% | 58,3% | 5,29 |
+| Split-half 2 | 1.356 | +7,10% | 60,5% | 4,74 |
+| Bullish | 1.616 | +9,03% | 60,5% | 5,67 |
+| Bearish | 1.095 | +6,26% | 57,8% | 4,11 |
 
-Trade yang keluar via Sinyal Jual Dini rata-rata untungnya jauh lebih besar (+23,4%)
-drpd sisa trade yang masih menunggu cara lama (+1,4%) - artinya rule ini menyelamatkan
-untung BESAR yang dulu dibiarkan jalan sampai balik ke level kuncian lama (jauh dari
-puncak), persis masalah yang diceritakan user.
+Trade yang keluar via Sinyal Jual Dini rata-rata untungnya jauh lebih besar drpd sisa
+trade yang masih menunggu cara lama - artinya rule ini menyelamatkan untung BESAR yang
+dulu dibiarkan jalan sampai balik ke level kuncian lama (jauh dari puncak), persis
+masalah yang diceritakan user.
+
+**BUG DITEMUKAN & DIPERBAIKI (2026-08-31, saat mereplikasi ide ini ke Kandidat/Swing -
+lihat bagian di bawah)**: versi AWAL (yang angkanya dipublikasikan pertama kali di README
+ini, PF 5,27) cek drawdown dari Close TANPA peduli apakah SL hari itu JUGA tersentuh via
+Low - menyimpang dari konvensi "SL dicek LEBIH DULU" yang dipakai di seluruh sistem. Fix:
+Sinyal Jual Dini SEKARANG dijaga TIDAK aktif kalau Low hari ini sudah <= SL yang berlaku.
+Angka di tabel di atas SUDAH memakai urutan yang benar (PF turun tipis dari 5,27 ke 5,03,
+tapi tetap perbaikan nyata dari baseline 4,73).
 
 **Implementasi**: kolom baru **"Harga Puncak"** (N) di `simple_journal.py` - melacak
 titik tertinggi sejak posisi dibuka, diperbarui tiap hari posisi masih OPEN. Dicek
-PALING AWAL di `auto_close_positions()`, sebelum lapis partial-lock/target-lock -
-`SELL_DRAWDOWN_PCT = 5.0`. Sheet yang sudah live otomatis dilengkapi kolom ini oleh
-`_get_worksheet()` - TIDAK perlu langkah manual.
+setelah cek SL hari ini, sebelum lapis partial-lock/target-lock - `SELL_DRAWDOWN_PCT =
+5.0`. Sheet yang sudah live otomatis dilengkapi kolom ini oleh `_get_worksheet()` - TIDAK
+perlu langkah manual.
+
+## Sinyal Jual Dini di Kandidat/Swing (2026-08-31)
+
+Setelah divalidasi di Screener Sederhana, user tanya: "apakah sinyal jual dini ada di
+kandidat dan screener sederhana?" -> "ya uji" (replikasi & uji ke sistem utama). Kandidat
+punya mekanisme exit BERBEDA (Target-Lock SAJA, TANPA lapis partial, SL cap 10% bukan
+5%) - jadi diuji ULANG dari nol, bukan asumsi hasil yang sama.
+
+**Diuji** (614 sinyal, 350 saham/3 tahun, walk-forward, urutan SL-dicek-dulu yang BENAR
+sejak awal - lihat catatan bug di atas):
+
+| | N | Avg Return | Win Rate | Profit Factor |
+|---|---|---|---|---|
+| Baseline (Target-Lock saja) | 614 | +2,23% | 32,7% | 1,48 |
+| **+ Sinyal Jual Dini (threshold 10%)** | 614 | **+2,54%** | **37,3%** | **1,60** |
+| — Bullish (baseline vs +Jual Dini) | 426 | +3,36% -> **+3,41%** | 34,0% -> **39,4%** | 1,72 -> **1,81** |
+| — Bearish (baseline vs +Jual Dini) | 188 | -0,34% -> **+0,56%** | 29,8% -> 32,4% | 0,93 -> **1,13** (rugi bersih -> profit) |
+
+Threshold 10% (SAMA dgn Screener Sederhana, konsisten) - MENANG di SEMUA regime & SEMUA
+metrik sekaligus (beda dari Screener Sederhana yang trade-off avg return sedikit di
+Bullish - di sini avg Bullish malah naik juga). Split-half stabil (+2,59%/+2,48%). Uji
+threshold lain (8%, 12%, 15%, 20%) menunjukkan 10-15% adalah area optimal (PF naik sampai
+~15% lalu mulai turun lagi di 20%) - 10% dipilih utk konsistensi dgn Screener Sederhana,
+bukan cuma mengejar titik puncak persis (hindari overfitting ke 1 backtest).
+
+**Implementasi**: kolom baru **"Harga Puncak"** (P, setelah kolom deprecated "Momentum
+Kuat" di O) di `gsheet_journal.py`. `_get_worksheet()` SEKARANG melengkapi header yang
+belum ada scr OTOMATIS (pola baru, sebelumnya file ini tidak punya migrasi header sama
+sekali - user tidak perlu tambah kolom manual lagi, beda dari kolom lama).
+`SELL_DRAWDOWN_PCT = 10.0`, dicek setelah SL hari ini, sebelum blok Target-Lock.
 
 ## Checkbox Gate Likuiditas di Screener Sederhana (2026-08-31)
 

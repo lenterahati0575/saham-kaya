@@ -1110,7 +1110,7 @@ with t_sederhana:
                "tetap wajib). SL dibatasi 5%. Keluar: Sinyal Jual Dini (turun >=5% dari puncak "
                "sejak dibeli, sambil masih profit) + kunci untung 2 lapis (sebelum & sesudah "
                "Target tercapai). Diuji GABUNGAN dgn batas realistis 5 posisi baru/hari (350 "
-               "saham/3 tahun): avg +8,05%/trade, win rate 60,9%, Profit Factor 5,27. "
+               "saham/3 tahun): avg +7,91%/trade, win rate 59,4%, Profit Factor 5,03. "
                "Dibandingkan LIVE di sini dgn jurnal & sheet Google Sheets terpisah dari "
                "sistem utama.")
 

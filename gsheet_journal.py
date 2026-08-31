@@ -5,7 +5,8 @@ Auto-BUY saat Signal = BUY/STRONG BUY, auto-SELL saat harga live menyentuh TP at
 STRUKTUR KOLOM (dengan Lot & SL Awal):
 A: Tanggal Open | B: Saham | C: Harga Beli | D: TP | E: SL | F: Tipe |
 G: Lot | H: Tanggal Close | I: Harga Jual | J: P&L (Rp) | K: P&L (%) |
-L: Status | M: Hari | N: SL Awal | (O: Momentum Kuat, TIDAK DIPAKAI LAGI - lihat bawah)
+L: Status | M: Hari | N: SL Awal | (O: Momentum Kuat, TIDAK DIPAKAI LAGI - lihat bawah) |
+P: Harga Puncak (2026-08-31, lihat SELL_DRAWDOWN_PCT di bawah)
 
 N (SL Awal): SL asli saat posisi dibuka - TIDAK PERNAH diubah setelahnya, beda dari
 kolom E (SL) yang BISA digeser naik (baik ke breakeven MAUPUN ke level target-lock -
@@ -25,6 +26,12 @@ komentar TRAIL_AT_TARGET_K di bawah) & sudah DIHAPUS TOTAL - jadi kolom O ikut t
 dipakai lagi. TIDAK dihapus dari sheet (biar tidak perlu edit struktur manual lagi),
 cuma tidak diisi/dibaca lagi utk baris BARU - baris lama yg sudah ada isinya dibiarkan
 apa adanya, tidak berpengaruh ke logika manapun sekarang.
+
+P (Harga Puncak) - lihat SELL_DRAWDOWN_PCT di bawah utk mekanisme Sinyal Jual Dini.
+`_get_worksheet()` melengkapi header O & P secara OTOMATIS kalau sheet fisik belum
+punya (SAMA filosofi dgn simple_journal.py/riwayat_journal.py) - TIDAK perlu langkah
+manual dari user (beda dari kolom O "Momentum Kuat" yg dulu memang ditambah manual,
+sebelum pola auto-migrasi ini ada).
 """
 
 from datetime import datetime, date
@@ -62,16 +69,21 @@ SHEET_NAME = "POSISI"
 # dekat ke kenyataan, bukan return kotor.
 FEE_PCT_ROUNDTRIP = 0.15 + 0.25
 
-# HEADERS DENGAN KOLOM LOT (kolom G) & SL Awal (kolom N). Kolom O ("Momentum Kuat") masih
-# ada di sheet fisik (user sudah tambahkan headernya manual 2026-08-19) tapi SENGAJA TIDAK
-# dicantumkan di sini lagi - lihat "DEPRECATED" di docstring atas file. Baris baru yang
-# ditulis _append_row() sekarang cuma 14 kolom (A-N), kolom O otomatis kosong utk baris
-# baru - tidak masalah, gspread tidak butuh semua kolom terisi.
+# HEADERS DENGAN KOLOM LOT (kolom G) & SL Awal (kolom N). Kolom O ("Momentum Kuat")
+# DEPRECATED (lihat docstring atas file) tapi TETAP dicantumkan di sini (bukan dilewati)
+# supaya urutan indeks->kolom fisik tetap benar utk P (Harga Puncak) yang ditambahkan
+# setelahnya - _get_worksheet() melengkapi header yang belum ada scr otomatis (lihat di
+# bawah), jadi sheet lama yang cuma punya s.d. kolom N (atau s.d. O) akan dilengkapi
+# sendiri, TIDAK perlu langkah manual.
 HEADERS = ["Tanggal Open", "Saham", "Harga Beli", "TP", "SL", "Tipe",
-           "Lot", "Tanggal Close", "Harga Jual", "P&L (Rp)", "P&L (%)", "Status", "Hari", "SL Awal"]
+           "Lot", "Tanggal Close", "Harga Jual", "P&L (Rp)", "P&L (%)", "Status", "Hari", "SL Awal",
+           "Momentum Kuat", "Harga Puncak"]
 
 # Kolom numerik (non-tanggal, non-teks) - dipakai load_positions() utk parsing manual.
-NUMERIC_COLS = ["Harga Beli", "TP", "SL", "Lot", "Harga Jual", "P&L (Rp)", "P&L (%)", "Hari", "SL Awal"]
+# "Momentum Kuat" SENGAJA tidak dimasukkan (kolom deprecated, isinya lama bisa berupa
+# teks/boolean, tidak relevan lagi utk logika apa pun).
+NUMERIC_COLS = ["Harga Beli", "TP", "SL", "Lot", "Harga Jual", "P&L (Rp)", "P&L (%)", "Hari", "SL Awal",
+                "Harga Puncak"]
 
 # --- RIWAYAT DIHAPUS 2026-08-20: trailing-ke-BREAKEVEN (TRAILING_TRIGGER_R=1.0 & varian
 # "Momentum Kuat" 0.3R) ---
@@ -107,6 +119,34 @@ NUMERIC_COLS = ["Harga Beli", "TP", "SL", "Lot", "Harga Jual", "P&L (Rp)", "P&L 
 # Kunci Untung, Bukan Kunci Rugi".
 TRAIL_AT_TARGET_K = 0.5
 
+# SINYAL JUAL DINI (2026-08-31) - direplikasi dari simple_journal.py (Screener Sederhana)
+# stlh user cerita masalah nyata: "hari ini muncul sinyal buy, lalu besok...harga turun,
+# tapi masih profit...saya tahan tidak jual karena target belum tercapai...akhirnya
+# rugi/nyangkut...saya belum sampai dilevel prediksi seperti itu." Begitu harga TUTUP hari
+# ini turun >=SELL_DRAWDOWN_PCT% dari titik TERTINGGI sejak posisi dibuka (kolom P, "Harga
+# Puncak"), SAMBIL masih profit (harga_live > harga beli) DAN SL hari ini TIDAK tersentuh
+# (lihat guard di auto_close_positions - urutan ini PENTING, lihat catatan bug di bawah),
+# jual SEKARANG - tidak menunggu Target/SL/lapis manapun.
+#
+# DIUJI (614 sinyal, 350 saham/3 tahun, walk-forward, sbg tambahan DI ATAS Target-Lock yg
+# sudah ada, SAMA metodologi dgn TRAIL_AT_TARGET_K di atas): threshold 10% dipilih (SAMA
+# dgn Screener Sederhana, konsisten) - MENANG di SEMUA regime & split-half, bukan cocok-
+# cocokan sesaat:
+#   Semua:    avg +2,23% -> +2,54%, winrate 32,7% -> 37,3%, PF 1,48 -> 1,60
+#   Bullish:  avg +3,36% -> +3,41%, winrate 34,0% -> 39,4%, PF 1,72 -> 1,81
+#   Bearish:  avg -0,34% -> +0,56% (BERBALIK dari rugi bersih ke profit), PF 0,93 -> 1,13
+#   Split-half: +2,59%/+2,48% (stabil)
+#
+# BUG YANG DITEMUKAN & DIPERBAIKI saat membangun ini (juga sudah diperbaiki retroaktif di
+# simple_journal.py): versi AWAL cek drawdown dari Close TANPA peduli apakah SL hari itu
+# JUGA tersentuh via Low - kalau Low turun cukup dalam (tembus SL) TAPI Close balik naik
+# sampai net masih profit dgn drawdown>=threshold, versi awal SALAH melabeli ini "WIN
+# (SINYAL JUAL DINI)" padahal SEHARUSNYA "LOSS (SL)" - menyimpang dari konvensi "SL dicek
+# LEBIH DULU" yang sudah dipakai di seluruh sistem (lihat komentar sama persis di blok SL
+# dicek lebih dulu di bawah). Fix: Sinyal Jual Dini dijaga TIDAK aktif kalau Low hari ini
+# sudah <= SL yang berlaku. Angka di atas SUDAH memakai urutan yang benar.
+SELL_DRAWDOWN_PCT = 10.0
+
 
 def is_configured() -> bool:
     """Cek apakah semua konfigurasi Google Sheets sudah lengkap."""
@@ -127,10 +167,22 @@ def _get_client():
 
 
 def _get_worksheet():
-    """Ambil worksheet POSISI dari Google Sheets."""
+    """Ambil worksheet POSISI dari Google Sheets - header baru (mis. "Harga Puncak") yang
+    belum ada di sheet fisik dilengkapi OTOMATIS di sini, SAMA pola dgn
+    simple_journal.py/riwayat_journal.py - user TIDAK perlu tambah kolom manual lagi
+    (beda dari kolom "Momentum Kuat"/"SL Awal" jaman dulu yang memang minta ditambah
+    manual, sebelum pola auto-migrasi ini ada)."""
     client = _get_client()
     sh = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"])
-    return sh.worksheet(SHEET_NAME)
+    ws = sh.worksheet(SHEET_NAME)
+    current_headers = ws.row_values(1)
+    if len(current_headers) < len(HEADERS):
+        from gspread.utils import rowcol_to_a1
+        missing = HEADERS[len(current_headers):]
+        start_cell = rowcol_to_a1(1, len(current_headers) + 1)
+        end_cell = rowcol_to_a1(1, len(HEADERS))
+        ws.update(f"{start_cell}:{end_cell}", [missing], value_input_option="USER_ENTERED")
+    return ws
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -269,7 +321,7 @@ def open_positions_from_candidates(candidates: pd.DataFrame, tipe: str, max_new_
                 print(f"⚠️ {kode}: TP ({tp}) dan SL ({sl}) terbalik, auto-swap")
                 tp, sl = sl, tp
 
-            # Buat row baru sesuai struktur HEADERS (14 kolom, A-N - kolom O "Momentum Kuat"
+            # Buat row baru sesuai struktur HEADERS (16 kolom, A-P - kolom O "Momentum Kuat"
             # SENGAJA tidak diisi lagi, sudah deprecated - lihat docstring atas file)
             new_row = [
                 datetime.now(WIB).strftime("%Y-%m-%d %H:%M"),  # A: Tanggal Open
@@ -287,6 +339,8 @@ def open_positions_from_candidates(candidates: pd.DataFrame, tipe: str, max_new_
                 "",                                           # M: Hari
                 sl,                                           # N: SL Awal (SAMA dgn SL saat buka -
                                                                # kolom E bisa digeser nanti, ini tidak)
+                "",                                           # O: Momentum Kuat (deprecated, tidak diisi)
+                entry,                                        # P: Harga Puncak (mulai dari harga beli)
             ]
             
             _append_row(ws, new_row)
@@ -487,6 +541,22 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
             status_baru = None
             exit_price = harga_live
 
+            # Update "Harga Puncak" (kolom P) - fallback ke Harga Beli utk posisi lama yg
+            # dibuka SEBELUM kolom ini ada.
+            peak_lama = float(row["Harga Puncak"]) if pd.notna(row.get("Harga Puncak")) and row.get("Harga Puncak") != "" else harga_beli
+            peak_baru = max(peak_lama, today_high)
+
+            # SINYAL JUAL DINI (lihat SELL_DRAWDOWN_PCT di atas utk validasi & catatan bug
+            # urutan yang PENTING) - dicek SETELAH SL hari ini (guard `sl_kena_hari_ini`),
+            # SEBELUM Target-Lock - user: "apakah memungkinkan saham yang sudah pernah
+            # masuk screener buy tetap dikawal jika muncul sinyal sell...saya belum sampai
+            # dilevel prediksi seperti itu."
+            sl_kena_hari_ini = sl is not None and today_low <= sl
+            drawdown_dari_peak = (peak_baru - harga_live) / peak_baru * 100 if peak_baru > 0 else 0.0
+            if not sl_kena_hari_ini and harga_live > harga_beli and drawdown_dari_peak >= SELL_DRAWDOWN_PCT:
+                status_baru = "WIN (SINYAL JUAL DINI)"
+                exit_price = harga_live
+
             # TARGET-LOCK: SL (kolom E) > SL Awal (kolom N) berarti Target sudah PERNAH
             # tersentuh sebelumnya & untung sudah dikunci (lihat blok "geser SL" di bawah) -
             # dari titik ini SL cuma dicek turun, TIDAK perlu cek TP lagi (target sudah
@@ -497,7 +567,9 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
             # yang aman, bukan bug.
             target_terkunci = sl is not None and sl_awal is not None and sl > sl_awal + 0.01
 
-            if target_terkunci:
+            if status_baru is not None:
+                pass  # Sinyal Jual Dini sudah memutuskan di atas - lewati Target-Lock/SL biasa.
+            elif target_terkunci:
                 if today_low <= sl:
                     status_baru = "WIN (TARGET TERKUNCI)"
                     exit_price = sl
@@ -531,6 +603,14 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
                 elif hari >= FORCE_SELL_HARI.get(tipe, 15):
                     status_baru = f"FORCE SELL ({hari} hari)"
                     exit_price = harga_live
+
+            # Simpan "Harga Puncak" terbaru (kolom P) kalau posisi TETAP OPEN & puncaknya
+            # naik - biar deteksi Sinyal Jual Dini besok jalan dari titik tertinggi yg BENAR.
+            if status_baru is None and peak_baru > peak_lama:
+                sheet_row = _find_row_number(ws, kode, "OPEN")
+                if sheet_row:
+                    ws.update(f"P{sheet_row}", [[float(peak_baru)]])
+                    any_trailed = True
 
             if status_baru:
                 # Cari nomor baris yang AKURAT di Google Sheet

@@ -284,6 +284,19 @@ class TestSinyalJualDini:
         update_call = [c for c in ws.update.call_args_list if c[0][0].startswith("G")][0]
         assert update_call[0][1][0][1] == 188.0
 
+    def test_sl_kena_hari_yang_sama_menang_bukan_jual_dini(self):
+        # Low hari ini (89) SUDAH tembus SL (90) - walau Close (114) masih net profit &
+        # drawdown dari puncak (120->114=5%) capai threshold, SL yang HARUS menang (konvensi
+        # "SL dicek lebih dulu" yang sama dgn seluruh sistem) - BUKAN Sinyal Jual Dini.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=150.0, sl=90.0,
+                                            sl_awal=90.0, harga_puncak=120.0,
+                                            tanggal_open=_tanggal_open_recent())
+        ws = _mock_ws()
+        with patch.object(sj, "load_positions", return_value=df_positions), \
+             patch.object(sj, "_get_worksheet", return_value=ws):
+            closed = sj.auto_close_positions({"ZZZZ": 114.0}, {"ZZZZ": (116.0, 89.0)})
+        assert closed == ["ZZZZ (LOSS (SL))"]
+
     def test_puncak_lama_tidak_ada_fallback_ke_harga_beli(self):
         # Posisi lama sebelum kolom "Harga Puncak" ada (kolom tidak diisi sama sekali) -
         # fallback ke Harga Beli (100), BUKAN crash. High hari ini 130 jadi puncak baru,

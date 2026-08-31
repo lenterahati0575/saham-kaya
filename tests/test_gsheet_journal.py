@@ -260,14 +260,17 @@ class TestAutoClosePositionsHighLow:
         # Close=105 (di bawah TP=110), tapi High hari itu=115 (SUDAH lewat TP) - versi lama
         # (Close-only) akan bilang masih HOLD, padahal TP sebenarnya sudah tersentuh. Begitu
         # Target tersentuh, SL digeser (target-lock, lihat TestTargetLock), BUKAN ditutup
-        # langsung - risk_awal=100-90=10, SL baru = 110 - 0.5*10 = 105.
+        # langsung - risk_awal=100-90=10, SL baru = 110 - 0.5*10 = 105. High (115) jadi
+        # puncak baru juga (dari fallback 100) - 2 ws.update: SL & Harga Puncak.
         df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=110.0, sl=90.0)
         ws = _mock_worksheet()
         with patch.object(gj, "load_positions", return_value=df_positions), \
              patch.object(gj, "_get_worksheet", return_value=ws):
             closed = gj.auto_close_positions({"ZZZZ": 105.0}, {"ZZZZ": (115.0, 100.0)})
         assert closed == []  # posisi TETAP OPEN
-        ws.update.assert_called_once_with("E2", [[105.0]])
+        ws.update.assert_any_call("E2", [[105.0]])
+        ws.update.assert_any_call("P2", [[115.0]])
+        assert ws.update.call_count == 2
 
     def test_sl_kesentuh_via_low_walau_close_di_atas_sl(self):
         df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=110.0, sl=90.0)
@@ -303,8 +306,11 @@ class TestAutoClosePositionsHighLow:
             closed = gj.auto_close_positions({"ZZZZ": 115.0})  # tidak kasih hl_lookup
         # Close-only fallback: today_high=today_low=115 -> Target(110) tersentuh -> SL
         # digeser (target-lock), bukan ditutup. risk_awal=10, SL baru=110-0.5*10=105.
+        # 115 juga jadi puncak baru (dari fallback 100) -> 2 ws.update.
         assert closed == []
-        ws.update.assert_called_once_with("E2", [[105.0]])
+        ws.update.assert_any_call("E2", [[105.0]])
+        ws.update.assert_any_call("P2", [[115.0]])
+        assert ws.update.call_count == 2
 
 
 class TestTargetLock:
@@ -321,7 +327,9 @@ class TestTargetLock:
     Kunci Untung, Bukan Kunci Rugi'."""
 
     def test_target_tersentuh_sl_digeser_bukan_exit_langsung(self):
-        # risk_awal = 100-90 = 10. TP=130 tersentuh -> SL baru = 130 - 0.5*10 = 125.
+        # risk_awal = 100-90 = 10. TP=130 tersentuh -> SL baru = 130 - 0.5*10 = 125. High
+        # (131) jadi puncak baru juga (drawdown dari situ ke Close 128 cuma 2,3%, di bawah
+        # SELL_DRAWDOWN_PCT 10% - Sinyal Jual Dini belum menyala) -> 2 ws.update: SL & Puncak.
         df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=130.0, sl=90.0,
                                             sl_awal=90.0, tanggal_open=_tanggal_open_recent())
         ws = _mock_worksheet()
@@ -329,7 +337,9 @@ class TestTargetLock:
              patch.object(gj, "_get_worksheet", return_value=ws):
             closed = gj.auto_close_positions({"ZZZZ": 128.0}, {"ZZZZ": (131.0, 126.0)})
         assert closed == []  # TETAP OPEN, tidak ditutup begitu Target tersentuh
-        ws.update.assert_called_once_with("E2", [[125.0]])
+        ws.update.assert_any_call("E2", [[125.0]])
+        ws.update.assert_any_call("P2", [[131.0]])
+        assert ws.update.call_count == 2
 
     def test_setelah_terkunci_exit_di_level_kuncian_dilabel_win(self):
         # SL sudah digeser ke 125 (target-lock, dari test sebelumnya) - SL Awal tetap 90.
@@ -346,6 +356,8 @@ class TestTargetLock:
     def test_setelah_terkunci_tidak_dicek_tp_lagi_tetap_jalan(self):
         # Sudah target-lock (SL=125), harga masih di atas level itu - TETAP OPEN, TIDAK
         # ada pengecekan TP lagi (target sudah "lewat", bukan menunggu level tetap lagi).
+        # High (145) jadi puncak baru (dari fallback 100) - TETAP ditulis ke kolom Puncak
+        # walau tidak ada perubahan status/SL lain.
         df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=130.0, sl=125.0,
                                             sl_awal=90.0, tanggal_open=_tanggal_open_recent())
         ws = _mock_worksheet()
@@ -353,7 +365,7 @@ class TestTargetLock:
              patch.object(gj, "_get_worksheet", return_value=ws):
             closed = gj.auto_close_positions({"ZZZZ": 140.0}, {"ZZZZ": (145.0, 135.0)})
         assert closed == []
-        ws.update.assert_not_called()
+        ws.update.assert_called_once_with("P2", [[145.0]])
 
     def test_force_sell_setelah_terkunci_dilabel_win_bukan_generik(self):
         # Force-sell (15 hari SWING) TAPI sudah target-lock sebelumnya - HARUS dilabel WIN
@@ -399,6 +411,128 @@ class TestTargetLock:
              patch.object(gj, "_get_worksheet", return_value=ws):
             closed = gj.auto_close_positions({"ZZZZ": 115.0}, {"ZZZZ": (115.0, 105.0)})
         assert closed == ["ZZZZ (WIN (TP))"]
+
+
+class TestSinyalJualDini:
+    """Direplikasi dari simple_journal.py stlh user cerita masalah nyata: "hari ini muncul
+    sinyal buy, lalu besok...harga turun, tapi masih profit...saya tahan tidak jual karena
+    target belum tercapai...akhirnya rugi/nyangkut...saya belum sampai dilevel prediksi
+    seperti itu." Threshold 10% (SAMA dgn Screener Sederhana) - divalidasi (614 sinyal,
+    350 saham/3 tahun): menang di SEMUA regime & split-half, README > "Sinyal Jual Dini
+    di Kandidat/Swing"."""
+
+    def test_trigger_kalau_turun_10_persen_dari_puncak_sambil_masih_profit(self):
+        # entry=100, puncak sudah 130, harga_live=117 = turun 10% tepat dari 130, masih
+        # >100 (profit) -> Sinyal Jual Dini.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=200.0, sl=90.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent())
+        df_positions["Harga Puncak"] = 130.0
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 117.0}, {"ZZZZ": (119.0, 116.0)})
+        assert closed == ["ZZZZ (WIN (SINYAL JUAL DINI))"]
+        update_call = [c for c in ws.update.call_args_list if c[0][0].startswith("H")][0]
+        assert update_call[0][1][0][1] == 117.0  # exit di harga_live, bukan SL/TP
+
+    def test_belum_trigger_kalau_drawdown_di_bawah_threshold(self):
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=200.0, sl=90.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent())
+        df_positions["Harga Puncak"] = 130.0
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            # Turun cuma 5% dari puncak (130->123.5) - di bawah threshold 10%.
+            closed = gj.auto_close_positions({"ZZZZ": 123.5}, {"ZZZZ": (124.0, 122.0)})
+        assert closed == []
+
+    def test_sl_kena_hari_yang_sama_menang_bukan_jual_dini(self):
+        # Low hari ini (89) SUDAH tembus SL (90) - walau Close (117) masih net profit &
+        # drawdown dari puncak (130->117=10%) capai threshold, SL yang HARUS menang
+        # (konvensi "SL dicek lebih dulu" yang sama dgn seluruh sistem).
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=200.0, sl=90.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent())
+        df_positions["Harga Puncak"] = 130.0
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 117.0}, {"ZZZZ": (119.0, 89.0)})
+        assert closed == ["ZZZZ (LOSS (SL))"]
+
+    def test_prioritas_di_atas_target_lock(self):
+        # SL sudah di target-lock (125), TAPI drawdown dari puncak (200->178=11%) sambil
+        # masih profit -> Sinyal Jual Dini tetap menang & exit di harga_live (178), BUKAN
+        # menunggu turun lagi ke level target-lock (125).
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=130.0, sl=125.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent())
+        df_positions["Harga Puncak"] = 200.0
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 178.0}, {"ZZZZ": (180.0, 176.0)})
+        assert closed == ["ZZZZ (WIN (SINYAL JUAL DINI))"]
+
+    def test_puncak_lama_tidak_ada_fallback_ke_harga_beli(self):
+        # Posisi lama sebelum kolom "Harga Puncak" ada - fallback ke Harga Beli, TIDAK crash.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=200.0, sl=90.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent())
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            # High hari ini 140 jadi puncak baru, exit 125 = turun 10,7% dari 140, masih >100.
+            closed = gj.auto_close_positions({"ZZZZ": 125.0}, {"ZZZZ": (140.0, 124.0)})
+        assert closed == ["ZZZZ (WIN (SINYAL JUAL DINI))"]
+
+
+class TestGetWorksheetMigrasiHeader:
+    """Sheet POSISI yang sudah live SEBELUM kolom "Harga Puncak" ditambahkan - header row
+    harus dilengkapi otomatis, TANPA user perlu tambah kolom manual (SAMA filosofi dgn
+    simple_journal.py/riwayat_journal.py)."""
+
+    def test_header_lama_14_kolom_dilengkapi_momentum_kuat_dan_harga_puncak(self):
+        from gspread.utils import rowcol_to_a1
+        client = MagicMock()
+        sh = MagicMock()
+        existing_ws = MagicMock()
+        existing_ws.row_values.return_value = gj.HEADERS[:14]  # belum ada O & P
+        sh.worksheet.return_value = existing_ws
+        client.open_by_key.return_value = sh
+        with patch.object(gj, "_get_client", return_value=client), \
+             patch.object(gj.st, "secrets", {"GOOGLE_SHEET_ID": "fake_id"}):
+            ws = gj._get_worksheet()
+        start_cell = rowcol_to_a1(1, 15)
+        end_cell = rowcol_to_a1(1, 16)
+        existing_ws.update.assert_called_once_with(
+            f"{start_cell}:{end_cell}", [["Momentum Kuat", "Harga Puncak"]],
+            value_input_option="USER_ENTERED")
+        assert ws is existing_ws
+
+    def test_header_lama_15_kolom_dilengkapi_harga_puncak_saja(self):
+        from gspread.utils import rowcol_to_a1
+        client = MagicMock()
+        sh = MagicMock()
+        existing_ws = MagicMock()
+        existing_ws.row_values.return_value = gj.HEADERS[:15]  # sudah ada "Momentum Kuat"
+        sh.worksheet.return_value = existing_ws
+        client.open_by_key.return_value = sh
+        with patch.object(gj, "_get_client", return_value=client), \
+             patch.object(gj.st, "secrets", {"GOOGLE_SHEET_ID": "fake_id"}):
+            gj._get_worksheet()
+        start_cell = rowcol_to_a1(1, 16)
+        existing_ws.update.assert_called_once_with(
+            f"{start_cell}:{start_cell}", [["Harga Puncak"]], value_input_option="USER_ENTERED")
+
+    def test_header_sudah_lengkap_tidak_diubah(self):
+        client = MagicMock()
+        sh = MagicMock()
+        existing_ws = MagicMock()
+        existing_ws.row_values.return_value = list(gj.HEADERS)
+        sh.worksheet.return_value = existing_ws
+        client.open_by_key.return_value = sh
+        with patch.object(gj, "_get_client", return_value=client), \
+             patch.object(gj.st, "secrets", {"GOOGLE_SHEET_ID": "fake_id"}):
+            gj._get_worksheet()
+        existing_ws.update.assert_not_called()
 
 
 class TestSkipCekSamaHariDenganBuka:
@@ -460,7 +594,9 @@ class TestSkipCekSamaHariDenganBuka:
              patch.object(gj, "_get_worksheet", return_value=ws):
             closed = gj.auto_close_positions({"ZZZZ": 115.0}, {"ZZZZ": (116.0, 105.0)})
         assert closed == []  # Target tersentuh -> SL digeser (target-lock), bukan ditutup
-        ws.update.assert_called_once_with("E2", [[105.0]])
+        ws.update.assert_any_call("E2", [[105.0]])
+        ws.update.assert_any_call("P2", [[116.0]])
+        assert ws.update.call_count == 2
 
 
 class TestAutoClosePositionsMissingTicker:
@@ -484,7 +620,12 @@ class TestAutoClosePositionsMissingTicker:
         called_tickers = mock_fetch.call_args[0][0]
         assert "ZZZZ" in called_tickers
         assert closed == []
-        ws.update.assert_called_once_with("E2", [[105.0]])  # 110 - 0.5*(100-90) = 105
+        # fake_price_df cuma punya kolom Close (tanpa High/Low) -> hl_lookup tetap kosong,
+        # fallback today_high=today_low=Close(115) - 115 jadi puncak baru (dari fallback
+        # 100), jadi 2 ws.update: SL (target-lock) & Harga Puncak.
+        ws.update.assert_any_call("E2", [[105.0]])  # 110 - 0.5*(100-90) = 105
+        ws.update.assert_any_call("P2", [[115.0]])
+        assert ws.update.call_count == 2
 
     def test_saham_di_price_lookup_tidak_perlu_fetch_tambahan(self):
         df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=110.0, sl=90.0)
@@ -497,7 +638,9 @@ class TestAutoClosePositionsMissingTicker:
 
         mock_fetch.assert_not_called()
         assert closed == []
-        ws.update.assert_called_once_with("E2", [[105.0]])
+        ws.update.assert_any_call("E2", [[105.0]])
+        ws.update.assert_any_call("P2", [[115.0]])
+        assert ws.update.call_count == 2
 
     def test_fetch_tambahan_gagal_tidak_crash_lanjut_dgn_yang_ada(self):
         df_positions = _make_open_position(kode="ZZZZ")
