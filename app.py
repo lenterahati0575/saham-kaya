@@ -1043,6 +1043,43 @@ with t_kandidat:
         st.dataframe(styler, use_container_width=True, hide_index=True, height=460, key="df_kandidat_final")
         st.download_button("⬇️ Download CSV", show[kolom_tampil].to_csv(index=False).encode("utf-8"), file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
 
+    # ------------------------------------------------------------------------
+    # SINYAL JUAL (posisi yang PERNAH muncul BUY di sini, sekarang berpotensi lanjut
+    # turun) - user: "seingatku posisi hanya untuk backtest. apakah bisa ditambahkan
+    # langsung di kandidat...berpotensi berlanjut muncul dikandidat sebagai signal sell."
+    # Preview READ-ONLY (gj.preview_sinyal_jual_dini() TIDAK menutup apa pun) - keputusan
+    # tutup sebenarnya tetap lewat gj.auto_close_positions() (cron otomatis, atau tombol
+    # "Proses Sekarang" di bawah - SAMA fungsi yang sungguh menulis ke sheet).
+    # ------------------------------------------------------------------------
+    if gj.is_configured():
+        try:
+            price_lookup_kandidat = dict(zip(table["Kode"], table["Harga"])) if not table.empty else {}
+            hl_lookup_kandidat = {kode: (float(df["High"].iloc[-1]), float(df["Low"].iloc[-1]))
+                                   for kode, df in price_data.items() if df is not None and not df.empty}
+            sinyal_jual = gj.preview_sinyal_jual_dini(price_lookup_kandidat, hl_lookup_kandidat)
+        except Exception:
+            sinyal_jual = pd.DataFrame()
+        if not sinyal_jual.empty:
+            st.divider()
+            st.markdown("""<div style="background:#7f1d1d;border-radius:8px;padding:10px 14px;margin-bottom:10px;border:1px solid #dc2626;">
+<div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:0.3px;">🔴 SINYAL JUAL - Posisi Sudah Profit, Mulai Turun</div>
+<div style="font-size:12px;color:#fecaca;margin-top:3px;">Saham ini pernah muncul BUY & masih OPEN - harga sekarang sudah turun cukup jauh dari puncaknya sejak dibeli, TAPI masih untung. Berpotensi lanjut turun - segera evaluasi.</div>
+</div>""", unsafe_allow_html=True)
+            tampil_jual = sinyal_jual.copy()
+            for col in ["Harga Beli", "Harga Sekarang", "Puncak Sejak Beli"]:
+                tampil_jual[col] = tampil_jual[col].map(lambda x: f"Rp{x:,.0f}")
+            for col in ["Turun dari Puncak (%)", "P&L Saat Ini (%)"]:
+                tampil_jual[col] = tampil_jual[col].map(lambda x: f"{x:+.2f}%")
+            st.dataframe(tampil_jual, use_container_width=True, hide_index=True, key="df_sinyal_jual_kandidat")
+            if st.button("🔴 Proses Sinyal Jual Sekarang", key="btn_proses_jual_dini_kandidat"):
+                with st.spinner("Menutup posisi yang memenuhi Sinyal Jual Dini..."):
+                    diproses = gj.auto_close_positions(price_lookup_kandidat, hl_lookup_kandidat)
+                if diproses:
+                    st.success(f"✅ Ditutup: {', '.join(diproses)}")
+                    st.rerun()
+                else:
+                    st.info("Tidak ada yang berubah (harga mungkin sudah bergerak sejak tabel di atas dimuat).")
+
     st.divider()
     st.markdown("### Kirim ke Jurnal Real")
     st.caption("Pilih saham dari tabel di atas, lalu data akan otomatis terisi di tab Jurnal Real")

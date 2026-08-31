@@ -484,6 +484,64 @@ class TestSinyalJualDini:
         assert closed == ["ZZZZ (WIN (SINYAL JUAL DINI))"]
 
 
+class TestPreviewSinyalJualDini:
+    """User: "seingatku posisi hanya untuk backtest. apakah bisa ditambahkan langsung di
+    kandidat. kalau saham tersebut pernah muncul buy dan besok atau dikemudian hari terjadi
+    penurunan maka yang berpotensi berlanjut muncul dikandidat sebagai signal sell." -
+    preview READ-ONLY (TIDAK menutup posisi, TIDAK menulis ke sheet) utk ditampilkan di
+    tab Kandidat, SAMA kriteria dgn auto_close_positions() tapi tanpa efek samping."""
+
+    def test_muncul_kalau_kriteria_sinyal_jual_dini_terpenuhi(self):
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=200.0, sl=90.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent())
+        df_positions["Harga Puncak"] = 130.0
+        with patch.object(gj, "load_positions", return_value=df_positions):
+            preview = gj.preview_sinyal_jual_dini({"ZZZZ": 117.0}, {"ZZZZ": (119.0, 116.0)})
+        assert list(preview["Kode"]) == ["ZZZZ"]
+        assert preview.iloc[0]["Harga Sekarang"] == 117.0
+        assert preview.iloc[0]["Turun dari Puncak (%)"] == 10.0
+
+    def test_kosong_kalau_drawdown_di_bawah_threshold(self):
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=200.0, sl=90.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent())
+        df_positions["Harga Puncak"] = 130.0
+        with patch.object(gj, "load_positions", return_value=df_positions):
+            preview = gj.preview_sinyal_jual_dini({"ZZZZ": 123.5}, {"ZZZZ": (124.0, 122.0)})
+        assert preview.empty
+
+    def test_kosong_kalau_sl_kena_hari_yang_sama(self):
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=200.0, sl=90.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent())
+        df_positions["Harga Puncak"] = 130.0
+        with patch.object(gj, "load_positions", return_value=df_positions):
+            preview = gj.preview_sinyal_jual_dini({"ZZZZ": 117.0}, {"ZZZZ": (119.0, 89.0)})
+        assert preview.empty
+
+    def test_kosong_kalau_posisi_dibuka_hari_ini(self):
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=200.0, sl=90.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_hari_ini())
+        df_positions["Harga Puncak"] = 130.0
+        with patch.object(gj, "load_positions", return_value=df_positions):
+            preview = gj.preview_sinyal_jual_dini({"ZZZZ": 117.0}, {"ZZZZ": (119.0, 116.0)})
+        assert preview.empty
+
+    def test_tidak_menulis_apa_pun_ke_sheet(self):
+        # Fungsi ini TIDAK pernah panggil _get_worksheet() sama sekali - murni baca +
+        # hitung, tidak ada jalur ws.update apa pun.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=200.0, sl=90.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent())
+        df_positions["Harga Puncak"] = 130.0
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet") as mock_ws_getter:
+            gj.preview_sinyal_jual_dini({"ZZZZ": 117.0}, {"ZZZZ": (119.0, 116.0)})
+        mock_ws_getter.assert_not_called()
+
+    def test_kosong_kalau_tidak_ada_posisi_open(self):
+        with patch.object(gj, "load_positions", return_value=pd.DataFrame(columns=gj.HEADERS)):
+            preview = gj.preview_sinyal_jual_dini({"ZZZZ": 117.0})
+        assert preview.empty
+
+
 class TestGetWorksheetMigrasiHeader:
     """Sheet POSISI yang sudah live SEBELUM kolom "Harga Puncak" ditambahkan - header row
     harus dilengkapi otomatis, TANPA user perlu tambah kolom manual (SAMA filosofi dgn

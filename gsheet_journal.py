@@ -405,6 +405,67 @@ def enrich_hl_lookup(hl_lookup: dict, tickers_needed) -> dict:
     return hl_lookup
 
 
+def preview_sinyal_jual_dini(price_lookup: dict, hl_lookup: dict | None = None) -> pd.DataFrame:
+    """Preview READ-ONLY (TIDAK menutup posisi apa pun, TIDAK menulis ke sheet sama sekali)
+    - saham OPEN yang SAAT INI memenuhi kriteria Sinyal Jual Dini (lihat SELL_DRAWDOWN_PCT)
+    kalau `auto_close_positions()` dipanggil sekarang.
+
+    User: "seingatku posisi hanya untuk backtest. apakah bisa ditambahkan langsung di
+    kandidat. kalau saham tersebut pernah muncul buy dan besok atau dikemudian hari terjadi
+    penurunan maka yang berpotensi berlanjut muncul dikandidat sebagai signal sell." -
+    dipanggil dari tab "🏆 Kandidat" (app.py) supaya user LANGSUNG lihat peringatan jual
+    tanpa perlu buka sheet POSISI/tab Performance - keputusan tutup SEBENARNYA tetap lewat
+    `auto_close_positions()` (cron otomatis ATAU tombol manual), fungsi ini CUMA menghitung
+    ulang kondisi yang SAMA tanpa efek samping apa pun.
+
+    Sengaja logika DUPLIKAT (bukan reuse langsung `auto_close_positions()` dgn flag
+    dry-run) - fungsi itu sudah panjang & menulis ke sheet di banyak titik; memisahkan
+    fungsi preview yang MURNI/read-only lebih aman drpd menambah cabang if/else `dry_run`
+    di tengah logika yang sudah kompleks & sensitif (posisi riil)."""
+    df = load_positions()
+    if df.empty or "Status" not in df.columns:
+        return pd.DataFrame()
+
+    open_df = df[df["Status"] == "OPEN"]
+    rows = []
+    for _, row in open_df.iterrows():
+        try:
+            kode = row["Saham"]
+            harga_live = price_lookup.get(kode)
+            if harga_live is None:
+                continue
+            sl = float(row["SL"]) if pd.notna(row["SL"]) else None
+            harga_beli = float(row["Harga Beli"])
+            tgl_open = pd.to_datetime(row["Tanggal Open"])
+            now_wib = datetime.now(WIB).replace(tzinfo=None)
+            if tgl_open.date() == now_wib.date():
+                continue  # SAMA guard sama-hari dgn auto_close_positions()
+
+            hl = hl_lookup.get(kode) if hl_lookup else None
+            today_high, today_low = hl if hl is not None else (harga_live, harga_live)
+
+            peak_lama = float(row["Harga Puncak"]) if pd.notna(row.get("Harga Puncak")) and row.get("Harga Puncak") != "" else harga_beli
+            peak_baru = max(peak_lama, today_high)
+
+            sl_kena_hari_ini = sl is not None and today_low <= sl
+            drawdown = (peak_baru - harga_live) / peak_baru * 100 if peak_baru > 0 else 0.0
+            if sl_kena_hari_ini or harga_live <= harga_beli or drawdown < SELL_DRAWDOWN_PCT:
+                continue
+
+            pnl_pct = (harga_live - harga_beli) / harga_beli * 100
+            rows.append({
+                "Kode": kode,
+                "Harga Beli": harga_beli,
+                "Harga Sekarang": harga_live,
+                "Puncak Sejak Beli": peak_baru,
+                "Turun dari Puncak (%)": round(drawdown, 2),
+                "P&L Saat Ini (%)": round(pnl_pct, 2),
+            })
+        except Exception:
+            continue
+    return pd.DataFrame(rows)
+
+
 def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> list[str]:
     """Cek semua posisi OPEN: tutup kalau TP/SL tersentuh, ATAU force-sell sesuai aturan waktu.
 

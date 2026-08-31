@@ -2783,6 +2783,24 @@ belum ada scr OTOMATIS (pola baru, sebelumnya file ini tidak punya migrasi heade
 sekali - user tidak perlu tambah kolom manual lagi, beda dari kolom lama).
 `SELL_DRAWDOWN_PCT = 10.0`, dicek setelah SL hari ini, sebelum blok Target-Lock.
 
+## Sinyal Jual Tampil Langsung di Tab Kandidat (2026-08-31)
+
+User: "seingatku posisi hanya untuk backtest. apakah bisa ditambahkan langsung di
+kandidat. kalau saham tersebut pernah muncul buy dan besok atau dikemudian hari terjadi
+penurunan maka yang berpotensi berlanjut muncul dikandidat sebagai signal sell." - betul,
+sebelum ini Sinyal Jual Dini cuma diproses diam-diam oleh `auto_close_positions()` (cron
+otomatis/tombol manual di tab lain), TIDAK pernah tampil di tab "🏆 Kandidat" yang
+biasa dilihat user tiap hari.
+
+**Implementasi**: `gsheet_journal.py::preview_sinyal_jual_dini()` - fungsi READ-ONLY baru
+(TIDAK menutup posisi, TIDAK menulis ke sheet sama sekali) yang menghitung ULANG kriteria
+Sinyal Jual Dini yang SAMA (SL hari ini, drawdown dari puncak, guard sama-hari) tanpa efek
+samping - sengaja DUPLIKAT logika drpd menambah flag `dry_run` ke `auto_close_positions()`
+yang sudah kompleks & sensitif (posisi riil). Tab Kandidat sekarang menampilkan kotak
+merah "🔴 SINYAL JUAL" berisi saham OPEN yang memenuhi kriteria ini, plus tombol "Proses
+Sinyal Jual Sekarang" yang memanggil `auto_close_positions()` yang SEBENARNYA (bukan
+cuma preview) kalau user mau langsung menutup dari situ juga.
+
 ## Checkbox Gate Likuiditas di Screener Sederhana (2026-08-31)
 
 User minta checkbox serupa yang sudah ada di tab Kandidat. Ditemukan SAAT itu:
