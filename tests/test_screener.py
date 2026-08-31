@@ -536,16 +536,21 @@ class TestBuildSimpleCandidates:
         out = build_simple_candidates(table, price_data, lookback=20, min_rr=0.1, target_proj_mult=1.0)
         assert out.iloc[0]["Target"] == 1500.0  # 1000 + 1.0*(1000-500)
 
-    def test_default_min_rr_sekarang_2_0_bukan_1_5(self):
-        # User: "uji juga filter likuiditas dan rr minimum" - disweep di sistem gabungan
-        # (1.0-5.0, naik monoton tanpa goyang), dipilih 2.0 (bukan titik tertinggi, demi
-        # margin dari overfitting) - naik dari default LAMA 1.5. entry=1010, dl=972 (via
-        # low_override) -> sl=1000 (ma20 mengikat, dl tidak), risk=10, target=1000+(1000-972)=1028,
-        # reward=18 -> RR=1,8: LOLOS di default lama (>=1.5), TIDAK lolos di default baru (>=2.0).
+    def test_default_min_rr_tetap_1_5_bukan_2_0(self):
+        # User sempat minta RR minimum dinaikkan ke 2.0 (README > "RR Minimum Dinaikkan"),
+        # TAPI setelah target proyeksi JUGA diperketat ke 0,5x (target_proj_mult), KEDUA
+        # pengetatan itu MENUMPUK & bikin sinyal jadi terlalu jarang (user: "apakah
+        # screener cocok...saya tidak centang volume 3M" - laporan tab sering kosong).
+        # Dikembalikan ke 1.5 - lihat catatan lengkap di docstring atas & README.
+        #
+        # entry=1010, dh=1000, dl=944 (via low_override) -> sl=1000 (ma20 mengikat),
+        # risk=10, target (proyeksi 0,5x default) = 1000+0,5*(1000-944)=1028, reward=18 ->
+        # RR=1,8: LOLOS di default SEKARANG (>=1.5), akan GAGAL kalau default masih 2.0.
         table = self._table(harga=1010.0, donchian_high=1000.0)
-        price_data = self._price_data(low_override_2nd_last=972.0)
+        price_data = self._price_data(low_override_2nd_last=944.0)
         out = build_simple_candidates(table, price_data, lookback=20)  # min_rr TIDAK diisi -> pakai default
-        assert out.empty
+        assert not out.empty
+        assert out.iloc[0]["RR"] == 1.8
 
     def test_min_value_traded_default_nonaktif_tidak_menyaring(self):
         # Default 0 -> gate likuiditas nonaktif SAMA SEKALI (perilaku sblm gate ini ada) -

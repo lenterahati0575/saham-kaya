@@ -1173,7 +1173,7 @@ def compute_zigzag_pivots(close: pd.Series, threshold_pct: float = 10.0) -> list
 
 
 def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int = 20,
-                             min_rr: float = 2.0, top_n: int = 20,
+                             min_rr: float = 1.5, top_n: int = 20,
                              require_bullish_regime: bool = False, regime_status: str | None = None,
                              total_equity: float | None = None, risk_pct: float = 1.0,
                              sl_cap_pct: float = 0.05, zz_threshold_pct: float = 10.0,
@@ -1245,14 +1245,18 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
     backtest sekali jalan.
 
     RR MINIMUM (2026-08-31, user: "uji juga filter likuiditas dan rr minimum") - disweep
-    1.0-5.0 di sistem GABUNGAN+slot-cap: naik MONOTON tanpa goyang (1.0=PF6,61 ->
-    1.5=6,76 -> 2.0=7,17 -> 2.5=7,41 -> 3.0=8,13 -> ... -> 5.0=9,64), TIDAK menunjukkan
-    tanda overfitting spt sweep threshold Zig Zag (yg mulai goyang di atas 12%). Dipilih
-    2.0 (BUKAN titik tertinggi 5.0) - kenaikan jelas dari baseline 1.5 (avg +8,00%->
-    +8,36%, winrate 70,6%->71,2%, PF 6,76->7,17) dgn N cuma turun ~4% (568->545) - SAMA
-    filosofi kehati-hatian dgn pemilihan threshold Zig Zag 10% dulu (bukan titik ekstrem
-    walau trennya masih naik), demi menjaga frekuensi sinyal & margin dari overfitting ke
-    1 backtest 3 tahun.
+    1.0-5.0 di sistem GABUNGAN+slot-cap (waktu itu MASIH pakai target proyeksi 1,0x): naik
+    MONOTON tanpa goyang (1.0=PF6,61 -> 1.5=6,76 -> 2.0=7,17 -> ... -> 5.0=9,64). Sempat
+    dinaikkan ke 2.0, TAPI setelah target proyeksi diperketat ke 0,5x (lihat catatan di
+    bawah - reward jadi ~separuh utk risiko yg sama, RR ikut turun ~separuh utk setup yg
+    SAMA), KEDUA pengetatan itu MENUMPUK: user melaporkan tab Screener Sederhana sering
+    kosong ("apakah screener cocok. saya tidak centang volume 3M") - dicek ULANG (2026-09-
+    01): 60,0% hari ada sinyal (target 0,5x+RR>=2,0) vs 70,6% hari (setting awal), turun
+    signifikan. Dikembalikan ke **1.5** (BUKAN 2.0) - mempertahankan SEBAGIAN BESAR untung
+    dari target 0,5x (PF 8,41 vs baseline lama 6,76, naik 24%) sambil pulihkan sebagian
+    frekuensi (472 sinyal/62,6% hari vs 433 sinyal/60,0% hari kalau RR tetap 2.0). Pelajaran:
+    2 pengetatan yang MASING-MASING tervalidasi baik belum tentu SEHAT ditumpuk bersama -
+    perlu dicek ULANG efek frekuensinya, bukan cuma kualitas avg/PF-nya saja.
 
     LIKUIDITAS (`min_value_traded`) - DIUJI ULANG di sistem gabungan: OFF (PF 9,00) >
     ON/Rp 3M (PF 6,76) - HATI-HATI, ini BUKAN bukti gate likuiditas buruk. Universe

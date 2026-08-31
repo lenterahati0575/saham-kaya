@@ -3052,6 +3052,42 @@ PF 7,17->9,44, avg +8,36%->+10,00%, winrate 71,2%->74,4%.
 titik 5% yang sudah diuji ulang dgn target 0,5x (PF 9,44); 3%/10% belum, tooltip di app.py
 sudah diberi catatan supaya tidak disalahartikan sbg angka final.
 
+## RR Minimum Dikembalikan 2,0 -> 1,5: Efek Menumpuk 2 Pengetatan (2026-09-01)
+
+Setelah "Target Proyeksi Donchian Diperketat 1,0x->0,5x" live, user melaporkan tab
+Screener Sederhana sering kosong: "apakah screener cocok. saya tidak centang volume 3M" -
+mematikan gate likuiditas TIDAK mengubah hasil (tetap kosong), krn penyebabnya bukan
+likuiditas.
+
+**Akar masalah ditemukan**: RR minimum SEBELUMNYA sudah dinaikkan 1,5->2,0 (README > "RR
+Minimum Dinaikkan") saat itu diuji dgn target proyeksi MASIH 1,0x. Begitu target
+diperketat ke 0,5x (reward jadi ~separuh utk risiko yg sama, RR ikut turun ~separuh utk
+setup yg SAMA), KEDUA pengetatan itu MENUMPUK tanpa pernah diuji efek FREKUENSI-nya
+bersama-sama:
+
+| Kombinasi | % Hari Ada Sinyal (350 saham) | Total Sinyal (3 tahun) |
+|---|---|---|
+| Target 1,0x + RR>=1,5 (paling awal) | 70,6% | 1.435 |
+| Target 1,0x + RR>=2,0 | 68,1% | 1.355 |
+| Target 0,5x + RR>=1,5 | 62,6% | 1.154 |
+| **Target 0,5x + RR>=2,0 (bermasalah)** | **60,0%** | **1.044** |
+
+**Pelajaran penting**: 2 pengetatan yang MASING-MASING tervalidasi baik (kualitas avg/PF
+naik) belum tentu SEHAT ditumpuk bersama - efek gabungan ke FREKUENSI sinyal wajib dicek
+ULANG, bukan cuma kualitas per-sinyal.
+
+**Keputusan**: RR minimum dikembalikan ke **1,5** (target proyeksi TETAP 0,5x, itu
+kemenangan besar yg dipertahankan):
+
+| | N | Avg | Win Rate | Profit Factor |
+|---|---|---|---|---|
+| Target 1,0x + RR>=1,5 (paling awal) | 568 | +8,00% | 70,6% | 6,76 |
+| **Target 0,5x + RR>=1,5 (dipilih)** | 472 | +9,20% | 73,5% | **8,41** |
+| Target 0,5x + RR>=2,0 (terlalu ketat) | 433 | +10,00% | 74,4% | 9,44 |
+
+Tetap mempertahankan SEBAGIAN BESAR untung dari target 0,5x (PF 6,76->8,41, naik 24%)
+sambil memulihkan sebagian frekuensi sinyal yang hilang.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

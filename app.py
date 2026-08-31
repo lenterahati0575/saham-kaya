@@ -1174,13 +1174,13 @@ with t_sederhana:
     # Statistik per pilihan SL cap (350 saham/3 tahun, sistem gabungan+slot-cap, RR>=2.0,
     # likuiditas ON) - README > "SL Cap: Trade-off Risk vs Return, Dibuat Bisa Dipilih".
     _stat_sl_cap = {
-        0.03: "avg +7,93%/trade, win rate 64,9%, Profit Factor 8,05 (tertinggi) (angka target proyeksi 1,0x lama, belum diuji ulang dgn 0,5x)",
-        0.05: "avg +10,00%/trade, win rate 74,4%, Profit Factor 9,44 (target proyeksi 0,5x)",
-        0.10: "avg +9,02%/trade, win rate 75,0% (tertinggi) (angka target proyeksi 1,0x lama, belum diuji ulang dgn 0,5x)",
+        0.03: "avg +7,93%/trade, win rate 64,9%, Profit Factor 8,05 (tertinggi) (angka target proyeksi 1,0x & RR>=2,0 lama, belum diuji ulang dgn setting sekarang)",
+        0.05: "avg +9,20%/trade, win rate 73,5%, Profit Factor 8,41 (target proyeksi 0,5x, RR minimum 1,5x)",
+        0.10: "avg +9,02%/trade, win rate 75,0% (tertinggi) (angka target proyeksi 1,0x & RR>=2,0 lama, belum diuji ulang dgn setting sekarang)",
     }
     st.caption("Entry: **Breakout** (20-hari + posisi 52-minggu + volume DI BAWAH rata-rata) "
                "ATAU **Zig Zag** (titik balik 10%, lebih dini dari breakout - posisi 52-minggu "
-               f"& volume DI BAWAH rata-rata SAMA wajib), RR minimum 2,0x. Target = proyeksi "
+               f"& volume DI BAWAH rata-rata SAMA wajib), RR minimum 1,5x. Target = proyeksi "
                "0,5x rentang Donchian (diperketat dari 1,0x - lebih dekat, lebih sering "
                f"tercapai). SL dibatasi {sl_cap_pct_sederhana*100:.0f}% (bisa diubah di "
                "sidebar). Keluar: Sinyal Jual Dini (turun >=5% dari puncak sejak dibeli, "
