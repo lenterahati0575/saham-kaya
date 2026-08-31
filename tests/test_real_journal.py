@@ -372,6 +372,12 @@ class TestPreviewSinyalJualDini:
         highs = [100.0] * 5 + [peak] + [peak - 5] * 4
         return {kode: pd.DataFrame({"High": highs}, index=idx)}
 
+    def _trades_dgn_sl(self, saham="ZZZZ", entry=100.0, sl=90.0, tanggal_entry="2026-08-01", status="OPEN"):
+        return pd.DataFrame([{
+            "Saham": saham, "Entry (Rp)": entry, "Stop Loss (Rp)": sl,
+            "Tanggal Entry": tanggal_entry, "Status": status,
+        }])
+
     def test_trigger_kalau_turun_10_persen_dari_puncak_sambil_masih_profit(self):
         trades = self._trades(entry=100.0)
         price_data = self._price_data(peak=130.0)
@@ -414,6 +420,37 @@ class TestPreviewSinyalJualDini:
         price_data = self._price_data(peak=130.0)
         preview = rj.preview_sinyal_jual_dini(trades, price_data, {})
         assert preview.empty
+
+    def test_peringatan_kelipatan_r_menutup_celah_drawdown_kecil(self):
+        # entry=100, SL=90 -> risk_awal=10. Untung baru capai 0,5R (105), puncak juga
+        # cuma 106 (drawdown dari situ ke 105 cuma 0,94% - JAUH di bawah threshold 10%
+        # drawdown) - TANPA peringatan kelipatan-R, ini akan TERLEWAT sama sekali persis
+        # skenario yang dikhawatirkan user.
+        trades = self._trades_dgn_sl(entry=100.0, sl=90.0)
+        price_data = self._price_data(peak=106.0)
+        preview = rj.preview_sinyal_jual_dini(trades, price_data, {"ZZZZ": 105.0})
+        assert list(preview["Saham"]) == ["ZZZZ"]
+        assert "risiko awal" in preview.iloc[0]["Alasan"]
+
+    def test_belum_capai_0_5r_dan_drawdown_kecil_tetap_kosong(self):
+        trades = self._trades_dgn_sl(entry=100.0, sl=90.0)
+        price_data = self._price_data(peak=106.0)
+        preview = rj.preview_sinyal_jual_dini(trades, price_data, {"ZZZZ": 103.0})
+        assert preview.empty
+
+    def test_tanpa_sl_terisi_peringatan_kelipatan_r_tidak_aktif(self):
+        # SL=0 (belum diisi) -> risk_awal tidak bisa dihitung, kriteria kelipatan-R
+        # diabaikan drpd salah hitung - TIDAK crash, cuma kriteria drawdown yg berlaku.
+        trades = self._trades_dgn_sl(entry=100.0, sl=0.0)
+        price_data = self._price_data(peak=106.0)
+        preview = rj.preview_sinyal_jual_dini(trades, price_data, {"ZZZZ": 105.0})
+        assert preview.empty
+
+    def test_kedua_kriteria_terpenuhi_alasan_gabungan(self):
+        trades = self._trades_dgn_sl(entry=100.0, sl=90.0)
+        price_data = self._price_data(peak=130.0)
+        preview = rj.preview_sinyal_jual_dini(trades, price_data, {"ZZZZ": 117.0})
+        assert " & " in preview.iloc[0]["Alasan"]
 
 
 if __name__ == "__main__":

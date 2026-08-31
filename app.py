@@ -2063,7 +2063,9 @@ with t_real:
 </div>""", unsafe_allow_html=True)
             if sinyal_jual_rj.empty:
                 st.info("Tidak ada posisi OPEN yang memenuhi kriteria Sinyal Jual Dini saat ini "
-                        "(turun >=10% dari puncak sejak entry, sambil masih profit).")
+                        "(turun >=10% dari puncak SEJAK entry, ATAU sudah untung >=0,5x risiko "
+                        "awal - dua kriteria supaya untung kecil yg belum sempat jauh dari "
+                        "puncak juga tetap dapat peringatan, bukan cuma untung besar).")
             else:
                 tampil_jual_rj = sinyal_jual_rj.copy()
                 for col in ["Entry (Rp)", "Harga Sekarang", "Puncak Sejak Entry"]:

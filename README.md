@@ -2889,6 +2889,46 @@ lebih akurat & tidak bisa basi drpd kolom tersimpan.
 UANG BENERAN, keputusan jual WAJIB manual lewat sub-tab "Tutup Posisi" yang sudah ada,
 sistem cuma memberi peringatan.
 
+## Partial-Lock di Kandidat/Swing - Menutup Celah Sinyal Jual Dini (2026-08-31)
+
+User: "bagaimana dengan ini, kalau misal belum mencapai 10% balik menjadi rugi" -
+menemukan lubang nyata: Sinyal Jual Dini cuma bereaksi kalau turun **10% DARI PUNCAK**.
+Kalau puncaknya sendiri cuma sedikit di atas Entry (mis. naik 5% lalu balik turun), 10%
+dari puncak itu SUDAH di bawah Harga Beli - posisi bisa balik jadi RUGI SEBELUM sinyal
+ini sempat menyala. Sinyal Jual Dini cuma melindungi untung BESAR, tidak melindungi
+untung KECIL-MENENGAH.
+
+**Fix**: replikasi mekanisme **Partial-Lock** yang sudah tervalidasi di Screener
+Sederhana (README > "Sinyal Jual Dini") - berbasis KELIPATAN RISIKO AWAL (R), bukan %
+dari puncak, jadi tetap aktif bahkan utk untung kecil. Begitu profit (dari High) capai
+`PARTIAL_TRIGGER_R x risiko awal`, SL digeser ke `PARTIAL_LOCK_R x risiko awal` (SELALU
+di atas breakeven).
+
+**Diuji** (614 sinyal, 350 saham/3 tahun, walk-forward, DI ATAS Target-Lock+Sinyal Jual
+Dini yg sudah ada) - 4 kombinasi trigger/lock diuji, 0,5R/0,3R menang PALING jelas:
+
+| | Baseline (Target-Lock+Jual Dini) | + Partial-Lock (0,5R/0,3R) |
+|---|---|---|
+| Avg Return | +2,54% | **+2,85%** |
+| Win Rate | 37,3% | **60,3%** (hampir 2x!) |
+| Profit Factor | 1,60 | **2,05** |
+| Bullish PF | 1,81 | 2,27 |
+| Bearish PF | 1,13 | 1,50 |
+| Split-half | - | +2,82%/+2,88% (stabil) |
+
+Kombinasi lain diuji juga (0,7R/0,5R; 1,0R/0,5R; 1,0R/0,7R) - semua kalah dari 0,5R/0,3R.
+MENANG di semua regime & split-half, bukan cocok-cocokan sesaat.
+
+**Implementasi**: `PARTIAL_TRIGGER_R = 0.5`, `PARTIAL_LOCK_R = 0.3` di `gsheet_journal.py`
+- lapis baru disisipkan SEBELUM Target-Lock, SETELAH Sinyal Jual Dini (urutan: SL hari
+ini > Sinyal Jual Dini > Target-Lock > Partial-Lock > SL/Target/ForceSell biasa). Status
+baru "WIN (PARTIAL LOCK)" dan "WIN (FORCE SELL, partial locked)".
+
+**Jurnal Real** (uang beneran, TIDAK bisa auto-geser SL) - `real_journal.py::
+preview_sinyal_jual_dini()` sekarang cek DUA kriteria (OR, kolom "Alasan" menandai yang
+mana): drawdown-dari-puncak (10%) ATAU sudah untung >=0,5x risiko awal (kalau SL sudah
+diisi) - PERINGATAN saja, bukan auto-lock, keputusan tutup tetap manual.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

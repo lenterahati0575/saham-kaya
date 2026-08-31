@@ -147,6 +147,23 @@ TRAIL_AT_TARGET_K = 0.5
 # sudah <= SL yang berlaku. Angka di atas SUDAH memakai urutan yang benar.
 SELL_DRAWDOWN_PCT = 10.0
 
+# PARTIAL-LOCK (2026-08-31) - lapis TAMBAHAN sebelum Target-Lock, direplikasi dari
+# simple_journal.py stlh user tanya: "bagaimana dengan ini, kalau misal belum mencapai
+# 10% balik menjadi rugi" - Sinyal Jual Dini (SELL_DRAWDOWN_PCT) cuma melindungi untung
+# BESAR yg sudah jauh dari puncak; untung KECIL-MENENGAH yg belum sempat turun 10% dari
+# puncak bisa balik jadi rugi TANPA peringatan sama sekali (krn 10% dari puncak yg masih
+# dekat entry sudah di BAWAH harga beli). Begitu profit (dari High) capai
+# PARTIAL_TRIGGER_R x risiko awal, SL digeser ke PARTIAL_LOCK_R x risiko awal (MASIH di
+# atas breakeven=0, TIDAK penuh spt trailing-ke-breakeven lama yang terbukti buruk).
+# DIUJI (614 sinyal, 350 saham/3 tahun, walk-forward, DI ATAS Target-Lock+Sinyal Jual
+# Dini yg sudah ada): 0,5R->0,3R menang PALING jelas di antara beberapa kombinasi
+# (0,7/0,5; 1,0/0,5; 1,0/0,7 - semua diuji, kalah): avg +2,54%->+2,85%, winrate
+# 37,3%->60,3% (HAMPIR 2X LIPAT), PF 1,60->2,05 - MENANG di Bullish (PF1,81->2,27) MAUPUN
+# Bearish (PF1,13->1,50), split-half stabil (+2,82%/+2,88%). README > "Partial-Lock di
+# Kandidat/Swing".
+PARTIAL_TRIGGER_R = 0.5
+PARTIAL_LOCK_R = 0.3
+
 
 def is_configured() -> bool:
     """Cek apakah semua konfigurasi Google Sheets sudah lengkap."""
@@ -618,24 +635,47 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
                 status_baru = "WIN (SINYAL JUAL DINI)"
                 exit_price = harga_live
 
-            # TARGET-LOCK: SL (kolom E) > SL Awal (kolom N) berarti Target sudah PERNAH
-            # tersentuh sebelumnya & untung sudah dikunci (lihat blok "geser SL" di bawah) -
-            # dari titik ini SL cuma dicek turun, TIDAK perlu cek TP lagi (target sudah
-            # "lewat", tujuannya sekarang melindungi untung yang sudah ada, bukan menunggu
-            # level tetap). Baris lama yang sempat ditrail ke breakeven oleh mekanisme LAMA
-            # (sebelum fix ini, SL==harga_beli) juga otomatis kena kondisi ini (SL Awal <
-            # harga_beli selalu) - diperlakukan sama (tunggu level itu tersentuh), transisi
-            # yang aman, bukan bug.
-            target_terkunci = sl is not None and sl_awal is not None and sl > sl_awal + 0.01
+            # TARGET-LOCK & PARTIAL-LOCK: dideteksi dari SL (kolom E) relatif ke SL Awal
+            # (kolom N) & ke 2 level yang mungkin - TIDAK perlu kolom status terpisah, SAMA
+            # pola dgn simple_journal.py (lihat komentar panjang di sana). Baris lama yang
+            # sempat ditrail ke breakeven oleh mekanisme LAMA (SL==harga_beli) otomatis kena
+            # kondisi target_terkunci (SL Awal < harga_beli selalu) - transisi aman, bukan bug.
+            risk_awal = (harga_beli - sl_awal) if sl_awal is not None else None
+            partial_lock_level = (harga_beli + PARTIAL_LOCK_R * risk_awal) if risk_awal and risk_awal > 0 else None
+            target_lock_level = (tp - TRAIL_AT_TARGET_K * risk_awal) if (risk_awal and risk_awal > 0 and tp is not None) else None
+            sudah_partial = partial_lock_level is not None and sl is not None and sl >= partial_lock_level - 0.01
+            sudah_target = target_lock_level is not None and sl is not None and sl >= target_lock_level - 0.01
 
             if status_baru is not None:
-                pass  # Sinyal Jual Dini sudah memutuskan di atas - lewati Target-Lock/SL biasa.
-            elif target_terkunci:
+                pass  # Sinyal Jual Dini sudah memutuskan di atas - lewati lapis lain.
+            elif sudah_target:
                 if today_low <= sl:
                     status_baru = "WIN (TARGET TERKUNCI)"
                     exit_price = sl
                 elif hari >= FORCE_SELL_HARI.get(tipe, 15):
                     status_baru = f"WIN (FORCE SELL target terkunci, {hari} hari)"
+                    exit_price = harga_live
+            elif sudah_partial:
+                # LAPIS PARTIAL (2026-08-31, user: "bagaimana dengan ini, kalau misal belum
+                # mencapai 10% balik menjadi rugi" - Sinyal Jual Dini cuma melindungi untung
+                # BESAR yg sudah jauh dari puncak; untung KECIL yg belum sempat 10% dari
+                # puncak bisa balik jadi rugi tanpa peringatan sama sekali. DIUJI (614 sinyal,
+                # 350 saham/3 tahun): trigger 0,5R->lock 0,3R menang PALING jelas - avg
+                # +2,54%->+2,85%, winrate 37,3%->60,3% (HAMPIR 2X), PF 1,60->2,05, MENANG di
+                # semua regime & split-half stabil (+2,82%/+2,88%). README > "Partial-Lock
+                # di Kandidat/Swing".
+                if today_low <= sl:
+                    status_baru = "WIN (PARTIAL LOCK)"
+                    exit_price = sl
+                elif tp is not None and today_high >= tp:
+                    sl_baru = tp - TRAIL_AT_TARGET_K * risk_awal
+                    sheet_row = _find_row_number(ws, kode, "OPEN")
+                    if sheet_row:
+                        ws.update(f"E{sheet_row}", [[float(sl_baru)]])
+                        any_trailed = True
+                        print(f"🔒 {kode}: Target tercapai, untung dikunci penuh - SL digeser ke Rp{sl_baru:,.0f}")
+                elif hari >= FORCE_SELL_HARI.get(tipe, 15):
+                    status_baru = "WIN (FORCE SELL, partial locked)"
                     exit_price = harga_live
             else:
                 # SL dicek LEBIH DULU (asumsi konservatif kalau High & Low hari yang sama
@@ -650,7 +690,6 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
                     # lebih lanjut. Kalau SL Awal tidak diketahui (baris sangat lama, risk
                     # awal tak terhitung), fallback tutup langsung di Target spt perilaku
                     # sebelumnya - drpd geser ke level yang tidak valid.
-                    risk_awal = (harga_beli - sl_awal) if sl_awal is not None else None
                     if risk_awal is not None and risk_awal > 0:
                         sl_baru = tp - TRAIL_AT_TARGET_K * risk_awal
                         sheet_row = _find_row_number(ws, kode, "OPEN")
@@ -661,6 +700,13 @@ def auto_close_positions(price_lookup: dict, hl_lookup: dict | None = None) -> l
                     else:
                         status_baru = "WIN (TP)"
                         exit_price = tp
+                elif risk_awal and risk_awal > 0 and today_high >= harga_beli + PARTIAL_TRIGGER_R * risk_awal:
+                    sl_baru = harga_beli + PARTIAL_LOCK_R * risk_awal
+                    sheet_row = _find_row_number(ws, kode, "OPEN")
+                    if sheet_row:
+                        ws.update(f"E{sheet_row}", [[float(sl_baru)]])
+                        any_trailed = True
+                        print(f"🛡️ {kode}: Profit {PARTIAL_TRIGGER_R}R tercapai, kunci sebagian - SL digeser ke Rp{sl_baru:,.0f}")
                 elif hari >= FORCE_SELL_HARI.get(tipe, 15):
                     status_baru = f"FORCE SELL ({hari} hari)"
                     exit_price = harga_live

@@ -313,6 +313,76 @@ class TestAutoClosePositionsHighLow:
         assert ws.update.call_count == 2
 
 
+class TestPartialLock:
+    """PARTIAL-LOCK (2026-08-31) - lapis TAMBAHAN sebelum Target-Lock, direplikasi dari
+    simple_journal.py. User: "bagaimana dengan ini, kalau misal belum mencapai 10% balik
+    menjadi rugi" - Sinyal Jual Dini cuma melindungi untung BESAR yg jauh dari puncak;
+    untung KECIL bisa balik jadi rugi tanpa peringatan. Begitu profit (High) capai 0,5R,
+    SL digeser ke 0,3R (MASIH di atas breakeven, posisi TETAP OPEN). DIUJI (614 sinyal,
+    350 saham/3 tahun): avg +2,54%->+2,85%, winrate 37,3%->60,3% (hampir 2x), PF
+    1,60->2,05, menang di SEMUA regime & split-half stabil. README > "Partial-Lock di
+    Kandidat/Swing"."""
+
+    def test_trigger_0_5r_menggeser_sl_ke_0_3r(self):
+        # entry=100, sl_awal=90 -> risk=10. Trigger 0.5R -> High>=105. Lock 0.3R -> SL baru=103.
+        # High(106) juga jadi puncak baru (drawdown ke Close(104)=1,9%, di bawah 10% -
+        # Sinyal Jual Dini belum menyala) -> 2 ws.update: SL & Puncak.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=200.0, sl=90.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent())
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 104.0}, {"ZZZZ": (106.0, 103.0)})
+        assert closed == []
+        ws.update.assert_any_call("E2", [[103.0]])
+        ws.update.assert_any_call("P2", [[106.0]])
+        assert ws.update.call_count == 2
+
+    def test_belum_trigger_kalau_profit_di_bawah_0_5r(self):
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=200.0, sl=90.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent())
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 102.0}, {"ZZZZ": (104.0, 101.0)})
+        assert closed == []
+        ws.update.assert_called_once_with("P2", [[104.0]])  # cuma puncak, SL belum digeser
+
+    def test_exit_setelah_partial_locked_dilabel_partial_lock(self):
+        # SL sudah digeser ke 103 (partial-lock) - SL Awal tetap 90.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=200.0, sl=103.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent())
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 102.0}, {"ZZZZ": (105.0, 101.0)})
+        assert closed == ["ZZZZ (WIN (PARTIAL LOCK))"]
+        update_call = [c for c in ws.update.call_args_list if c[0][0].startswith("H")][0]
+        assert update_call[0][1][0][1] == 103.0  # exit di level kuncian (103), untung terselamatkan
+
+    def test_target_tersentuh_dari_partial_locked_pindah_ke_target_lock(self):
+        # SL sudah di partial-lock (103) - Target (200) tersentuh, HARUS pindah ke
+        # target-lock (200-0.5*10=195), TIDAK ditutup langsung.
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=200.0, sl=103.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent())
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 198.0}, {"ZZZZ": (201.0, 196.0)})
+        assert closed == []
+        ws.update.assert_any_call("E2", [[195.0]])
+
+    def test_force_sell_setelah_partial_locked_dilabel_partial(self):
+        df_positions = _make_open_position(kode="ZZZZ", harga_beli=100.0, tp=200.0, sl=103.0,
+                                            sl_awal=90.0, tanggal_open=_tanggal_open_recent(hari_lalu=16))
+        ws = _mock_worksheet()
+        with patch.object(gj, "load_positions", return_value=df_positions), \
+             patch.object(gj, "_get_worksheet", return_value=ws):
+            closed = gj.auto_close_positions({"ZZZZ": 104.0}, {"ZZZZ": (105.0, 103.5)})
+        assert len(closed) == 1
+        assert closed[0].startswith("ZZZZ (WIN (FORCE SELL, partial locked))")
+
+
 class TestTargetLock:
     """TARGET-LOCK: begitu Target (TP) tersentuh, SL digeser ke Target-k*risk_awal (k=0,5,
     TRAIL_AT_TARGET_K) - posisi TETAP OPEN, dibiarkan jalan lebih lanjut (BUKAN ditutup

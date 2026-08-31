@@ -400,6 +400,16 @@ def portfolio_risk_summary(trades: pd.DataFrame, total_equity: float | None) -> 
 SELL_DRAWDOWN_PCT_REAL = 10.0  # SAMA threshold dgn Kandidat (gsheet_journal.py) - lihat
 # README > "Sinyal Jual Tampil Langsung di Tab Kandidat".
 
+# PARTIAL-LOCK sbg PERINGATAN (2026-08-31) - lihat catatan panjang di
+# gsheet_journal.py::PARTIAL_TRIGGER_R. User: "bagaimana dengan ini, kalau misal belum
+# mencapai 10% balik menjadi rugi" - drawdown-dari-puncak (SELL_DRAWDOWN_PCT_REAL) cuma
+# melindungi untung BESAR; untung KECIL-MENENGAH (belum sempat 10% dari puncak) bisa
+# balik jadi rugi TANPA peringatan sama sekali. Jurnal Real TIDAK bisa auto-geser SL
+# (uang beneran, keputusan manual) - jadi ini PERINGATAN TAMBAHAN (bukan auto-lock):
+# begitu profit CAPAI PARTIAL_TRIGGER_R x risiko awal (Entry-SL), sama spt threshold yg
+# divalidasi di Kandidat (0,5R).
+PARTIAL_TRIGGER_R_REAL = 0.5
+
 
 def preview_sinyal_jual_dini(trades: pd.DataFrame, price_data: dict, harga_live_lookup: dict) -> pd.DataFrame:
     """Sinyal Jual Dini utk posisi REAL (uang beneran) - user: "berarti sinyal jual kapan.
@@ -415,10 +425,14 @@ def preview_sinyal_jual_dini(trades: pd.DataFrame, price_data: dict, harga_live_
     (`price_data`, High tertinggi sejak "Tanggal Entry" s.d. hari ini) tiap kali dipanggil,
     JAUH lebih akurat drpd andalkan kolom yang bisa basi.
 
+    DUA kriteria (OR, kolom "Alasan" menandai yang mana) - PARTIAL_TRIGGER_R_REAL (0,5R)
+    MENUTUP celah SELL_DRAWDOWN_PCT_REAL (10% dari puncak): untung kecil yg belum sempat
+    jauh dari puncak, tapi SUDAH capai 0,5x risiko awal, tetap dapat peringatan.
+
     READ-ONLY - TIDAK ada tombol "tutup otomatis" (beda dari Kandidat/Screener Sederhana)
     krn ini UANG BENERAN, keputusan jual/tutup transaksi WAJIB manual oleh Bro sendiri
     (klik "Tutup Posisi" di tab Jurnal Real spt biasa), sistem cuma memberi PERINGATAN."""
-    cols = ["Saham", "Entry (Rp)", "Harga Sekarang", "Puncak Sejak Entry", "Turun dari Puncak (%)", "P&L Saat Ini (%)"]
+    cols = ["Saham", "Entry (Rp)", "Harga Sekarang", "Puncak Sejak Entry", "Turun dari Puncak (%)", "P&L Saat Ini (%)", "Alasan"]
     if trades.empty or "Status" not in trades.columns:
         return pd.DataFrame(columns=cols)
     open_t = trades[trades["Status"] == "OPEN"]
@@ -447,15 +461,25 @@ def preview_sinyal_jual_dini(trades: pd.DataFrame, price_data: dict, harga_live_
                     peak = max(entry, float(sejak_entry["High"].max()))
             peak = max(peak, harga_live)  # harga_live hari ini blm tentu masuk price_data histori
 
+            if harga_live <= entry:
+                continue
             drawdown = (peak - harga_live) / peak * 100 if peak > 0 else 0.0
-            if harga_live <= entry or drawdown < SELL_DRAWDOWN_PCT_REAL:
+            pnl_pct = (harga_live - entry) / entry * 100
+
+            alasan = []
+            if drawdown >= SELL_DRAWDOWN_PCT_REAL:
+                alasan.append(f"Turun {drawdown:.1f}% dari puncak")
+            sl_val = float(row["Stop Loss (Rp)"]) if pd.notna(row.get("Stop Loss (Rp)")) else 0.0
+            risk_awal = entry - sl_val if sl_val > 0 else None
+            if risk_awal and risk_awal > 0 and (harga_live - entry) >= PARTIAL_TRIGGER_R_REAL * risk_awal:
+                alasan.append(f"Sudah untung {PARTIAL_TRIGGER_R_REAL}x risiko awal")
+            if not alasan:
                 continue
 
-            pnl_pct = (harga_live - entry) / entry * 100
             rows.append({
                 "Saham": kode, "Entry (Rp)": entry, "Harga Sekarang": harga_live,
                 "Puncak Sejak Entry": peak, "Turun dari Puncak (%)": round(drawdown, 2),
-                "P&L Saat Ini (%)": round(pnl_pct, 2),
+                "P&L Saat Ini (%)": round(pnl_pct, 2), "Alasan": " & ".join(alasan),
             })
         except Exception:
             continue
