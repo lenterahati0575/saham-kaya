@@ -1847,7 +1847,23 @@ with t_perf:
             st.markdown("### ⚙️ Parameter Backtest")
             col_m1, col_m2, col_m3 = st.columns(3)
             with col_m1:
-                modal_awal_bt = st.number_input("Modal Awal Backtest (Rp)", min_value=1_000_000, value=10_000_000, step=1_000_000, help="Angka virtual sebagai benchmark return %.")
+                # BUG NYATA yg ditemukan dari laporan user (screenshot "Kurva Ekuitas Backtest"
+                # -29,62%/-40,92% yang mengkhawatirkan, ternyata SEBAGIAN artefak salah penyebut):
+                # Lot posisi DIHITUNG pakai `total_equity_now` (modal RIIL dari snapshot Equity,
+                # mis. Rp35,55 juta) - P&L Rupiah yang dihasilkan otomatis SEBESAR itu juga. Tapi
+                # default "Modal Awal Backtest" di sini SELALU 10 juta, TIDAK ADA hubungannya dgn
+                # total_equity_now - jadi drawdown % yang ditampilkan salah skala (P&L dari modal
+                # 35jt dibagi 10jt, kelihatan JAUH lebih parah dari kenyataan - -40,92% padahal
+                # rasio thd modal riil cuma sekitar -10 s.d -14%). Fix: default sekarang PAKAI
+                # total_equity_now kalau ada snapshot Equity (paling representatif thd modal yg
+                # BENAR-BENAR dipakai sizing Lot), fallback 10 juta cuma kalau belum ada snapshot
+                # sama sekali. TETAP bisa diubah manual (mis. utk uji skenario modal lain).
+                default_modal_bt = int(total_equity_now) if total_equity_now else 10_000_000
+                modal_awal_bt = st.number_input(
+                    "Modal Awal Backtest (Rp)", min_value=1_000_000, value=default_modal_bt, step=1_000_000,
+                    help="Default = Total Equity riil dari snapshot terbaru (tab Equity) kalau ada - "
+                         "SAMA modal yang dipakai sistem menghitung Lot posisi, supaya drawdown % di "
+                         "bawah tidak salah skala. Ubah manual kalau mau uji skenario modal lain.")
             with col_m2:
                 include_open = st.checkbox("Sertakan Floating P/L (posisi OPEN)", value=True, help="Centang untuk hitung unrealized P/L posisi terbuka.")
             with col_m3:

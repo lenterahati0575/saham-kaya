@@ -2832,6 +2832,40 @@ Sederhana secara spesifik (universe backtest 350 saham kemungkinan sudah cukup l
 semua) - checkbox ini soal KONSISTENSI & menutup gap yang ditemukan, bukan optimasi yang
 divalidasi dgn angka backtest baru.
 
+## Bug Skala: "Modal Awal Backtest" Salah Penyebut, Drawdown Kelihatan 3-4x Lebih Parah (2026-08-31)
+
+User panik: "modal semakin habis", menunjukkan screenshot "Kurva Ekuitas Backtest" -
+Equity turun Rp10jt->Rp6,33jt (-29,62%), Max Drawdown **-40,92%** dlm ~3 minggu.
+
+**Akar masalah**: Lot posisi (baik Kandidat maupun Screener Sederhana) dihitung pakai
+`total_equity_now` - modal RIIL dari snapshot terbaru tab Equity (user konfirmasi:
+Rp35.550.236, dilacak balik & cocok dari beberapa Lot trade nyata: ARKO/KIJA/FILM/DOOH/
+BYAN/ICBP/VTNY semua konsisten menunjukkan ~Rp33-40jt). P&L Rupiah yang dihasilkan tiap
+trade OTOMATIS berskala modal itu. TAPI tab Performance's "Modal Awal Backtest" SELALU
+default Rp10 juta - angka arbitrer TIDAK ADA hubungannya dgn `total_equity_now` - jadi
+drawdown % = (P&L Rupiah dari modal 35jt) / (penyebut 10jt) = **salah skala ~3,5x lebih
+parah dari kenyataan**. Drawdown SEBENARNYA (thd modal riil 35,55jt) sekitar -10% s.d
+-14%, BUKAN -40,92% - masih rugi nyata & perlu perhatian, tapi jauh dari separah yang
+ditampilkan.
+
+**Fix**: default "Modal Awal Backtest" SEKARANG pakai `total_equity_now` (modal riil dari
+snapshot Equity terbaru) kalau ada, bukan selalu 10 juta - drawdown % yang ditampilkan
+jadi konsisten dgn modal yang BENAR-BENAR dipakai sizing Lot. Tetap bisa diubah manual
+kalau mau uji skenario modal lain.
+
+**Ditemukan bareng**: "Total Invested" di tab Equity (Rp62,97jt) tidak cocok dgn nilai
+riil user (Rp54jt) - kemungkinan salah satu dari 6 sekuritas punya snapshot "Invested"
+yang belum diupdate (stale) sejak jual/rebalance, BUKAN bug kode (field ini diisi manual
+per sekuritas, bukan dihitung sistem) - user diminta cek tab Equity > Riwayat.
+
+**Belum selesai**: akar penyebab drawdown -10% s.d -14% itu SENDIRI (klaster SL
+berbarengan di beberapa hari - 7 saham kena SL bareng 10 Agustus, dari data live yang
+user kirim) belum digali tuntas - beberapa trade tertua kemungkinan masih kena bug "jual
+hari sama dgn beli" (sudah diperbaiki 19 Agustus, tapi trade LAMA yg kena bug itu baru
+closed sekarang) yang MENCEMARI angka mentah - checkbox exclude-nya sudah ada di tab
+Performance (default aktif) tapi belum divalidasi silang dgn data live user secara
+lengkap (export CSV user tidak ikut kolom "Tanggal Open" yg dibutuhkan filter itu).
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
