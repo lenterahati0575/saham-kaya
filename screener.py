@@ -1193,7 +1193,8 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
        zag" - mengeluhkan entry breakout TERLAMBAT, "setelah harga sudah tinggi baru
        ditangkap screener"): hari ini TEPAT 1 hari setelah pivot Zig Zag LOW baru
        terkonfirmasi (`compute_zigzag_pivots()`, threshold 10% - lihat catatan tuning di
-       bawah). TANPA filter volume (diuji terpisah tanpa filter itu, README > "Zig Zag").
+       bawah). Volume RENDAH JUGA diwajibkan (SAMA syarat dgn Breakout, ditambahkan
+       2026-08-31 setelah diuji - lihat komentar di `is_zigzag_row`), README > "Zig Zag".
 
     Kedua jalur diberi tag di kolom "Tipe Sinyal" ('Breakout'/'ZigZag') - kalau SATU saham
     lolos KEDUA jalur di hari yang sama, ditandai 'Breakout' (RR jalur ini biasanya lebih
@@ -1272,7 +1273,17 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
             pivots = compute_zigzag_pivots(df["Close"], zz_threshold_pct)
             if any(idx == n - 2 and typ == "L" for idx, _, typ in pivots):
                 zigzag_kode.add(kode)
-    is_zigzag_row = minervini_ok & table["Kode"].isin(zigzag_kode) & likuiditas_ok
+    # Volume RENDAH juga diwajibkan utk Zig Zag (2026-08-31) - user: "coba tes zig zag
+    # dengan volume". Awalnya Zig Zag TANPA filter volume sama sekali (diasumsikan
+    # mungkin butuh volume TINGGI sbg konfirmasi reversal, kebalikan dari Breakout) -
+    # DIUJI (1.035 sinyal ZigZag sendirian, 350 saham/3 tahun): volume RENDAH (<=1.0x)
+    # menang jelas (PF 3,46->4,15, winrate 62,8%->70,9%, split-half stabil), volume
+    # TINGGI malah kalah & makin goyang split-half-nya kalau diperketat (>=2,0x: PF turun
+    # ke 2,29, split-half +5,77%/+1,49% - tanda overfitting di sampel kecil). Divalidasi
+    # ULANG di sistem GABUNGAN dgn slot-cap (README > "Zig Zag: Entry Tambahan"): GABUNGAN
+    # avg +7,91%->+8,34%, winrate 59,4%->60,4%, PF 5,03->5,24 - menang bersih, BUKAN cuma
+    # di uji terpisah.
+    is_zigzag_row = minervini_ok & table["Kode"].isin(zigzag_kode) & likuiditas_ok & volume_rendah
 
     tipe_map: dict[str, str] = {}
     for kode in table.loc[is_breakout_row, "Kode"]:

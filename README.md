@@ -2929,6 +2929,39 @@ preview_sinyal_jual_dini()` sekarang cek DUA kriteria (OR, kolom "Alasan" menand
 mana): drawdown-dari-puncak (10%) ATAU sudah untung >=0,5x risiko awal (kalau SL sudah
 diisi) - PERINGATAN saja, bukan auto-lock, keputusan tutup tetap manual.
 
+## Zig Zag Sekarang Juga Wajib Volume Rendah (2026-08-31)
+
+User: "coba tes zig zag dengan volume" - Zig Zag SEBELUMNYA sengaja TANPA filter volume
+sama sekali (hipotesis awal: mungkin butuh volume TINGGI sbg konfirmasi reversal,
+kebalikan dari Breakout) - belum pernah diuji.
+
+**Diuji** (1.035 sinyal Zig Zag SENDIRIAN, 350 saham/3 tahun, walk-forward):
+
+| | N | Avg | Win Rate | Profit Factor | Split-half |
+|---|---|---|---|---|---|
+| Tanpa filter volume (baseline) | 1.035 | +3,93% | 62,8% | 3,46 | +4,33%/+3,52% |
+| **+ Volume RENDAH (<=1,0x)** | 602 | +3,75% | **70,9%** | **4,15** | +3,85%/+3,65% (stabil) |
+| + Volume TINGGI (>1,0x) | 433 | +4,18% | 51,5% | 2,94 | turun |
+| + Volume TINGGI (>=2,0x) | 191 | +3,62% | 39,3% | 2,29 | +5,77%/+1,49% (goyang - overfitting) |
+
+**Hipotesis awal (volume tinggi = konfirmasi reversal) DITOLAK** - volume RENDAH menang
+jelas, SAMA arah dgn Breakout (bukan kebalikannya seperti diduga). Makin diperketat ke
+volume tinggi, makin goyang split-half-nya (N kecil, tanda overfitting).
+
+**Divalidasi ULANG di sistem GABUNGAN dgn slot-cap** (README > "Zig Zag: Entry
+Tambahan") - bukan cuma menang di uji terpisah:
+
+| | GABUNGAN avg | Win Rate | Profit Factor |
+|---|---|---|---|
+| Tanpa filter volume di ZigZag | +7,91% | 59,4% | 5,03 |
+| **+ Volume rendah di ZigZag** | **+8,34%** | **60,4%** | **5,24** |
+
+Menang bersih - bahkan N via Breakout ikut NAIK (1.870->2.081) krn ZigZag yg tersaring
+tidak lagi merebut slot dari Breakout yang berkualitas di hari yang sama.
+
+**Implementasi**: `is_zigzag_row` di `build_simple_candidates()` (screener.py) sekarang
+JUGA mewajibkan `volume_rendah` (Volume Ratio <=1.0x), SAMA syarat dgn Breakout.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

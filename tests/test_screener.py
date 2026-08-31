@@ -595,10 +595,11 @@ class TestBuildSimpleCandidatesZigZag:
         return {"BBB": pd.DataFrame({"Open": closes, "High": closes, "Low": closes,
                                       "Close": closes, "Volume": 5_000_000.0}, index=idx)}
 
-    def _table_zigzag(self, minervini_ok=True, harga=1000.0, volume_ratio=5.0):
-        # Volume Ratio TINGGI (5.0) & Harga (1000) DI BAWAH Donchian High (1100) - sengaja
-        # GAGAL syarat Breakout, supaya sinyal yang lolos di sini PASTI datang dari jalur
-        # Zig Zag, bukan kebetulan lolos Breakout juga.
+    def _table_zigzag(self, minervini_ok=True, harga=1000.0, volume_ratio=0.8):
+        # Volume Ratio RENDAH (0.8, default - Zig Zag SEKARANG juga mewajibkan ini, sama
+        # spt Breakout, lihat komentar di is_zigzag_row) & Harga (1000) DI BAWAH Donchian
+        # High (1100) - sengaja GAGAL syarat Breakout LEWAT HARGA, supaya sinyal yang
+        # lolos di sini PASTI datang dari jalur Zig Zag, bukan kebetulan lolos Breakout.
         return pd.DataFrame([{
             "Kode": "BBB", "Harga": harga, "Donchian High": 1100.0,
             "Minervini Position OK": minervini_ok, "Volume Ratio": volume_ratio,
@@ -609,6 +610,22 @@ class TestBuildSimpleCandidatesZigZag:
                                        lookback=20, min_rr=0.1)
         assert list(out["Saham"]) == ["BBB"]
         assert out.iloc[0]["Tipe Sinyal"] == "ZigZag"
+
+    def test_zigzag_volume_tinggi_dikeluarkan(self):
+        # User: "coba tes zig zag dengan volume" - diuji (1.035 sinyal ZigZag sendirian,
+        # 350 saham/3 tahun): volume RENDAH menang jelas (PF 3,46->4,15, winrate
+        # 62,8%->70,9%), divalidasi ULANG di sistem gabungan+slot-cap (avg
+        # +7,91%->+8,34%, PF 5,03->5,24) - Zig Zag SEKARANG juga mewajibkan volume
+        # rendah, SAMA spt Breakout.
+        out = build_simple_candidates(self._table_zigzag(volume_ratio=1.5), self._zigzag_price_data(),
+                                       lookback=20, min_rr=0.1)
+        assert out.empty
+
+    def test_zigzag_volume_persis_1_0_tetap_lolos(self):
+        # Ambang inklusif (<=1.0), sama pola dgn Breakout.
+        out = build_simple_candidates(self._table_zigzag(volume_ratio=1.0), self._zigzag_price_data(),
+                                       lookback=20, min_rr=0.1)
+        assert not out.empty
 
     def test_zigzag_tanpa_minervini_tetap_dikeluarkan(self):
         # Minervini tetap wajib utk KEDUA jalur, bukan cuma Breakout.
