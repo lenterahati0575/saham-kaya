@@ -2962,6 +2962,39 @@ tidak lagi merebut slot dari Breakout yang berkualitas di hari yang sama.
 **Implementasi**: `is_zigzag_row` di `build_simple_candidates()` (screener.py) sekarang
 JUGA mewajibkan `volume_rendah` (Volume Ratio <=1.0x), SAMA syarat dgn Breakout.
 
+## RR Minimum Dinaikkan 1,5 -> 2,0; Gate Likuiditas Diuji Ulang, Dipertahankan (2026-08-31)
+
+User: "uji juga filter likuiditas dan rr minimum".
+
+**RR Minimum**: disweep 1,0-5,0 di sistem GABUNGAN+slot-cap (350 saham/3 tahun) - naik
+MONOTON tanpa goyang sama sekali (beda dari sweep threshold Zig Zag yang mulai wobbling
+di atas 12%):
+
+| min_rr | N | Avg | Win Rate | Profit Factor |
+|---|---|---|---|---|
+| 1,0 | 577 | +7,86% | 70,2% | 6,61 |
+| **1,5 (lama)** | 568 | +8,00% | 70,6% | 6,76 |
+| **2,0 (baru)** | 545 | +8,36% | 71,2% | **7,17** |
+| 2,5 | 521 | +8,73% | 71,2% | 7,41 |
+| 3,0 | 487 | +9,14% | 72,9% | 8,13 |
+| 5,0 | 411 | +10,23% | 74,2% | 9,64 |
+
+Dipilih **2,0** (BUKAN titik tertinggi 5,0) - SAMA filosofi kehati-hatian dgn pemilihan
+threshold Zig Zag 10% dulu: kenaikan jelas dari baseline (PF 6,76->7,17, N cuma turun ~4%)
+tanpa mengejar ke titik ekstrem yang mengurangi frekuensi sinyal & menambah risiko
+overfitting ke 1 backtest 3 tahun, walau trennya (secara matematis) masih terus naik kalau
+diperketat lebih jauh.
+
+**Gate Likuiditas**: diuji ULANG di sistem gabungan - hasilnya OFF (PF 9,00) > ON/Rp 3M
+(PF 6,76). **INI TIDAK BERARTI gate-nya buruk** - universe backtest (350 saham) SUDAH
+kurasi ke saham yg reasonably likuid; saham yg BENAR-BENAR tidak likuid (alasan gate ini
+dibuat, spy tidak salah pilih saham yg mustahil dieksekusi riil di dunia nyata dgn 962
+saham) TIDAK terwakili di sample 350 saham ini - hasil "OFF menang" mencerminkan bias
+sample (menyaring sebagian small-cap yg justru returnnya besar DI SAMPLE INI), bukan bukti
+nyata thd risiko eksekusi riil. **Gate TETAP dipertahankan aktif** (checkbox default ON) -
+keputusan ini TIDAK diubah oleh temuan backtest ini, justru dicatat di sini supaya tidak
+salah tafsir & dites ulang di masa depan dgn asumsi yang sama.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

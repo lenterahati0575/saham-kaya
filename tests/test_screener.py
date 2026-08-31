@@ -515,6 +515,17 @@ class TestBuildSimpleCandidates:
         out = build_simple_candidates(self._table(harga=1001.0), self._price_data(), lookback=20, min_rr=200.0)
         assert out.empty
 
+    def test_default_min_rr_sekarang_2_0_bukan_1_5(self):
+        # User: "uji juga filter likuiditas dan rr minimum" - disweep di sistem gabungan
+        # (1.0-5.0, naik monoton tanpa goyang), dipilih 2.0 (bukan titik tertinggi, demi
+        # margin dari overfitting) - naik dari default LAMA 1.5. entry=1010, dl=972 (via
+        # low_override) -> sl=1000 (ma20 mengikat, dl tidak), risk=10, target=1000+(1000-972)=1028,
+        # reward=18 -> RR=1,8: LOLOS di default lama (>=1.5), TIDAK lolos di default baru (>=2.0).
+        table = self._table(harga=1010.0, donchian_high=1000.0)
+        price_data = self._price_data(low_override_2nd_last=972.0)
+        out = build_simple_candidates(table, price_data, lookback=20)  # min_rr TIDAK diisi -> pakai default
+        assert out.empty
+
     def test_min_value_traded_default_nonaktif_tidak_menyaring(self):
         # Default 0 -> gate likuiditas nonaktif SAMA SEKALI (perilaku sblm gate ini ada) -
         # kandidat tidak likuid (Value Traded kecil) tetap lolos kalau parameter tidak diisi.

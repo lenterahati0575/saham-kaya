@@ -1173,7 +1173,7 @@ def compute_zigzag_pivots(close: pd.Series, threshold_pct: float = 10.0) -> list
 
 
 def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int = 20,
-                             min_rr: float = 1.5, top_n: int = 20,
+                             min_rr: float = 2.0, top_n: int = 20,
                              require_bullish_regime: bool = False, regime_status: str | None = None,
                              total_equity: float | None = None, risk_pct: float = 1.0,
                              sl_cap_pct: float = 0.05, zz_threshold_pct: float = 10.0,
@@ -1242,7 +1242,27 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
     Sengaja fungsi TERPISAH dari `build_trade_candidates()` (bukan parameter baru di sana)
     - biar sistem lama TIDAK BERUBAH sama sekali & bisa dibandingkan apel-ke-apel scr live
     lewat jurnal terpisah (`simple_journal.py`, sheet Google Sheets sendiri), bukan cuma
-    backtest sekali jalan."""
+    backtest sekali jalan.
+
+    RR MINIMUM (2026-08-31, user: "uji juga filter likuiditas dan rr minimum") - disweep
+    1.0-5.0 di sistem GABUNGAN+slot-cap: naik MONOTON tanpa goyang (1.0=PF6,61 ->
+    1.5=6,76 -> 2.0=7,17 -> 2.5=7,41 -> 3.0=8,13 -> ... -> 5.0=9,64), TIDAK menunjukkan
+    tanda overfitting spt sweep threshold Zig Zag (yg mulai goyang di atas 12%). Dipilih
+    2.0 (BUKAN titik tertinggi 5.0) - kenaikan jelas dari baseline 1.5 (avg +8,00%->
+    +8,36%, winrate 70,6%->71,2%, PF 6,76->7,17) dgn N cuma turun ~4% (568->545) - SAMA
+    filosofi kehati-hatian dgn pemilihan threshold Zig Zag 10% dulu (bukan titik ekstrem
+    walau trennya masih naik), demi menjaga frekuensi sinyal & margin dari overfitting ke
+    1 backtest 3 tahun.
+
+    LIKUIDITAS (`min_value_traded`) - DIUJI ULANG di sistem gabungan: OFF (PF 9,00) >
+    ON/Rp 3M (PF 6,76) - HATI-HATI, ini BUKAN bukti gate likuiditas buruk. Universe
+    backtest (350 saham) SUDAH kurasi ke saham yg reasonably likuid - saham BENAR-BENAR
+    tidak likuid (yg jadi alasan gate ini ada, spy tidak salah pilih saham yg mustahil
+    dieksekusi riil) TIDAK terwakili di sample ini, jadi hasil "OFF menang" mencerminkan
+    bias sample (memfilter sebagian saham small-cap yg justru returnnya besar di sample
+    KHUSUS ini), BUKAN bukti nyata thd risiko eksekusi di dunia nyata (962 saham penuh,
+    byk yg genuinely tidak likuid). Gate TETAP dipertahankan aktif (checkbox default ON di
+    app.py) - keputusan ini TIDAK diubah oleh temuan backtest ini."""
     if require_bullish_regime and regime_status != "BULLISH":
         return pd.DataFrame()
     minervini_ok = table["Minervini Position OK"].fillna(False)
