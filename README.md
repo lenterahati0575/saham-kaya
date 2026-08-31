@@ -2639,6 +2639,70 @@ sepadan.
 2 `TestOpenPositionsFromCandidates` tambahan + 2 `TestGetWorksheetMigrasiHeader`) -
 230/230 pytest lolos.
 
+## Riset Lanjutan: Ide Reversal Ditolak, Threshold Zig Zag Dioptimalkan (2026-08-31)
+
+User: "saya berfikir bagaimana kalau kandidat dihapus, dan screener yang masih
+sederhana dihapus, mungkin masih ada cara untuk meningkatkan winrate da profit" ->
+diklarifikasi: **riset dulu, JANGAN hapus sistem live** (Kandidat & Screener Sederhana
+tetap jalan). Lalu setelah 2 ide baru ditolak: "optimalkan sistem sederhana kalau
+memungkinkan."
+
+**2 ide baru DIUJI dan DITOLAK** (350 saham/3 tahun, walk-forward, exit 2-lapis + SL 5%
+sama seperti sistem yang sudah ada) - dicatat di sini justru supaya TIDAK diuji ulang
+di masa depan:
+
+| Ide | N | Avg Return | Win Rate | Profit Factor | Verdict |
+|---|---|---|---|---|---|
+| Pullback ke MA20 dlm uptrend | 6.299 | +0,32% | 49,3% | 1,16 | Ditolak - nyaris impas, Bearish PF 0,78 (rugi bersih) |
+| Hammer/Bullish Engulfing dekat support | 1.934 | -0,40% | 47,1% | 0,82 | Ditolak - rugi bersih bahkan di Bullish |
+
+Pola yang konsisten: sistem **trend-following** (Breakout, Zig Zag) menang jelas (PF
+3-4,9) drpd sistem **mean-reversion/reversal** (pullback ke MA, bentuk candlestick 1-2
+hari) yang PF-nya di bawah 1 atau nyaris impas. Di data IDX ini, menebak titik balik
+LEBIH DINI dari swing Zig Zag yang sudah terkonfirmasi (>=threshold%) justru
+memperlemah edge, bukan memperkuat.
+
+**Optimasi yang BERHASIL: threshold Zig Zag 5% -> 10%.** Disweep 3%-30% dgn simulasi
+gabungan+slot-cap yang sama (README > "Zig Zag: Entry Tambahan"):
+
+| Threshold | N | Avg Return | Win Rate | Profit Factor |
+|---|---|---|---|---|
+| 3% | 3.030 | +4,32% | 54,1% | 3,53 |
+| 5% (lama) | 2.910 | +5,84% | 58,3% | 4,29 |
+| **10% (baru)** | 2.711 | +7,34% | 59,3% | 4,73 |
+| 12% | 2.652 | +7,65% | 59,2% | 4,79 |
+| 15% | 2.591 | +7,84% | 58,3% | 4,74 |
+| 20-30% | 2.449-2.530 | +8,25-8,57% | 57,5-57,9% | 4,86-4,93 |
+
+PF terus naik sampai 30% TAPI mulai goyang tidak rapi di atas 12% (turun lagi di 15%,
+baru naik lagi) sambil N terus menyusut - tanda mulai overfitting kalau dikejar ke
+titik ekstrem (sinyal makin sedikit, makin mendekati hanya menangkap swing raksasa yang
+langka & tidak representatif). **10% dipilih sbg titik aman**: kenaikan jelas di semua
+metrik dibanding baseline 5%, N masih besar (turun cuma ~7%), dan **divalidasi robust**:
+
+| | N | Avg Return | Win Rate | Profit Factor |
+|---|---|---|---|---|
+| Semua | 2.711 | +7,34% | 59,3% | 4,73 |
+| Split-half 1 | 1.355 | +7,72% | 58,3% | 4,80 |
+| Split-half 2 | 1.356 | +6,96% | 60,3% | 4,67 |
+| Bullish | 1.616 | +9,01% | 60,4% | 5,66 |
+| Bearish | 1.095 | +4,87% | 57,7% | 3,42 |
+
+Split-half stabil (tidak menurun tajam di paruh lebih baru) & KEDUA regime naik dibanding
+baseline 5% (Bullish PF 5,25->5,66, Bearish PF 3,10->3,42) - bukan cocok-cocokan sesaat.
+
+**Implementasi**: default `zz_threshold_pct` di `build_simple_candidates()` (dan default
+`threshold_pct` di `compute_zigzag_pivots()`) diubah dari 5.0 ke 10.0. Tidak ada
+pemanggil (`app.py`, `auto_run.py`) yang override parameter ini secara eksplisit, jadi
+cukup ubah default. RR minimum (1,5) TIDAK dinaikkan - walau menaikkannya juga sedikit
+membantu, menumpuk 2 perubahan sekaligus (threshold + RR min) menambah risiko
+overfitting tanpa manfaat yang cukup besar utk sepadan.
+
+**Kolom "% SL"** juga ditambahkan ke tabel tab "🔬 Screener Sederhana" (user: "bagus
+kalau ada % SL") - jarak SL riil dari Entry dlm persen, bisa LEBIH KETAT dari cap 5%
+kalau Donchian Low/MA20 yang mengikat (bukan cap-nya) - supaya risiko riil per trade
+kelihatan, bukan diasumsikan selalu 5%.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

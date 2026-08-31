@@ -552,7 +552,10 @@ class TestBuildSimpleCandidatesZigZag:
     tinggi dari Breakout (11,4) *dan* ZigZag (3,2) [avg tertimbang - PF gabungan BUKAN
     rata-rata sederhana kedua PF], krn ZigZag cuma mengisi slot yg Breakout tidak menyala."""
 
-    def _zigzag_price_data(self, harga_hari_ini=950.0):
+    def _zigzag_price_data(self, harga_hari_ini=1000.0):
+        # harga_hari_ini=1000 -> naik 11,11% dari extreme low 900 (idx23), CUKUP utk lolos
+        # threshold default 10% (bukan cuma 5% lama) - lihat catatan tuning threshold di
+        # build_simple_candidates().
         pad = [1000] * 9
         closes = (pad +
                   [1000, 1010, 1020, 1040, 1060, 1080, 1100,
@@ -563,8 +566,8 @@ class TestBuildSimpleCandidatesZigZag:
         return {"BBB": pd.DataFrame({"Open": closes, "High": closes, "Low": closes,
                                       "Close": closes, "Volume": 5_000_000.0}, index=idx)}
 
-    def _table_zigzag(self, minervini_ok=True, harga=950.0, volume_ratio=5.0):
-        # Volume Ratio TINGGI (5.0) & Harga (950) DI BAWAH Donchian High (1100) - sengaja
+    def _table_zigzag(self, minervini_ok=True, harga=1000.0, volume_ratio=5.0):
+        # Volume Ratio TINGGI (5.0) & Harga (1000) DI BAWAH Donchian High (1100) - sengaja
         # GAGAL syarat Breakout, supaya sinyal yang lolos di sini PASTI datang dari jalur
         # Zig Zag, bukan kebetulan lolos Breakout juga.
         return pd.DataFrame([{

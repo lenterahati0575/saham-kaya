@@ -1121,7 +1121,7 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
                             ascending=[False, False, False, False]).head(top_n).reset_index(drop=True)
 
 
-def compute_zigzag_pivots(close: pd.Series, threshold_pct: float = 5.0) -> list[tuple[int, float, str]]:
+def compute_zigzag_pivots(close: pd.Series, threshold_pct: float = 10.0) -> list[tuple[int, float, str]]:
     """Rangkaian pivot Zig Zag (index posisi, harga, tipe 'H'/'L') dari seri harga Close -
     fungsi MURNI, walk-forward-safe SELAMA caller cuma pakai pivot yang idx-nya <= t saat
     entry (pivot yang lebih baru dari itu belum "kelihatan" pada waktu t, jadi diabaikan
@@ -1176,7 +1176,7 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
                              min_rr: float = 1.5, top_n: int = 20,
                              require_bullish_regime: bool = False, regime_status: str | None = None,
                              total_equity: float | None = None, risk_pct: float = 1.0,
-                             sl_cap_pct: float = 0.05, zz_threshold_pct: float = 5.0) -> pd.DataFrame:
+                             sl_cap_pct: float = 0.05, zz_threshold_pct: float = 10.0) -> pd.DataFrame:
     """SCREENER SEDERHANA (pembanding) - user: "apakah perlu buat screener pembanding.
     mungkin lebih sederhana tapi bisa winrate lebih tinggi dan buy/sellnya tepat", lalu
     "target saya yang penting profit dengan risk rendah, tetap profesional."
@@ -1191,9 +1191,8 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
     2. **Zig Zag** (ditambahkan setelah user - "mungkin perlu diuji juga penggunaan zig
        zag" - mengeluhkan entry breakout TERLAMBAT, "setelah harga sudah tinggi baru
        ditangkap screener"): hari ini TEPAT 1 hari setelah pivot Zig Zag LOW baru
-       terkonfirmasi (`compute_zigzag_pivots()`, threshold 5%) - menangkap titik balik
-       LEBIH DINI, sebelum breakout resistance. TANPA filter volume (diuji terpisah tanpa
-       filter itu, README > "Zig Zag").
+       terkonfirmasi (`compute_zigzag_pivots()`, threshold 10% - lihat catatan tuning di
+       bawah). TANPA filter volume (diuji terpisah tanpa filter itu, README > "Zig Zag").
 
     Kedua jalur diberi tag di kolom "Tipe Sinyal" ('Breakout'/'ZigZag') - kalau SATU saham
     lolos KEDUA jalur di hari yang sama, ditandai 'Breakout' (RR jalur ini biasanya lebih
@@ -1211,6 +1210,15 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
     avg return/trade turun sedikit (krn trade Zig Zag secara alami lebih kecil untungnya
     dari Breakout) - pertukaran yang sepadan mengingat PF-nya justru naik & volume
     kesempatan jauh lebih besar.
+
+    TUNING THRESHOLD ZIG ZAG (user: "optimalkan sistem sederhana kalau memungkinkan",
+    2026-08-31): disweep 3%-30% dgn simulasi slot-cap yg SAMA di atas. PF naik hampir
+    monoton (3%=3,53 -> 5%=4,29 -> 10%=4,73 -> 30%=4,93) TAPI mulai goyang tidak rapi di
+    atas 12% (12%=4,79 turun ke 15%=4,74 baru naik lagi) sambil N terus menyusut - tanda
+    mulai overfitting kalau dikejar ke ekstrem. Dipilih 10% sbg titik aman: N masih besar
+    (2.711, cuma turun ~7% dari baseline 5%), avg naik dari +5,84%->+7,34%, PF 4,29->4,73,
+    winrate 58,3%->59,3% - DIVALIDASI split-half stabil (+7,72%/+6,96%) & KEDUA regime
+    naik (Bullish PF 5,25->5,66, Bearish PF 3,10->3,42), bukan cocok-cocokan sesaat.
 
     SL dibatasi 5% (sl_cap_pct=0.05, BUKAN 10% seperti build_trade_candidates()) utk
     KEDUA jalur - diuji terpisah (user: "apakah rugi terburuk bisa diturunkan misal
