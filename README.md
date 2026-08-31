@@ -3088,6 +3088,23 @@ kemenangan besar yg dipertahankan):
 Tetap mempertahankan SEBAGIAN BESAR untung dari target 0,5x (PF 6,76->8,41, naik 24%)
 sambil memulihkan sebagian frekuensi sinyal yang hilang.
 
+## Download CSV Terbuka Rapi di Excel (2026-09-01)
+
+User: "saya mau download csv langsung ke excel". SEMUA 7 tombol "Download CSV" di app
+ini sebelumnya pakai format standar (koma sbg pemisah kolom) - kalau di-double-click
+langsung dari Excel locale Indonesia (yang pakai titik-koma sbg pemisah, koma sbg
+desimal), isinya numpuk jadi 1 kolom, TIDAK otomatis kepisah. **Ditambah** masalah
+kedua yang lebih halus: banyak kolom tabel di app ini SUDAH diformat jadi teks
+ber-koma ("Rp1,234,567", pemisah ribuan gaya Barat) - kalau pemisah CSV-nya JUGA koma,
+Excel salah pecah SETIAP koma di angka itu jadi kolom terpisah, bukan cuma soal locale.
+
+**Fix**: `app.py::to_csv_excel_id()` - helper baru yang dipakai SEMUA tombol download
+(Kandidat, Semua Saham, Riwayat Saham, Jurnal Real, Equity, Fundamental, Value
+Portfolio) - CSV dgn titik-koma sbg pemisah (menghindari ambiguitas koma di dalam sel
+SEKALIGUS cocok locale ID) + BOM UTF-8 (`encoding="utf-8-sig"`, supaya Excel deteksi
+UTF-8 dgn benar - tanpa ini simbol/emoji bisa tampil mojibake kalau dibuka langsung
+tanpa import manual).
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

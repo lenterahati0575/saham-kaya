@@ -23,6 +23,7 @@ APP_PATH = Path(__file__).resolve().parent.parent / "app.py"
 _NEEDED_FUNCS = {
     "calculate_atr", "ml_signal_predict", "black_scholes", "validate_order",
     "format_countdown", "moon_phase", "fibonacci_retracement", "expected_move",
+    "to_csv_excel_id",
 }
 # Konstanta level-modul yang dipakai fungsi di atas (mis. ml_signal_predict butuh
 # _ML_SIGNAL_BACKTEST_STATS) - kalau tidak ikut di-extract, NameError di dalam fungsi
@@ -58,6 +59,7 @@ format_countdown = _FN["format_countdown"]
 moon_phase = _FN["moon_phase"]
 fibonacci_retracement = _FN["fibonacci_retracement"]
 expected_move = _FN["expected_move"]
+to_csv_excel_id = _FN["to_csv_excel_id"]
 
 
 def _flat_ohlcv(n, price=1000.0, volume=2_000_000.0):
@@ -215,6 +217,35 @@ class TestExpectedMove:
     def test_invalid_input_return_none(self):
         assert expected_move(S=0, sigma=20, days=30) is None
         assert expected_move(S=1000.0, sigma=0, days=30) is None
+
+
+class TestToCsvExcelId:
+    """User: "saya mau download csv langsung ke excel" - CSV standar (koma sbg pemisah
+    kolom) TIDAK terbuka rapi kalau langsung di-double-click di Excel locale Indonesia
+    (yang pakai titik-koma sbg pemisah, koma sbg desimal) - DITAMBAH banyak kolom tabel
+    di app ini sudah diformat jadi teks berkoma ("Rp1,234,567") yang bikin CSV
+    ber-koma makin ambigu dipecah Excel. Fix: titik-koma sbg pemisah + BOM UTF-8."""
+
+    def test_pakai_titik_koma_bukan_koma(self):
+        df = pd.DataFrame([{"Kode": "AAA", "Harga": 1000, "Nama": "Test"}])
+        out = to_csv_excel_id(df)
+        text = out.decode("utf-8-sig")
+        assert "Kode;Harga;Nama" in text
+        assert "AAA;1000;Test" in text
+
+    def test_ada_bom_utf8(self):
+        df = pd.DataFrame([{"Kode": "AAA"}])
+        out = to_csv_excel_id(df)
+        assert out.startswith(b"\xef\xbb\xbf")  # BOM UTF-8
+
+    def test_isi_sel_berkoma_tidak_pecah_kolom(self):
+        # Kolom yg sudah diformat teks ber-koma (mis. "Rp1,234,567") - kalau pemisah CSV
+        # JUGA koma, Excel akan salah pecah ini jadi 3 kolom. Titik-koma menghindarinya.
+        df = pd.DataFrame([{"Kode": "AAA", "Harga": "Rp1,234,567"}])
+        out = to_csv_excel_id(df)
+        text = out.decode("utf-8-sig")
+        lines = text.strip().split("\r\n") if "\r\n" in text else text.strip().split("\n")
+        assert len(lines[1].split(";")) == 2  # tetap 2 kolom, bukan 4
 
 
 if __name__ == "__main__":

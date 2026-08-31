@@ -67,6 +67,21 @@ e.target.select();
 </script>
 """, height=0)
 
+def to_csv_excel_id(df: pd.DataFrame) -> bytes:
+    """CSV yang terbuka RAPI kalau di-download lalu dibuka langsung di Excel (user:
+    "saya mau download csv langsung ke excel") - BUKAN cuma soal locale ID (yang pakai
+    titik-koma sbg pemisah kolom, koma sbg desimal, kebalikan dari CSV standar), tapi
+    JUGA karena banyak kolom tabel di app ini SUDAH diformat jadi teks pakai koma sbg
+    pemisah ribuan ("Rp1,234,567", "12.34%") - kalau CSV-nya SENDIRI dipisah pakai koma
+    juga, Excel salah pecah SETIAP koma di dalam angka itu jadi kolom terpisah, bukan
+    cuma soal locale. Titik-koma (;) sbg pemisah menghindari ambiguitas itu SEKALIGUS -
+    aman dibuka locale ID MAUPUN saat isi sel mengandung koma. `encoding="utf-8-sig"`
+    (BOM) supaya Excel deteksi UTF-8 dgn benar - tanpa ini simbol/emoji di header/isi
+    (mis. Rp, %, ✅) bisa tampil rusak (mojibake) kalau dibuka langsung tanpa import
+    manual."""
+    return df.to_csv(index=False, sep=";").encode("utf-8-sig")
+
+
 def embed_tradingview_chart(kode: str, height: int = 520):
     src = (
         f"https://s.tradingview.com/widgetembed/?symbol=IDX%3A{kode}"
@@ -1060,7 +1075,7 @@ with t_kandidat:
         if "RR" in kolom_tampil:
             styler = styler.map(color_rr, subset=["RR"])
         st.dataframe(styler, use_container_width=True, hide_index=True, height=460, key="df_kandidat_final")
-        st.download_button("⬇️ Download CSV", show[kolom_tampil].to_csv(index=False).encode("utf-8"), file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+        st.download_button("⬇️ Download CSV", to_csv_excel_id(show[kolom_tampil]), file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
 
     # ------------------------------------------------------------------------
     # SINYAL JUAL (posisi yang PERNAH muncul BUY di sini, sekarang berpotensi lanjut
@@ -1437,7 +1452,7 @@ with t_semua:
     kolom_tampil2 = [col for col in kolom_tampil2 if col in view_display.columns]
     dataframe_with_chart(view_display[kolom_tampil2], kode_col="Kode", height=520, key="df_semua")
     st.caption(f"Menampilkan {len(view)} dari {len(table)} saham")
-    st.download_button("⬇️ Download CSV", view_display[kolom_tampil2].to_csv(index=False).encode("utf-8"), file_name=f"semua_saham_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+    st.download_button("⬇️ Download CSV", to_csv_excel_id(view_display[kolom_tampil2]), file_name=f"semua_saham_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
 
     # ------------------------------------------------------------------------
     # Scanner Lonjakan Volume - diminta user setelah lihat tampilan scanner eksternal
@@ -2047,7 +2062,7 @@ with t_riwayat:
 
             st.dataframe(df_tampil.sort_values("Tanggal", ascending=False), use_container_width=True,
                         hide_index=True, height=400)
-            st.download_button("⬇️ Download CSV", df_tampil.to_csv(index=False).encode("utf-8"),
+            st.download_button("⬇️ Download CSV", to_csv_excel_id(df_tampil),
                               file_name=f"riwayat_saham_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
 
         st.divider()
@@ -2382,7 +2397,7 @@ with t_real:
                 st.markdown("**Riwayat Semua Trade**")
                 st.dataframe(trades_all, use_container_width=True, hide_index=True, height=350)
                 st.download_button(
-                    "⬇️ Download CSV", trades_all.to_csv(index=False).encode("utf-8"),
+                    "⬇️ Download CSV", to_csv_excel_id(trades_all),
                     file_name=f"jurnal_real_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv",
                     key="dl_jurnal_real",
                 )
@@ -2670,7 +2685,7 @@ with t_equity:
             if equity_df.empty: st.info("Belum ada riwayat snapshot.")
             else:
                 st.dataframe(equity_df.sort_values("Tanggal", ascending=False), use_container_width=True, hide_index=True, height=400)
-                st.download_button("⬇️ Download CSV", equity_df.to_csv(index=False).encode("utf-8"), file_name=f"equity_log_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+                st.download_button("⬇️ Download CSV", to_csv_excel_id(equity_df), file_name=f"equity_log_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
                 st.divider()
                 st.markdown("**🗑️ Hapus Snapshot**")
                 del1, del2 = st.columns(2)
@@ -2801,7 +2816,7 @@ with t_fundamental:
                     if "Margin of Safety %" in display.columns: styler = styler.map(color_mos, subset=["Margin of Safety %"])
                     if "Quality Score" in display.columns: styler = styler.map(color_q, subset=["Quality Score"])
                     st.dataframe(styler, use_container_width=True, hide_index=True, height=500)
-                    st.download_button("⬇️ Download CSV Fundamental", filtered.to_csv(index=False).encode("utf-8"), file_name=f"fundamental_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+                    st.download_button("⬇️ Download CSV Fundamental", to_csv_excel_id(filtered), file_name=f"fundamental_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
                     st.divider()
                     st.markdown("### 💡 Insight")
                     c_ins1, c_ins2, c_ins3 = st.columns(3)
@@ -2962,7 +2977,7 @@ with t_invest:
                 if "Rekomendasi" in display.columns: styler = styler.map(color_rec, subset=["Rekomendasi"])
                 if "Value Score" in display.columns: styler = styler.map(color_score, subset=["Value Score"])
                 st.dataframe(styler, use_container_width=True, hide_index=True, height=500)
-                st.download_button("⬇️ Download Value Portfolio", df_inv.to_csv(index=False).encode("utf-8"), file_name=f"value_portfolio_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+                st.download_button("⬇️ Download Value Portfolio", to_csv_excel_id(df_inv), file_name=f"value_portfolio_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
                 st.divider()
                 st.markdown("### 📊 Ringkasan Portofolio Value")
                 r1, r2, r3, r4 = st.columns(4)
