@@ -1211,6 +1211,22 @@ with t_kandidat:
 # ============================================================================
 with t_sederhana:
     st.markdown("### 🔬 Screener Sederhana (Pembanding)")
+    # Filter tampilan Breakout/ZigZag terpisah (2026-09-01, user: "mungkin dipisahkan
+    # breakout atau zigzag atau keduanya") - dipicu saat user menduga screener kosong
+    # krn salah satu jalur. Backtest walk-forward yg BENAR (bukan yg lama, ada bug
+    # lookahead di skrip pengujian - BUKAN di kode ini) menunjukkan kedua jalur jauh
+    # berbeda keandalannya: Breakout N=204/3th, PF 12,49, stabil di kedua paruh waktu;
+    # ZigZag SENDIRIAN cuma N=23/3th (langka), PF 2,40, win rate 39,1%, paruh kedua malah
+    # NEGATIF (-2,32%) - tanda sampel terlalu kecil utk dipercaya, BUKAN terbukti bagus
+    # atau buruk. Filter ini murni tampilan (tidak mengubah cara sinyal dihitung) - dibuat
+    # supaya user bisa lihat sendiri asal tiap kandidat, terutama saat mengevaluasi apakah
+    # ZigZag layak dipertahankan.
+    filter_tipe_sederhana = st.radio(
+        "Tampilkan sinyal:", ["Breakout + ZigZag", "Breakout saja", "ZigZag saja"],
+        horizontal=True, key="filter_tipe_sederhana",
+        help="Breakout (N=204/3th, PF 12,49, stabil) jauh lebih teruji dari ZigZag "
+             "(N=23/3th saja, PF 2,40, tidak stabil di paruh kedua - sampel terlalu kecil "
+             "utk dipercaya). Pisahkan tampilannya kalau mau bandingkan sendiri.")
     # Statistik per pilihan SL cap (350 saham/3 tahun, sistem gabungan+slot-cap, RR>=2.0,
     # likuiditas ON) - README > "SL Cap: Trade-off Risk vs Return, Dibuat Bisa Dipilih".
     _stat_sl_cap = {
@@ -1235,9 +1251,19 @@ with t_sederhana:
         min_value_traded=(DEFAULT_PARAMS["min_value_traded"] if filter_likuiditas_sederhana else 0),
         sl_cap_pct=sl_cap_pct_sederhana,
     )
+    if filter_tipe_sederhana != "Breakout + ZigZag" and not cands_sederhana.empty:
+        tipe_pilih = "Breakout" if filter_tipe_sederhana == "Breakout saja" else "ZigZag"
+        cands_sederhana = cands_sederhana[cands_sederhana["Tipe Sinyal"] == tipe_pilih]
+
     if cands_sederhana.empty:
-        st.info("Tidak ada kandidat yang lolos (Breakout atau Zig Zag) + posisi 52-minggu "
-                "hari ini.")
+        if filter_tipe_sederhana == "Breakout saja":
+            st.info("Tidak ada kandidat Breakout hari ini.")
+        elif filter_tipe_sederhana == "ZigZag saja":
+            st.info("Tidak ada kandidat ZigZag hari ini - wajar, ZigZag jarang muncul "
+                    "(cuma ~23x dalam 3 tahun di backtest 336 saham).")
+        else:
+            st.info("Tidak ada kandidat yang lolos (Breakout atau Zig Zag) + posisi 52-minggu "
+                    "hari ini.")
     else:
         tampil_sederhana = cands_sederhana.rename(columns={"Saham": "Kode"})
         kolom_tampil_sederhana = [c for c in ["Kode", "Tipe Sinyal", "Entry", "Target", "Stop Loss", "% SL", "RR", "Lot", "Chart"]
