@@ -61,17 +61,17 @@ class TestOpenPositionsFromCandidates:
         assert appended[1] == "ZZZZ" and appended[10] == "OPEN" and appended[11] == 90.0
 
     def test_tipe_sinyal_direkam_kolom_m(self):
-        # "Tipe Sinyal" dari build_simple_candidates() ('Breakout'/'ZigZag') direkam di
-        # kolom M (index 12) - kolom baru ditambahkan setelah user: "mungkin perlu diuji
-        # juga penggunaan zig zag".
+        # "Tipe Sinyal" dari build_simple_candidates() direkam di kolom M (index 12) -
+        # kolom yg tetap ada walau screener sekarang cuma 1 jalur ('Breakout'), fungsi
+        # jurnal ini sengaja generik (rekam apapun nilainya) - dites pakai string bebas.
         candidates = pd.DataFrame([{"Saham": "ZZZZ", "Entry": 100.0, "Target": 150.0,
-                                     "Stop Loss": 90.0, "Lot": 10, "Tipe Sinyal": "ZigZag"}])
+                                     "Stop Loss": 90.0, "Lot": 10, "Tipe Sinyal": "Breakout"}])
         ws = _mock_ws()
         with patch.object(sj, "_get_worksheet", return_value=ws), \
              patch.object(sj, "load_positions", return_value=pd.DataFrame(columns=sj.HEADERS)):
             sj.open_positions_from_candidates(candidates)
         appended = ws.append_row.call_args[0][0]
-        assert appended[12] == "ZigZag"
+        assert appended[12] == "Breakout"
 
     def test_tipe_sinyal_default_breakout_kalau_kolom_tidak_ada(self):
         # Backward-compat: kandidat lama/test tanpa kolom "Tipe Sinyal" tidak boleh crash.

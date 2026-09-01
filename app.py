@@ -621,7 +621,7 @@ with st.sidebar:
     # filesystem saat runtime) supaya bisa dipastikan 100% apakah app benar2 menjalankan
     # kode ini atau bukan, tanpa tebak-tebakan lagi lain kali ada laporan serupa - UPDATE
     # string ini setiap kali push signifikan.
-    st.caption("🔖 Versi kode: 2026-08-28-zigzag-entry")
+    st.caption("🔖 Versi kode: 2026-09-01-zigzag-dihapus")
     session = get_market_session()
     st.markdown(f"""<div style="background:{session['color']};border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;border:1px solid rgba(255,255,255,0.1);"><div style="font-size:11px;color:rgba(255,255,255,0.7);">MARKET SESSION</div><div style="font-size:16px;font-weight:700;color:#fff;margin:4px 0;">{session['session']}</div><div style="font-size:10px;color:rgba(255,255,255,0.6);">{session['desc']}</div></div>""", unsafe_allow_html=True)
     if session['next_open'] and session['countdown'] > 0:
@@ -1211,39 +1211,31 @@ with t_kandidat:
 # ============================================================================
 with t_sederhana:
     st.markdown("### 🔬 Screener Sederhana (Pembanding)")
-    # Filter tampilan Breakout/ZigZag terpisah (2026-09-01, user: "mungkin dipisahkan
-    # breakout atau zigzag atau keduanya") - dipicu saat user menduga screener kosong
-    # krn salah satu jalur. Backtest walk-forward yg BENAR (bukan yg lama, ada bug
-    # lookahead di skrip pengujian - BUKAN di kode ini) menunjukkan kedua jalur jauh
-    # berbeda keandalannya: Breakout N=204/3th, PF 12,49, stabil di kedua paruh waktu;
-    # ZigZag SENDIRIAN cuma N=23/3th (langka), PF 2,40, win rate 39,1%, paruh kedua malah
-    # NEGATIF (-2,32%) - tanda sampel terlalu kecil utk dipercaya, BUKAN terbukti bagus
-    # atau buruk. Filter ini murni tampilan (tidak mengubah cara sinyal dihitung) - dibuat
-    # supaya user bisa lihat sendiri asal tiap kandidat, terutama saat mengevaluasi apakah
-    # ZigZag layak dipertahankan.
-    filter_tipe_sederhana = st.radio(
-        "Tampilkan sinyal:", ["Breakout + ZigZag", "Breakout saja", "ZigZag saja"],
-        horizontal=True, key="filter_tipe_sederhana",
-        help="Breakout (N=204/3th, PF 12,49, stabil) jauh lebih teruji dari ZigZag "
-             "(N=23/3th saja, PF 2,40, tidak stabil di paruh kedua - sampel terlalu kecil "
-             "utk dipercaya). Pisahkan tampilannya kalau mau bandingkan sendiri.")
-    # Statistik per pilihan SL cap (350 saham/3 tahun, sistem gabungan+slot-cap, RR>=2.0,
-    # likuiditas ON) - README > "SL Cap: Trade-off Risk vs Return, Dibuat Bisa Dipilih".
+    # ZigZag DIHAPUS (2026-09-01, user: "hapus zigzat, kalau itu yang terbaik") - sempat
+    # ada jalur entry KEDUA (pivot reversal), TAPI skrip backtest yg memvalidasinya
+    # ternyata ada bug lookahead (pivot dikonfirmasi pakai data 3 tahun ke depan) yg
+    # melebih-lebihkan frekuensi sinyalnya 6x. Diuji ULANG walk-forward yg benar: ZigZag
+    # SENDIRIAN cuma N=23/3th (langka), PF 2,40, win rate 39,1%, paruh kedua malah NEGATIF
+    # - sampel terlalu kecil utk dipercaya. Breakout (yg SEKARANG satu-satunya jalur di
+    # sini) jauh lebih kuat & stabil: N=204/3th, PF 12,49, split-half +17,91%/+19,12%.
+    # Detail lengkap di screener.py::build_simple_candidates() & README.
+    # Statistik per pilihan SL cap (336 saham/3 tahun, Breakout saja, walk-forward benar,
+    # target proyeksi 0,5x, RR minimum 1,5x) - README > "SL Cap: Trade-off Risk vs Return".
     _stat_sl_cap = {
-        0.03: "avg +7,93%/trade, win rate 64,9%, Profit Factor 8,05 (tertinggi) (angka target proyeksi 1,0x & RR>=2,0 lama, belum diuji ulang dgn setting sekarang)",
-        0.05: "avg +9,20%/trade, win rate 73,5%, Profit Factor 8,41 (target proyeksi 0,5x, RR minimum 1,5x)",
-        0.10: "avg +9,02%/trade, win rate 75,0% (tertinggi) (angka target proyeksi 1,0x & RR>=2,0 lama, belum diuji ulang dgn setting sekarang)",
+        0.03: "avg +14,44%/trade, win rate 62,3%, Profit Factor 12,27, paling stabil (+14,38%/+14,51%)",
+        0.05: "avg +18,51%/trade, win rate 69,6%, Profit Factor 12,49 (tertinggi)",
+        0.10: "avg +25,55%/trade, win rate 74,1% (tertinggi), Profit Factor 10,76",
     }
-    st.caption("Entry: **Breakout** (20-hari + posisi 52-minggu + volume DI BAWAH rata-rata) "
-               "ATAU **Zig Zag** (titik balik 10%, lebih dini dari breakout - posisi 52-minggu "
-               f"& volume DI BAWAH rata-rata SAMA wajib), RR minimum 1,5x. Target = proyeksi "
-               "0,5x rentang Donchian (diperketat dari 1,0x - lebih dekat, lebih sering "
-               f"tercapai). SL dibatasi {sl_cap_pct_sederhana*100:.0f}% (bisa diubah di "
+    st.caption("Entry: **Breakout** (harga > Donchian High 20-hari + posisi 52-minggu "
+               "wajib lolos + volume DI BAWAH rata-rata), RR minimum 1,5x. Target = "
+               "proyeksi 0,5x rentang Donchian. "
+               f"SL dibatasi {sl_cap_pct_sederhana*100:.0f}% (bisa diubah di "
                "sidebar). Keluar: Sinyal Jual Dini (turun >=5% dari puncak sejak dibeli, "
                "sambil masih profit) + kunci untung 2 lapis (sebelum & sesudah Target "
-               "tercapai). Diuji GABUNGAN dgn batas realistis 5 posisi baru/hari (350 "
-               f"saham/3 tahun): {_stat_sl_cap[sl_cap_pct_sederhana]}. Dibandingkan LIVE di "
-               "sini dgn jurnal & sheet Google Sheets terpisah dari sistem utama.")
+               "tercapai). Diuji dgn batas realistis 5 posisi baru/hari (336 "
+               f"saham/3 tahun, walk-forward): {_stat_sl_cap[sl_cap_pct_sederhana]}. "
+               "Dibandingkan LIVE di sini dgn jurnal & sheet Google Sheets terpisah dari "
+               "sistem utama.")
 
     cands_sederhana = build_simple_candidates(
         table, price_data, top_n=int(jumlah_kandidat_tampil),
@@ -1251,19 +1243,8 @@ with t_sederhana:
         min_value_traded=(DEFAULT_PARAMS["min_value_traded"] if filter_likuiditas_sederhana else 0),
         sl_cap_pct=sl_cap_pct_sederhana,
     )
-    if filter_tipe_sederhana != "Breakout + ZigZag" and not cands_sederhana.empty:
-        tipe_pilih = "Breakout" if filter_tipe_sederhana == "Breakout saja" else "ZigZag"
-        cands_sederhana = cands_sederhana[cands_sederhana["Tipe Sinyal"] == tipe_pilih]
-
     if cands_sederhana.empty:
-        if filter_tipe_sederhana == "Breakout saja":
-            st.info("Tidak ada kandidat Breakout hari ini.")
-        elif filter_tipe_sederhana == "ZigZag saja":
-            st.info("Tidak ada kandidat ZigZag hari ini - wajar, ZigZag jarang muncul "
-                    "(cuma ~23x dalam 3 tahun di backtest 336 saham).")
-        else:
-            st.info("Tidak ada kandidat yang lolos (Breakout atau Zig Zag) + posisi 52-minggu "
-                    "hari ini.")
+        st.info("Tidak ada kandidat Breakout + posisi 52-minggu hari ini.")
     else:
         tampil_sederhana = cands_sederhana.rename(columns={"Saham": "Kode"})
         kolom_tampil_sederhana = [c for c in ["Kode", "Tipe Sinyal", "Entry", "Target", "Stop Loss", "% SL", "RR", "Lot", "Chart"]

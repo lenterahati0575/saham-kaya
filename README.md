@@ -3128,6 +3128,60 @@ kalender libur bursa presisi), muncul kotak merah PERINGATAN JELAS - drpd diam-d
 menampilkan data basi seolah normal & user harus menyadari sendiri dari kolom "Tanggal
 Harga" satu-satu.
 
+## Bug Lookahead di Backtest Zig Zag - Ditemukan, Zig Zag Dihapus (2026-09-01)
+
+User melaporkan Screener Sederhana kosong berhari-hari lintas ~600 saham, menduga bug.
+Dicek: kode `screener.py` **tidak ada bug** - Breakout genuinely langka belakangan
+(funnel 10 hari terakhir: cuma 1-2x, ZigZag nol sama sekali). Tapi investigasi ini
+menemukan sesuatu yang lebih penting.
+
+**Bug yang ditemukan**: SEMUA skrip backtest offline yang dipakai memvalidasi jalur Zig
+Zag sejak ditambahkan (bagian "Zig Zag: Entry Tambahan" & "Zig Zag Sekarang Juga Wajib
+Volume Rendah" di atas) mengandung **lookahead** - pivot dihitung SEKALI dari seluruh
+histori 3 tahun, lalu dicek "apakah index t-1 pernah jadi pivot" tanpa peduli KAPAN pivot
+itu sungguh terkonfirmasi. Kode live sendiri (`compute_zigzag_pivots()` dipanggil dari
+`price_data` yang selalu terpotong s.d. hari ini) SUDAH walk-forward benar sejak awal -
+bug murni di skrip pengujian offline, bukan di aplikasi.
+
+Dibuktikan dgn sampel 20 saham: metode lookahead menghitung 141 hari-sinyal, metode
+walk-forward yang benar (verifikasi ulang persis logika live, atau versi 1-pass yang cek
+konfirmasi TEPAT saat kejadian) cuma 24 - **6x lipat lebih sedikit**. Backtest walk-forward
+yang benar (336 saham/3 tahun, sistem gabungan Breakout+ZigZag, setting live: target
+0,5x, RR>=1,5): N=227 (bukan 457), 22,7% hari ada sinyal (bukan 38,0%), avg +17,05%,
+PF 10,77 (semuanya BERBEDA dari angka lama, krn sinyal ZigZag "hantu" yang kualitasnya
+lemah ikut terhapus).
+
+Dipecah per jalur: **Breakout sendirian** N=204/3th (21,0% hari), avg +18,51%, win rate
+69,6%, PF 12,49, split-half **stabil** (+17,91%/+19,12%, membaik di paruh kedua).
+**ZigZag sendirian** cuma N=23/3th (2,4% hari, sangat langka), avg +4,11%, win rate
+39,1%, PF 2,40, split-half **+11,12%/-2,32%** - paruh kedua NEGATIF, tanda sampel terlalu
+kecil untuk dipercaya bagus ATAU buruk, bukan bukti ZigZag pasti jelek, tapi juga bukan
+bukti dia bagus.
+
+**Audit susulan** (RR minimum, SL cap, MAX_HOLD, target proyeksi) diuji ulang dgn ZigZag
+walk-forward yang benar untuk pastikan kesimpulan lama tidak ikut terkontaminasi:
+- RR minimum & SL cap & MAX_HOLD: kesimpulan arah **tetap berlaku** (trade-off yang sama,
+  cuma angka mutlak sedikit berbeda).
+- **Target proyeksi (`target_proj_mult`) - kesimpulan lama TERBALIK**: klaim sebelumnya
+  ("0,5x adalah puncak optimum interior, bukan overfitting") **salah**, itu juga artefak
+  dari sistem yang masih menyertakan ZigZag. Diuji ulang (Breakout saja): PF naik MONOTON
+  semakin ke bawah (0,25x=13,00 -> 0,5x=10,77 -> 1,0x=7,50), tidak ada puncak - ini
+  trade-off biasa spt RR minimum, bukan optimum objektif. 0,5x dipertahankan sbg titik
+  tengah yang wajar, bukan krn "terbukti optimal".
+
+**Keputusan user** ("hapus zigzat, kalau itu yang terbaik"): jalur Zig Zag dihapus
+sepenuhnya dari `build_simple_candidates()` - screener kembali Breakout-saja, seperti
+sebelum Zig Zag ditambahkan. `compute_zigzag_pivots()` tetap disimpan di `screener.py`
+(fungsi murni, tidak dipakai lagi di sini) untuk kemungkinan dipakai fitur lain nanti -
+TAPI dengan peringatan tegas di docstring-nya: jangan dipakai lagi untuk backtest tanpa
+memastikan caller-nya walk-forward yang benar.
+
+**Pelajaran metodologi** (berlaku untuk backtest apa pun di proyek ini ke depan): sebelum
+mempercayai sinyal berbasis pivot/reversal apa pun, pastikan detektornya cuma memakai
+informasi yang tersedia PADA hari sinyal itu, bukan seluruh histori sekali hitung lalu
+dicek keanggotaan index-nya belakangan - pola itu persis cara bug ini bersembunyi selama
+beberapa sesi.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

@@ -1122,18 +1122,24 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
 
 
 def compute_zigzag_pivots(close: pd.Series, threshold_pct: float = 10.0) -> list[tuple[int, float, str]]:
-    """Rangkaian pivot Zig Zag (index posisi, harga, tipe 'H'/'L') dari seri harga Close -
-    fungsi MURNI, walk-forward-safe SELAMA caller cuma pakai pivot yang idx-nya <= t saat
-    entry (pivot yang lebih baru dari itu belum "kelihatan" pada waktu t, jadi diabaikan
-    begitu saja - tidak butuh slicing df.iloc[:t+1] khusus di fungsi ini).
+    """Rangkaian pivot Zig Zag (index posisi, harga, tipe 'H'/'L') dari seri harga Close.
 
     Definisi: pivot baru terbentuk begitu harga berbalik >= threshold_pct% dari extreme
     (titik tertinggi/terendah) yang sedang berjalan - memfilter noise kecil, cuma
     menyisakan swing signifikan (standar umum utk indikator Zig Zag saham).
 
-    User: "mungkin perlu diuji juga penggunaan zig zag" - dites sbg entry TAMBAHAN
-    (bukan pengganti) utk `build_simple_candidates()` (lihat parameter `zz_threshold_pct`
-    di sana) - README > "Zig Zag: Entry Tambahan, Bukan Pengganti Breakout"."""
+    PERINGATAN WALK-FORWARD (ditemukan 2026-09-01, README > catatan bug lookahead
+    ZigZag): fungsi ini AMAN dipakai live HANYA kalau `close` yang diberikan SUDAH
+    dipotong pas sampai "hari ini" (spt cara screener.py memanggilnya dulu, price_data
+    live memang selalu begitu). KALAU dipanggil dengan seri yang lebih panjang dari itu
+    (msl. seluruh histori 3 tahun utk backtest) lalu hasil pivot-nya dicocokkan ke index
+    hari T tanpa peduli KAPAN pivot itu SEBENARNYA terkonfirmasi (bisa jauh setelah T,
+    memakai data yg belum ada pada hari T) - itu LOOKAHEAD, bukan walk-forward, meski
+    kelihatannya aman krn extreme_idx pivot itu sendiri <= T. Ini persis bug yang bikin
+    validasi jalur "Zig Zag" di `build_simple_candidates()` (SUDAH DIHAPUS dari sana)
+    melebih-lebihkan frekuensi sinyal 6x. Kalau mau backtest walk-forward yang benar,
+    hitung ULANG per-hari dgn seri yg dipotong s.d. hari itu saja (atau versi 1-pass
+    yang cek konfirmasi TEPAT saat itu terjadi, bukan cek keanggotaan belakangan)."""
     pivots: list[tuple[int, float, str]] = []
     if len(close) < 2:
         return pivots
@@ -1176,56 +1182,45 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
                              min_rr: float = 1.5, top_n: int = 20,
                              require_bullish_regime: bool = False, regime_status: str | None = None,
                              total_equity: float | None = None, risk_pct: float = 1.0,
-                             sl_cap_pct: float = 0.05, zz_threshold_pct: float = 10.0,
+                             sl_cap_pct: float = 0.05,
                              min_value_traded: float = 0.0, target_proj_mult: float = 0.5) -> pd.DataFrame:
     """SCREENER SEDERHANA (pembanding) - user: "apakah perlu buat screener pembanding.
     mungkin lebih sederhana tapi bisa winrate lebih tinggi dan buy/sellnya tepat", lalu
     "target saya yang penting profit dengan risk rendah, tetap profesional."
 
-    Entry = Breakout ATAU Zig Zag (keduanya diwajibkan lolos Posisi 52-minggu/Minervini):
+    Entry = **Breakout**: Harga > Donchian High (lookback hari) + wajib lolos Posisi
+    52-minggu/Minervini + Volume Ratio <= 1.0 (volume hari ini DI BAWAH rata-rata 20
+    hari - KEBALIKAN dari intuisi umum "volume tinggi = konfirmasi kuat", TAPI terbukti
+    lebih baik di data). DIUJI (336 saham/3 tahun, walk-forward, batas realistis 5 slot
+    posisi baru/hari): N=204/3th (21,0% hari ada sinyal), avg +18,51%/trade, win rate
+    69,6%, Profit Factor 12,49, split-half STABIL (+17,91%/+19,12% - membaik di paruh
+    kedua, bukan cuma searah).
 
-    1. **Breakout**: Harga > Donchian High (lookback hari) + Volume Ratio <= 1.0 (volume
-       hari ini DI BAWAH rata-rata 20 hari - KEBALIKAN dari intuisi umum "volume tinggi =
-       konfirmasi kuat", TAPI terbukti lebih baik di data). Kriteria ASLI screener ini,
-       tidak diubah - DIUJI (350 saham/3 tahun, walk-forward, README > "Screener
-       Sederhana"): N=381, avg +9,70%/trade, win rate 59,1%, PF 6,22.
-    2. **Zig Zag** (ditambahkan setelah user - "mungkin perlu diuji juga penggunaan zig
-       zag" - mengeluhkan entry breakout TERLAMBAT, "setelah harga sudah tinggi baru
-       ditangkap screener"): hari ini TEPAT 1 hari setelah pivot Zig Zag LOW baru
-       terkonfirmasi (`compute_zigzag_pivots()`, threshold 10% - lihat catatan tuning di
-       bawah). Volume RENDAH JUGA diwajibkan (SAMA syarat dgn Breakout, ditambahkan
-       2026-08-31 setelah diuji - lihat komentar di `is_zigzag_row`), README > "Zig Zag".
+    ZIG ZAG DIHAPUS (2026-09-01, user: "hapus zigzat, kalau itu yang terbaik", setelah
+    saya laporkan temuan). Riwayat singkat: sempat ditambahkan sbg jalur entry KEDUA
+    (pivot reversal 10%, "lebih dini dari breakout") krn user mengeluhkan Breakout
+    terlambat menangkap harga yg sudah naik. TAPI skrip backtest yg dipakai memvalidasi
+    jalur ini (termasuk semua angka lama di komentar sebelumnya - N=1.035 dst.) ternyata
+    punya BUG LOOKAHEAD: pivot dikonfirmasi pakai pengetahuan 3 TAHUN KE DEPAN (bukan
+    cuma data s.d. hari itu spt yg dilakukan kode aslinya di sini) - dibuktikan dgn
+    sampel 20 saham: metode lookahead bilang 141 hari-sinyal, walk-forward yg BENAR cuma
+    24 (6x lipat lebih sedikit). Diuji ULANG dgn walk-forward yg benar: ZigZag SENDIRIAN
+    cuma N=23/3th (2,4% hari, sangat langka), avg +4,11%, win rate 39,1%, PF 2,40,
+    split-half +11,12%/-2,32% (paruh kedua NEGATIF - tanda sampel terlalu kecil utk
+    dipercaya, bukan terbukti bagus ATAU buruk). Dibandingkan Breakout yg jauh lebih kuat
+    & stabil di atas, keputusan user: hapus jalur ini sepenuhnya, screener kembali
+    Breakout-saja spt sebelum Zig Zag ditambahkan. `compute_zigzag_pivots()` TETAP
+    disimpan di file ini (tidak dipakai lagi di sini) - siapa tahu berguna utk fitur lain
+    nanti, TAPI JANGAN dipakai lagi utk backtest tanpa memastikan pemanggilnya walk-
+    forward yg benar (lihat catatan bug di atas).
 
-    Kedua jalur diberi tag di kolom "Tipe Sinyal" ('Breakout'/'ZigZag') - kalau SATU saham
-    lolos KEDUA jalur di hari yang sama, ditandai 'Breakout' (RR jalur ini biasanya lebih
-    tinggi & sudah lebih lama tervalidasi tunggal).
-
-    DIUJI GABUNGAN (bukan cuma masing2 terpisah - user tanya "no.2 paling ideal?" soal
-    menggabungkan sbg kondisi OR): 350 saham/3 tahun, walk-forward, SIMULASI REALISTIS
-    dgn batas 5 slot posisi baru/hari (sesuai `MAX_POSISI_BARU_PER_HARI` di auto_run.py)
-    diprioritaskan RR tertinggi - BUKAN cuma menjumlah 2 backtest terpisah begitu saja,
-    krn keduanya berebut slot yang sama di hari yang sama. Hasil (README > "Zig Zag:
-    Entry Tambahan"): GABUNGAN N jauh lebih besar dari Breakout sendirian, Profit Factor
-    GABUNGAN lebih tinggi dari KEDUA sistem terpisah (bukan didilusi) - jalur Zig Zag
-    tidak merebut slot dari Breakout yang bagus (RR Breakout tetap menang duluan di
-    sorting), cuma mengisi slot KOSONG di hari2 Breakout tidak menyala. Trade-off jujur:
-    avg return/trade turun sedikit (krn trade Zig Zag secara alami lebih kecil untungnya
-    dari Breakout) - pertukaran yang sepadan mengingat PF-nya justru naik & volume
-    kesempatan jauh lebih besar.
-
-    TUNING THRESHOLD ZIG ZAG (user: "optimalkan sistem sederhana kalau memungkinkan",
-    2026-08-31): disweep 3%-30% dgn simulasi slot-cap yg SAMA di atas. PF naik hampir
-    monoton (3%=3,53 -> 5%=4,29 -> 10%=4,73 -> 30%=4,93) TAPI mulai goyang tidak rapi di
-    atas 12% (12%=4,79 turun ke 15%=4,74 baru naik lagi) sambil N terus menyusut - tanda
-    mulai overfitting kalau dikejar ke ekstrem. Dipilih 10% sbg titik aman: N masih besar
-    (2.711, cuma turun ~7% dari baseline 5%), avg naik dari +5,84%->+7,34%, PF 4,29->4,73,
-    winrate 58,3%->59,3% - DIVALIDASI split-half stabil (+7,72%/+6,96%) & KEDUA regime
-    naik (Bullish PF 5,25->5,66, Bearish PF 3,10->3,42), bukan cocok-cocokan sesaat.
-
-    SL dibatasi 5% (sl_cap_pct=0.05, BUKAN 10% seperti build_trade_candidates()) utk
-    KEDUA jalur - diuji terpisah (user: "apakah rugi terburuk bisa diturunkan misal
-    maksimal 5%"): rugi terburuk/trade turun hampir separuh (-10,4% -> -5,4%), Profit
-    Factor malah naik (3,39 -> 3,79) - bukan trade-off merugikan.
+    SL dibatasi 5% (sl_cap_pct=0.05, BUKAN 10% seperti build_trade_candidates()) - diuji
+    terpisah (user: "apakah rugi terburuk bisa diturunkan misal maksimal 5%") DAN diuji
+    ULANG stlh Zig Zag dihapus (Breakout saja, walk-forward benar): 3%->PF 12,27 (N=244,
+    plg stabil +14,38%/+14,51%), 5%->PF 12,49 (N=204, TERTINGGI, skrg live default),
+    10%->PF 10,76 (N=116, avg/winrate tertinggi tapi PF turun). 5% tetap pilihan terbaik
+    scr PF, TAPI ini trade-off jujur (avg return vs frekuensi vs risiko per trade) -
+    dibiarkan bisa dipilih user (sl_cap_pct), bukan dipaksa satu angka.
 
     Exit-nya BUKAN tanggung jawab fungsi ini (Target/SL di sini cuma level AWAL) - lihat
     `simple_journal.py::auto_close_positions()` utk mekanisme Target-Lock + partial-lock
@@ -1244,29 +1239,34 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
     lewat jurnal terpisah (`simple_journal.py`, sheet Google Sheets sendiri), bukan cuma
     backtest sekali jalan.
 
-    RR MINIMUM (2026-08-31, user: "uji juga filter likuiditas dan rr minimum") - disweep
-    1.0-5.0 di sistem GABUNGAN+slot-cap (waktu itu MASIH pakai target proyeksi 1,0x): naik
-    MONOTON tanpa goyang (1.0=PF6,61 -> 1.5=6,76 -> 2.0=7,17 -> ... -> 5.0=9,64). Sempat
-    dinaikkan ke 2.0, TAPI setelah target proyeksi diperketat ke 0,5x (lihat catatan di
-    bawah - reward jadi ~separuh utk risiko yg sama, RR ikut turun ~separuh utk setup yg
-    SAMA), KEDUA pengetatan itu MENUMPUK: user melaporkan tab Screener Sederhana sering
-    kosong ("apakah screener cocok. saya tidak centang volume 3M") - dicek ULANG (2026-09-
-    01): 60,0% hari ada sinyal (target 0,5x+RR>=2,0) vs 70,6% hari (setting awal), turun
-    signifikan. Dikembalikan ke **1.5** (BUKAN 2.0) - mempertahankan SEBAGIAN BESAR untung
-    dari target 0,5x (PF 8,41 vs baseline lama 6,76, naik 24%) sambil pulihkan sebagian
-    frekuensi (472 sinyal/62,6% hari vs 433 sinyal/60,0% hari kalau RR tetap 2.0). Pelajaran:
-    2 pengetatan yang MASING-MASING tervalidasi baik belum tentu SEHAT ditumpuk bersama -
-    perlu dicek ULANG efek frekuensinya, bukan cuma kualitas avg/PF-nya saja.
+    RR MINIMUM - disweep 1.0-5.0 (Breakout saja, walk-forward benar, 2026-09-01): naik
+    MONOTON tanpa goyang (1.0=PF8,54 -> 1.5=10,77 -> 2.0=12,64 -> 2.5=13,86 -> 3.0=13,31
+    -> 4.0=17,10 -> 5.0=13,22, N terus menyusut 258->57). Dipertahankan **1.5** - trade-off
+    kualitas-vs-frekuensi yg sadar, bukan angka "terbaik" tunggal (README > catatan
+    "efek menumpuk 2 pengetatan" - pelajaran dari saat RR & target proyeksi PERNAH
+    dinaikkan bersamaan tanpa cek ulang efek frekuensi gabungannya, screener jadi sering
+    kosong).
 
-    LIKUIDITAS (`min_value_traded`) - DIUJI ULANG di sistem gabungan: OFF (PF 9,00) >
-    ON/Rp 3M (PF 6,76) - HATI-HATI, ini BUKAN bukti gate likuiditas buruk. Universe
-    backtest (350 saham) SUDAH kurasi ke saham yg reasonably likuid - saham BENAR-BENAR
-    tidak likuid (yg jadi alasan gate ini ada, spy tidak salah pilih saham yg mustahil
-    dieksekusi riil) TIDAK terwakili di sample ini, jadi hasil "OFF menang" mencerminkan
-    bias sample (memfilter sebagian saham small-cap yg justru returnnya besar di sample
-    KHUSUS ini), BUKAN bukti nyata thd risiko eksekusi di dunia nyata (962 saham penuh,
-    byk yg genuinely tidak likuid). Gate TETAP dipertahankan aktif (checkbox default ON di
-    app.py) - keputusan ini TIDAK diubah oleh temuan backtest ini."""
+    TARGET PROYEKSI (`target_proj_mult`, default 0,5x) - PERINGATAN: klaim lama di sini
+    ("0,5x adalah puncak optimum interior, terbukti bukan overfitting") SALAH, ditemukan
+    saat audit ulang 2026-09-01 - klaim itu dihitung dgn sistem yg MASIH menyertakan
+    ZigZag yg lookahead-bug (lihat catatan di atas). Diuji ULANG (Breakout saja,
+    walk-forward benar): PF naik MONOTON semakin ke bawah (0,25x=13,00 -> 0,3x=12,54 ->
+    0,4x=11,67 -> 0,5x=10,77 -> 0,75x=8,00 -> 1,0x=7,50), baru mendatar ~7,8-8,0 di atas
+    1,0x - TIDAK ADA puncak interior, ini trade-off kualitas-vs-frekuensi biasa (spt RR
+    minimum di atas), bukan optimum objektif. 0,5x dipertahankan sbg titik tengah yg
+    wajar (N=227 msh cukup sering), TAPI kalau user mau kualitas lebih tinggi dgn
+    konsekuensi sinyal lebih jarang, 0,25-0,3x adalah pilihan sah, bukan "salah".
+
+    LIKUIDITAS (`min_value_traded`) - DIUJI di sistem lama (msh menyertakan ZigZag
+    lookahead-bug, BELUM diuji ulang Breakout-saja): OFF (PF 9,00) > ON/Rp 3M (PF 6,76) -
+    HATI-HATI, ini BUKAN bukti gate likuiditas buruk. Universe backtest (336 saham) SUDAH
+    kurasi ke saham yg reasonably likuid - saham BENAR-BENAR tidak likuid (yg jadi alasan
+    gate ini ada, spy tidak salah pilih saham yg mustahil dieksekusi riil) TIDAK terwakili
+    di sample ini, jadi hasil "OFF menang" mencerminkan bias sample, BUKAN bukti nyata thd
+    risiko eksekusi di dunia nyata (962 saham penuh, byk yg genuinely tidak likuid). Gate
+    TETAP dipertahankan aktif (checkbox default ON di app.py) - keputusan ini TIDAK
+    diubah oleh temuan backtest ini."""
     if require_bullish_regime and regime_status != "BULLISH":
         return pd.DataFrame()
     minervini_ok = table["Minervini Position OK"].fillna(False)
@@ -1282,40 +1282,7 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
         likuiditas_ok = pd.Series(True, index=table.index)
     is_breakout_row = breakout & minervini_ok & volume_rendah & likuiditas_ok
 
-    # Zig Zag: per saham (bukan dari kolom `table`, krn butuh histori penuh) - cek apakah
-    # bar KEDUA-DARI-TERAKHIR adalah pivot Low baru (artinya hari INI tepat 1 hari setelah
-    # pivot itu terkonfirmasi) - no lookahead krn compute_zigzag_pivots() cuma diberi
-    # histori yang SUDAH tersedia s.d. hari ini (price_data selalu histori-ke-hari-ini,
-    # tidak pernah berisi hari di masa depan saat dipanggil live).
-    zigzag_kode: set[str] = set()
-    if minervini_ok.any():
-        for kode in table.loc[minervini_ok, "Kode"]:
-            df = price_data.get(kode)
-            if df is None or len(df) < lookback + 3:
-                continue
-            n = len(df)
-            pivots = compute_zigzag_pivots(df["Close"], zz_threshold_pct)
-            if any(idx == n - 2 and typ == "L" for idx, _, typ in pivots):
-                zigzag_kode.add(kode)
-    # Volume RENDAH juga diwajibkan utk Zig Zag (2026-08-31) - user: "coba tes zig zag
-    # dengan volume". Awalnya Zig Zag TANPA filter volume sama sekali (diasumsikan
-    # mungkin butuh volume TINGGI sbg konfirmasi reversal, kebalikan dari Breakout) -
-    # DIUJI (1.035 sinyal ZigZag sendirian, 350 saham/3 tahun): volume RENDAH (<=1.0x)
-    # menang jelas (PF 3,46->4,15, winrate 62,8%->70,9%, split-half stabil), volume
-    # TINGGI malah kalah & makin goyang split-half-nya kalau diperketat (>=2,0x: PF turun
-    # ke 2,29, split-half +5,77%/+1,49% - tanda overfitting di sampel kecil). Divalidasi
-    # ULANG di sistem GABUNGAN dgn slot-cap (README > "Zig Zag: Entry Tambahan"): GABUNGAN
-    # avg +7,91%->+8,34%, winrate 59,4%->60,4%, PF 5,03->5,24 - menang bersih, BUKAN cuma
-    # di uji terpisah.
-    is_zigzag_row = minervini_ok & table["Kode"].isin(zigzag_kode) & likuiditas_ok & volume_rendah
-
-    tipe_map: dict[str, str] = {}
-    for kode in table.loc[is_breakout_row, "Kode"]:
-        tipe_map[kode] = "Breakout"
-    for kode in table.loc[is_zigzag_row, "Kode"]:
-        tipe_map.setdefault(kode, "ZigZag")
-
-    picks = table[is_breakout_row | is_zigzag_row]
+    picks = table[is_breakout_row]
     rows = []
     for _, r in picks.iterrows():
         kode = r["Kode"]
@@ -1326,7 +1293,7 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
         entry = float(r["Harga"])
         # SL = PALING KETAT dari (Donchian Low, MA20, sl_cap_pct di bawah entry) - SAMA
         # pola dgn build_trade_candidates(), cuma sl_cap_pct=0.05 (bukan 0.10) - lihat
-        # komentar diuji di atas. Dipakai SAMA utk kedua jalur (Breakout & Zig Zag).
+        # komentar diuji di atas.
         ma20 = float(df["Close"].rolling(20).mean().iloc[-1]) if df is not None and len(df) >= 20 else dl
         sl_cap = entry * (1 - sl_cap_pct)
         sl_candidates = [x for x in [dl, ma20, sl_cap] if x < entry]
@@ -1359,7 +1326,7 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
             # bukan cap-nya) - user minta ditampilkan biar kelihatan risiko riil, bukan cuma
             # asumsi selalu 5%.
             "% SL": round(risk / entry * 100, 2),
-            "Tipe Sinyal": tipe_map.get(kode, "Breakout"),
+            "Tipe Sinyal": "Breakout",
             "Chart": tradingview_url(kode),
         }
         if total_equity and total_equity > 0:
