@@ -714,23 +714,21 @@ with st.sidebar:
              "sudah divalidasi lewat backtest).")
     # User: "uji juga stop loss 3%,5%,10%" -> hasilnya TRADE-OFF nyata (bukan satu menang
     # jelas spt volume/RR): makin longgar SL, makin tinggi winrate & avg return, TAPI makin
-    # rendah Profit Factor & makin besar rugi terburuk/trade. User: "mungkin dikondisikan" -
-    # dibuat pilihan, bukan dipatok 1 nilai, spy Bro bisa sesuaikan sendiri toleransi risiko.
-    sl_cap_label_sederhana = st.selectbox(
-        "Batas SL Screener Sederhana", options=["3% (Risk Rendah)", "5% (Seimbang - default)", "10% (Return Tertinggi)"],
-        index=1,
-        help="Diuji (350 saham/3 tahun, sistem gabungan+slot-cap, SEBELUM target proyeksi "
-             "diperketat ke 0,5x - lihat catatan itu di README): 3% = Profit Factor "
-             "tertinggi (8,05) & rugi terburuk terkecil (-3,4%/trade), TAPI avg return & "
-             "winrate paling rendah (+7,93%/64,9%). 10% = avg return & winrate tertinggi "
-             "(+9,02%/75,0%), TAPI PF terendah & rugi terburuk terbesar (-10,4%/trade) - "
-             "lebih rawan kalau klaster SL bersamaan terulang (pernah terjadi: 7 saham "
-             "kena SL 1 hari). 5% = titik tengah yang sudah tervalidasi. Pola relatifnya "
-             "(longgar=return&winrate naik, PF&rugi terburuk memburuk) kemungkinan tetap "
-             "berlaku, TAPI angka persisnya belum diuji ulang dgn target 0,5x - anggap "
-             "sbg estimasi arah, bukan angka final.")
-    sl_cap_pct_sederhana = {"3% (Risk Rendah)": 0.03, "5% (Seimbang - default)": 0.05,
-                             "10% (Return Tertinggi)": 0.10}[sl_cap_label_sederhana]
+    # rendah Profit Factor & makin besar rugi terburuk/trade. Awalnya dibuat selectbox 3
+    # pilihan tetap - user (2026-09-01): "mungkin dihilangkan saja pilihannya jadi ri
+    # risiko 0-10% bisa muncul bersamaan. cukup di nampaakn dikolam risiko berapa
+    # risikonya, saya bebas memilih" -> diganti slider bebas 1-10% (bukan dropdown
+    # terbatas), spy Bro bisa pilih PERSIS berapa % sendiri, bukan cuma 3 titik.
+    sl_cap_pct_sederhana_persen = st.slider(
+        "Batas SL Screener Sederhana (%)", min_value=1, max_value=10, value=5, step=1,
+        help="Diuji (336 saham/3 tahun, Breakout saja, walk-forward benar, target "
+             "proyeksi 0,5x, RR minimum 1,5x): 3% = PF 12,27 (avg +14,44%, winrate 62,3%, "
+             "PALING stabil split-half). 5% = PF 12,49 (TERTINGGI, avg +18,51%, winrate "
+             "69,6% - default). 10% = PF 10,76 (avg +25,55%, winrate 74,1% TERTINGGI, "
+             "tapi rugi terburuk/trade jauh lebih besar). Makin longgar SL: winrate & avg "
+             "return naik, TAPI PF & rugi terburuk memburuk - pilih sesuai toleransi "
+             "risiko sendiri, bukan satu angka yang pasti 'terbaik'.")
+    sl_cap_pct_sederhana = sl_cap_pct_sederhana_persen / 100
     st.divider()
     st.subheader("🔮 IHSG Gann + Time Cycle")
     st.caption("Sudah diuji historis (10 tahun IHSG) - hit rate-nya SETARA hari acak, bukan lebih akurat. "
@@ -1219,13 +1217,19 @@ with t_sederhana:
     # - sampel terlalu kecil utk dipercaya. Breakout (yg SEKARANG satu-satunya jalur di
     # sini) jauh lebih kuat & stabil: N=204/3th, PF 12,49, split-half +17,91%/+19,12%.
     # Detail lengkap di screener.py::build_simple_candidates() & README.
-    # Statistik per pilihan SL cap (336 saham/3 tahun, Breakout saja, walk-forward benar,
-    # target proyeksi 0,5x, RR minimum 1,5x) - README > "SL Cap: Trade-off Risk vs Return".
+    # Statistik cuma diuji PERSIS di 3%/5%/10% (336 saham/3 tahun, Breakout saja,
+    # walk-forward benar) - slider skrg bebas 1-10%, titik lain diinterpolasi via catatan
+    # arah trade-off-nya, bukan dites satu2 - README > "SL Cap: Trade-off Risk vs Return".
     _stat_sl_cap = {
-        0.03: "avg +14,44%/trade, win rate 62,3%, Profit Factor 12,27, paling stabil (+14,38%/+14,51%)",
-        0.05: "avg +18,51%/trade, win rate 69,6%, Profit Factor 12,49 (tertinggi)",
-        0.10: "avg +25,55%/trade, win rate 74,1% (tertinggi), Profit Factor 10,76",
+        3: "avg +14,44%/trade, win rate 62,3%, Profit Factor 12,27, paling stabil (+14,38%/+14,51%)",
+        5: "avg +18,51%/trade, win rate 69,6%, Profit Factor 12,49 (tertinggi)",
+        10: "avg +25,55%/trade, win rate 74,1% (tertinggi), Profit Factor 10,76",
     }
+    _stat_sl_cap_teks = _stat_sl_cap.get(
+        sl_cap_pct_sederhana_persen,
+        "belum diuji persis di angka ini - arah umumnya: makin longgar (mendekati 10%) "
+        "winrate & avg return naik tapi PF & rugi terburuk memburuk, makin ketat "
+        "(mendekati 1%) sebaliknya (lihat 3%/5%/10% di bawah sbg titik acuan)")
     st.caption("Entry: **Breakout** (harga > Donchian High 20-hari + posisi 52-minggu "
                "wajib lolos + volume DI BAWAH rata-rata), RR minimum 1,5x. Target = "
                "proyeksi 0,5x rentang Donchian. "
@@ -1233,7 +1237,7 @@ with t_sederhana:
                "sidebar). Keluar: Sinyal Jual Dini (turun >=5% dari puncak sejak dibeli, "
                "sambil masih profit) + kunci untung 2 lapis (sebelum & sesudah Target "
                "tercapai). Diuji dgn batas realistis 5 posisi baru/hari (336 "
-               f"saham/3 tahun, walk-forward): {_stat_sl_cap[sl_cap_pct_sederhana]}. "
+               f"saham/3 tahun, walk-forward): {_stat_sl_cap_teks}. "
                "Dibandingkan LIVE di sini dgn jurnal & sheet Google Sheets terpisah dari "
                "sistem utama.")
 
