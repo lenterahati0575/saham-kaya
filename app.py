@@ -1256,6 +1256,32 @@ with t_sederhana:
         dataframe_with_chart(tampil_sederhana[kolom_tampil_sederhana], kode_col="Kode",
                               height=350, key="df_sederhana")
 
+        # Checklist per kandidat (2026-09-01, user cerita sering RAGU membeli walau
+        # sistem sudah teruji, minta "kiat" -> ditawarkan checklist otomatis, user: "mau").
+        # Tujuannya BEHAVIORAL, bukan filter tambahan (semua baris di sini SUDAH lolos
+        # SEMUA syarat scr program, checklist ini cuma menampilkan itu EKSPLISIT satu-satu)
+        # - biar user tidak perlu "mengevaluasi ulang" scr mental tiap kali mau beli, yang
+        # justru berisiko jadi keputusan LUAR sistem yang belum teruji (lihat README >
+        # "Bug Lookahead..." soal 'jangan tambah pertimbangan yang belum diuji'). Sengaja
+        # default collapsed - checklist SUSULAN, bukan ganti tabel di atas.
+        for _, _row in cands_sederhana.iterrows():
+            with st.expander(f"📋 Checklist: {_row['Saham']}"):
+                _lot_line = (f"\n- ✅ **Lot: {int(_row['Lot'])}** sesuai Risiko per Trade "
+                             f"Anda ({risk_pct_per_trade:.1f}% dari equity)" if "Lot" in _row and pd.notna(_row.get("Lot")) else "")
+                st.markdown(
+                    f"- ✅ **Breakout**: Harga (Rp{_row['Entry']:,.0f}) sudah menembus Donchian High 20-hari\n"
+                    f"- ✅ **Posisi 52-minggu (Minervini)**: lolos\n"
+                    f"- ✅ **Volume rendah**: hari ini di bawah rata-rata 20 hari\n"
+                    f"- ✅ **RR {_row['RR']}x** (minimum 1,5x)\n"
+                    f"- ✅ **Stop Loss Rp{_row['Stop Loss']:,.0f}** ({_row['% SL']}% risiko dari entry)"
+                    f"{_lot_line}\n\n"
+                    "Semua syarat di atas sudah lolos otomatis - saham ini TIDAK butuh "
+                    "pertimbangan tambahan dari Anda. Sistem ini teruji PF 12,49, win rate "
+                    "69,6% dari 204 sinyal nyata (336 saham/3 tahun, walk-forward). Kalau "
+                    "ragu: keraguan yang tidak berdasar aturan di atas justru menjalankan "
+                    "strategi LAIN yang belum diuji, bukan strategi yang PF 12,49 ini."
+                )
+
     # SINYAL JUAL (SAMA fitur dgn tab Kandidat, README > "Sinyal Jual Tampil Langsung di
     # Tab Kandidat") - user: "lakukan juga discreener sederhana."
     if simple_journal.is_configured():
