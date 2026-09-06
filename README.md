@@ -3222,6 +3222,40 @@ berulang tiap klaim Astronacci spesifik diuji rigorous (lihat juga uji moon-phas
 atas). "Time Geometric Cycle" (istilah eksklusif mereka) tidak diuji - tidak ada definisi
 publik yang bisa direplikasi.
 
+## 3 Ide Entry Alternatif Diuji, Tidak Ada yang Lolos (2026-09-06)
+
+Setelah ZigZag dihapus, user mengusulkan 3 ide berbeda utk entry saham individual
+(terinspirasi chart INET dgn indikator "ZigZag++"/"Smart Money Concept" TradingView).
+Ketiganya diuji rigorous (336 saham/3 tahun, walk-forward, README internal - TIDAK jadi
+fitur, investigasi murni sesuai permintaan user utk "lebih hati-hati krn risiko uang"):
+
+**1. ZigZag saham + syarat IHSG dekat bottom-nya sendiri** (hipotesis: mayoritas saham
+ikut arah IHSG, jadi timing pakai bottom IHSG). HASILNYA TERBALIK dari dugaan: ZigZag
+saham saat IHSG DEKAT bottom-nya justru RUGI (N=220, PF 0,86), saat IHSG JAUH dari
+bottom-nya malah lebih baik (N=299, PF 1,47) - membeli pantulan saham individual SAAT
+pasar keseluruhan masih tertekan lebih berisiko ("menangkap pisau jatuh" bareng-bareng).
+
+**2. CHoCH + Demand Zone (Smart Money Concept)** - replikasi sendiri (bukan indikator
+proprietary TradingView persis) dari konsep: struktur Lower-Low lalu Close menembus
+resistance struktural (key_high) = sinyal beli, SL = swing low (Demand Zone). Diuji K=2/3/5
+(ketatnya deteksi swing): SEMUA varian mentah lemah (PF 0,94-1,20), varian +filter penuh
+sampelnya sangat kecil (N=4-12) dgn pola split-half KONSISTEN negatif di paruh kedua di
+SEMUA K - tanda tidak reliable, bukan cuma sampel kecil kebetulan.
+
+**3. Beli di bottom + candle konfirmasi volume, hold sampai HH (Higher High), "bisa
+berbulan-bulan"** - dites 2 definisi target: swing high fractal terdekat (avg_hold cuma
+9-17 hari, TERBUKTI salah skala dari yg dimaksud user) lalu High 52-minggu (skala besar
+yg sesuai maksud user). Hasil dgn High 52w: PF 1,05 (mentah)/0,80 (+filter), avg_hold
+25-46 hari. Temuan kunci: mayoritas posisi (59-76%) kena SL DULUAN sebelum sempat
+mendekati target sejauh itu - hanya minoritas (14-37%) yg benar2 "naik ke HH" spt
+digambarkan user (itu yg menarik avg_hold jadi berhari-hari puluhan), TAPI minoritas ini
+tidak cukup menutup kerugian mayoritas yg gagal di tengah jalan.
+
+**Kesimpulan gabungan**: ketiga ide - meski masing2 punya contoh nyata yg meyakinkan
+(INET) - TIDAK terbukti sbg strategi sistematis yg reliable, konsisten lebih lemah dari
+Breakout yg sekarang live (PF 12,49, N=204, stabil kedua paruh). Tidak ada perubahan kode
+dari investigasi ini - screener.py TETAP Breakout-saja.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
