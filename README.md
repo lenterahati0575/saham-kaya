@@ -3182,6 +3182,46 @@ informasi yang tersedia PADA hari sinyal itu, bukan seluruh histori sekali hitun
 dicek keanggotaan index-nya belakangan - pola itu persis cara bug ini bersembunyi selama
 beberapa sesi.
 
+## Analisis Gap IHSG (fill rate) - Tab IHSG Analysis (2026-09-01)
+
+Muncul dari diskusi tentang klaim "Eye of Future" (Astronacci) yang menonjolkan gap IHSG
+sebagai "target" harga (mis. "TARGET GAP AT 8,873"). Dites dengan data 36 tahun IHSG asli
+(1990-2026, bukan 2 slide marketing): total 2.064 gap (1.163 NAIK, 901 TURUN).
+
+**Fill rate per horizon waktu** (gap vs KONTROL level harga acak, bukan gap):
+
+| Horizon | Gap NAIK | Gap TURUN | Gabungan | Kontrol (level acak) |
+|---|---|---|---|---|
+| ~1 bulan | 62,9% | 61,9% | 62,5% | **79,7%** |
+| ~3 bulan | 73,9% | 74,6% | 74,2% | **82,9%** |
+| ~1 tahun | 83,8% | 86,6% | 85,0% | **87,4%** |
+| Selamanya | 95,6% | 99,6% | 97,3% | 98,5% |
+
+**Kesimpulan**: level harga ACAK (bukan gap) justru terisi LEBIH cepat & lebih sering di
+SETIAP horizon dibanding gap - gap BUKAN "target istimewa". Memang benar hampir semua gap
+akhirnya terisi (95-99%), tapi itu karena IHSG naik terus jangka panjang 36 tahun ini -
+hampir semua level harga lama akhirnya terlewati lagi kalau nunggu cukup lama (kontrolnya
+juga 98,5%), bukan sifat khusus gap. Median waktu terisi: 7-8 hari bursa.
+
+**Yang tetap berguna** (murni psikologis/edukasi, BUKAN sinyal trading): user merasa lebih
+tenang & sabar saat floating loss setelah tahu karakter IHSG memang cenderung akhirnya
+melewati lagi harga-harga lama, bukan menjauh selamanya. Ditambahkan tab "Gap IHSG" (di
+"IHSG Analysis") menampilkan breakdown fill-rate LIVE (bukan angka statis, `screener.py::
+ihsg_gap_fill_stats()`) + daftar gap yang MASIH TERBUKA sekarang (`detect_open_ihsg_gaps()`)
+dengan caption yang jujur soal batasannya di atas.
+
+**Verifikasi menarik**: gap yang masih terbuka hasil deteksi otomatis kita (level 8.873,
+7.933, 6.186) PERSIS sama dengan level "target gap" di slide marketing Astronacci - bukti
+kalau angka itu bisa direproduksi dgn deteksi gap standar, bukan wawasan rahasia/proprietary.
+
+**Juga diuji** (README internal, tidak masuk fitur - tidak ada definisi publik yang bisa
+direplikasi): siklus Venus Synodic (583,921 hari) & Jupiter Synodic (398,884 hari) vs 492
+titik balik IHSG asli - keduanya TIDAK beda signifikan dari tanggal acak (z=-0,11 dan
+-0,55, persentil ke-51 dan ke-67 dari 500x kontrol acak) - konsisten dgn pola yg sama
+berulang tiap klaim Astronacci spesifik diuji rigorous (lihat juga uji moon-phase Gold di
+atas). "Time Geometric Cycle" (istilah eksklusif mereka) tidak diuji - tidak ada definisi
+publik yang bisa direplikasi.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

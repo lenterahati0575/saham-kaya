@@ -11,7 +11,7 @@ import pytest
 
 from screener import (DEFAULT_PARAMS, compute_metrics, market_regime, build_trade_candidates,
                       ihsg_seasonality, build_screener_table, build_simple_candidates,
-                      compute_zigzag_pivots)
+                      compute_zigzag_pivots, detect_open_ihsg_gaps, ihsg_gap_fill_stats)
 
 
 def _flat_ohlcv(n: int, price: float = 1000.0, volume: float = 2_000_000.0) -> pd.DataFrame:
@@ -608,6 +608,87 @@ class TestComputeZigzagPivots:
         s = pd.Series(closes)
         assert len(compute_zigzag_pivots(s, threshold_pct=5.0)) > 0
         assert compute_zigzag_pivots(s, threshold_pct=10.0) == []
+
+
+class TestIhsgGap:
+    """Fitur murni INFO/konteks psikologis (user: gap "bikin lebih tenang, lebih sabar"
+    saat floating loss, minta juga breakdown fill-rate "bisa jadi acuan kedepannya") -
+    BUKAN sinyal trading, README > "Analisis Gap IHSG (fill rate)"."""
+
+    def _gap_naik_lalu_terisi(self):
+        # 10 hari flat @1000, lompat naik (gap NAIK, level=1000 = High hari ke-9), flat
+        # beberapa hari, lalu turun balik tembus 1000 -> gap terisi di hari ke-16 (index
+        # 0-based), yaitu 6 hari setelah terbentuk (index 10).
+        # Hari terakhir (idx16) SENGAJA overlap dgn High/Low hari sebelumnya (idx15) -
+        # supaya turun balik ke 990 (mengisi gap lama di level 1000) TIDAK sekaligus
+        # membentuk gap TURUN baru (yg akan terjadi kalau High hari itu < Low hari
+        # sebelumnya - bukan yang mau diuji di sini).
+        idx = pd.date_range("2024-01-01", periods=17, freq="B")
+        data = {
+            "Open":  [1000] * 10 + [1105, 1110, 1110, 1110, 1110, 1110, 1105],
+            "High":  [1000] * 10 + [1120, 1120, 1120, 1120, 1120, 1120, 1115],
+            "Low":   [1000] * 10 + [1100, 1105, 1105, 1105, 1105, 1105, 990],
+            "Close": [1000] * 10 + [1110, 1110, 1110, 1110, 1110, 1110, 1000],
+        }
+        return pd.DataFrame(data, index=idx)
+
+    def _gap_turun(self, n_hari_setelah=1):
+        idx = pd.date_range("2024-01-01", periods=10 + n_hari_setelah, freq="B")
+        data = {
+            "Open":  [1000] * 10 + [895] * n_hari_setelah,
+            "High":  [1000] * 10 + [905] * n_hari_setelah,
+            "Low":   [1000] * 10 + [890] * n_hari_setelah,
+            "Close": [1000] * 10 + [895] * n_hari_setelah,
+        }
+        return pd.DataFrame(data, index=idx)
+
+    def test_gap_naik_terdeteksi_dgn_level_benar(self):
+        df = self._gap_naik_lalu_terisi()
+        gaps = detect_open_ihsg_gaps(df.iloc[:11])  # cuma s.d. hari gap terbentuk, blm terisi
+        assert len(gaps) == 1
+        assert gaps.iloc[0]["Tipe"] == "NAIK"
+        assert gaps.iloc[0]["Level"] == 1000.0
+
+    def test_gap_yang_sudah_terisi_tidak_muncul_di_open_gaps(self):
+        df = self._gap_naik_lalu_terisi()  # penuh 17 hari, gap sudah terisi di hari terakhir
+        assert detect_open_ihsg_gaps(df).empty
+
+    def test_gap_yang_masih_terbuka_tetap_muncul(self):
+        df = self._gap_naik_lalu_terisi()
+        gaps = detect_open_ihsg_gaps(df.iloc[:14])  # sblm hari pengisian (index 16)
+        assert len(gaps) == 1
+        assert gaps.iloc[0]["Hari Sejak Terbentuk"] == 3
+
+    def test_gap_turun_terdeteksi(self):
+        df = self._gap_turun()
+        gaps = detect_open_ihsg_gaps(df)
+        assert len(gaps) == 1
+        assert gaps.iloc[0]["Tipe"] == "TURUN"
+        assert gaps.iloc[0]["Level"] == 1000.0
+
+    def test_tanpa_gap_hasil_kosong(self):
+        assert detect_open_ihsg_gaps(_flat_ohlcv(20)).empty
+
+    def test_fill_stats_median_hari_dan_horizon_benar(self):
+        df = self._gap_naik_lalu_terisi()
+        stats = ihsg_gap_fill_stats(df)
+        assert stats["NAIK"]["n"] == 1
+        assert stats["NAIK"]["median_hari"] == 6.0  # terbentuk idx10, terisi idx16
+        assert stats["NAIK"]["~1 tahun"] == 100.0
+        assert stats["NAIK"]["~1 bulan"] == 100.0  # terisi 6 hari, <= horizon 20 hari (~1bln)
+        assert stats["TURUN"]["n"] == 0
+        assert stats["Gabungan"]["n"] == 1
+
+    def test_fill_stats_gap_yang_belum_terisi_tidak_dihitung_terisi(self):
+        df = self._gap_naik_lalu_terisi().iloc[:14]  # gap msh terbuka
+        stats = ihsg_gap_fill_stats(df)
+        assert stats["NAIK"]["n"] == 1
+        assert stats["NAIK"]["Selamanya (s.d. data terakhir)"] == 0.0
+
+    def test_fill_stats_data_kosong_tidak_error(self):
+        stats = ihsg_gap_fill_stats(pd.DataFrame())
+        assert stats["Gabungan"]["n"] == 0
+        assert stats["Gabungan"]["median_hari"] is None
 
 
 class TestFilterAntiKejarHarga:

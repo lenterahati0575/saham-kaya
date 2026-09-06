@@ -13,7 +13,8 @@ from scipy import stats
 from scipy.stats import norm
 from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_with_report, build_screener_table,
                       build_trade_candidates, build_simple_candidates, fetch_ihsg_history, market_regime,
-                      _donchian_levels, fetch_index_snapshot, ihsg_seasonality)
+                      _donchian_levels, fetch_index_snapshot, ihsg_seasonality, detect_open_ihsg_gaps,
+                      ihsg_gap_fill_stats)
 from telegram_notify import send_telegram_message, format_watchlist_message
 import gsheet_journal as gj
 import riwayat_journal
@@ -3250,6 +3251,50 @@ with t_ihsg:
                        "Bro sendiri, BUKAN dimasukkan ke logika Score/Signal/Rekomendasi sistem (belum diuji "
                        "cukup ketat sbg strategi trading, beda dgn filter regime IHSG > MA50 yang sudah "
                        "divalidasi lewat backtest realistis + out-of-sample).")
+
+        # ------------------------------------------------------------------------
+        # Gap IHSG (2026-09-01, user cerita "gap terisi" bikin dia lebih tenang & sabar
+        # saat floating loss, minta ditampilkan) - MURNI INFO/konteks psikologis, BUKAN
+        # sinyal beli/jual (diuji 36 tahun histori: gap BUKAN target istimewa - level
+        # harga acak malah terisi lebih cepat/sering di semua horizon, README > "Analisis
+        # Gap IHSG (fill rate)") - caption di bawah menyampaikan itu apa adanya, supaya
+        # ketenangannya berdasar data yang benar ("biasanya akhirnya terisi"), bukan
+        # ilusi "gap = target pasti tercapai".
+        st.divider()
+        st.markdown("### 🕳️ Gap IHSG - Fill Rate & Gap yang Masih Terbuka")
+        gap_stats = ihsg_gap_fill_stats(ihsg_long)
+        open_gaps = detect_open_ihsg_gaps(ihsg_long)
+        gb = gap_stats["Gabungan"]
+        if gb["n"] > 0:
+            st.caption(f"Dari {gb['n']} gap IHSG sepanjang histori ({int(gap_stats['NAIK']['n'])} NAIK, "
+                       f"{int(gap_stats['TURUN']['n'])} TURUN): median waktu sampai terisi "
+                       f"**{gb['median_hari']:.0f} hari bursa**. **Bukan sinyal trading** - level harga "
+                       "acak (bukan gap) justru terisi LEBIH cepat & lebih sering di semua horizon waktu "
+                       "(dicek terpisah, README > \"Analisis Gap IHSG\"), jadi gap bukan \"target "
+                       "istimewa\" - tapi karakter IHSG memang cenderung akhirnya melewati lagi harga-harga "
+                       "lama, bukan cuma menjauh selamanya. Berguna sbg konteks saat floating loss & acuan "
+                       "jangka panjang, bukan alasan menambah posisi atau menunggu target pasti tercapai.")
+            fill_rate_rows = []
+            for label, _ in [("~1 bulan", 20), ("~3 bulan", 60), ("~6 bulan", 120), ("~1 tahun", 250),
+                              ("Selamanya (s.d. data terakhir)", None)]:
+                fill_rate_rows.append({
+                    "Horizon": label,
+                    "Gap NAIK": f"{gap_stats['NAIK'][label]:.1f}%" if gap_stats['NAIK'][label] is not None else "-",
+                    "Gap TURUN": f"{gap_stats['TURUN'][label]:.1f}%" if gap_stats['TURUN'][label] is not None else "-",
+                    "Gabungan": f"{gb[label]:.1f}%" if gb[label] is not None else "-",
+                })
+            st.dataframe(pd.DataFrame(fill_rate_rows), use_container_width=True, hide_index=True)
+        st.markdown("#### Gap yang Masih Terbuka Sekarang")
+        if open_gaps.empty:
+            st.info("Tidak ada gap yang masih terbuka dalam ~2 tahun terakhir.")
+        else:
+            harga_ihsg_now = float(ihsg_long["Close"].iloc[-1])
+            open_gaps_disp = open_gaps.sort_values("Tanggal", ascending=False).copy()
+            open_gaps_disp["Jarak dari Harga Sekarang"] = open_gaps_disp["Level"].map(
+                lambda lvl: f"{(lvl - harga_ihsg_now) / harga_ihsg_now * 100:+.1f}%")
+            open_gaps_disp["Tanggal"] = open_gaps_disp["Tanggal"].dt.strftime("%d %b %Y")
+            open_gaps_disp["Level"] = open_gaps_disp["Level"].map(lambda x: f"{x:,.0f}")
+            st.dataframe(open_gaps_disp, use_container_width=True, hide_index=True, height=min(400, 50 + 35 * len(open_gaps_disp)))
 
 # ============================================================================
 # TAB 13: CORRELATION MATRIX (Dari app_premium_complete.py)

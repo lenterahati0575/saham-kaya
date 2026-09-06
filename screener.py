@@ -1481,3 +1481,114 @@ def fetch_index_snapshot(ihsg_hist: pd.DataFrame | None = None) -> dict[str, dic
         except Exception:
             continue
     return out
+
+
+def _find_ihsg_gaps(df: pd.DataFrame):
+    """Deteksi SEMUA gap IHSG (Low hari ini > High kemarin = gap NAIK, level = High
+    kemarin; High hari ini < Low kemarin = gap TURUN, level = Low kemarin) - fungsi murni
+    dipakai bersama oleh `detect_open_ihsg_gaps()` & `ihsg_gap_fill_stats()` di bawah,
+    supaya definisi gap-nya konsisten di kedua tempat (bukan didefinisikan 2x terpisah)."""
+    highs = df["High"].to_numpy()
+    lows = df["Low"].to_numpy()
+    gaps = []
+    for i in range(1, len(df)):
+        prev_high, prev_low = highs[i - 1], lows[i - 1]
+        today_low, today_high = lows[i], highs[i]
+        if today_low > prev_high:
+            gaps.append({"idx": i, "tipe": "NAIK", "level": float(prev_high)})
+        elif today_high < prev_low:
+            gaps.append({"idx": i, "tipe": "TURUN", "level": float(prev_low)})
+    return gaps
+
+
+def detect_open_ihsg_gaps(df: pd.DataFrame, max_lookback_days: int = 500) -> pd.DataFrame:
+    """Gap IHSG yang MASIH TERBUKA (belum pernah tersentuh lagi s.d. baris terakhir `df`).
+
+    User (2026-09-01) merasa lebih tenang mengetahui karakter IHSG cenderung mengisi
+    gap-nya (bukan sinyal beli/jual, murni konteks psikologis saat floating loss) - lihat
+    README > "Analisis Gap IHSG (fill rate)" utk data lengkapnya: dari 36 tahun histori,
+    95,6% gap NAIK & 99,6% gap TURUN akhirnya terisi (median 7-8 hari bursa) - TAPI level
+    harga ACAK (bukan gap) ternyata terisi LEBIH CEPAT & LEBIH SERING di semua horizon
+    (kontrol 79,7%/1bln vs gap cuma 62-63%/1bln) - gap BUKAN "target istimewa", cuma
+    harga lama yang wajar terlewati lagi seperti level manapun di indeks yang naik jangka
+    panjang. Ditampilkan sbg INFO, bukan sinyal.
+
+    `max_lookback_days` (default ~2 tahun bursa) membatasi pencarian - gap yang lebih tua
+    dari itu praktis pasti sudah terisi (83-87% terisi dlm 1 tahun bursa)."""
+    if df is None or len(df) < 2:
+        return pd.DataFrame(columns=["Tanggal", "Tipe", "Level", "Hari Sejak Terbentuk"])
+    df = df.dropna(subset=["High", "Low"]).tail(max_lookback_days + 1)
+    n = len(df)
+    highs = df["High"].to_numpy()
+    lows = df["Low"].to_numpy()
+    gaps = _find_ihsg_gaps(df)
+    rows = []
+    for g in gaps:
+        i, tipe, level = g["idx"], g["tipe"], g["level"]
+        filled = False
+        for j in range(i + 1, n):
+            if tipe == "NAIK" and lows[j] <= level:
+                filled = True
+                break
+            if tipe == "TURUN" and highs[j] >= level:
+                filled = True
+                break
+        if not filled:
+            rows.append({"Tanggal": df.index[i], "Tipe": tipe, "Level": round(level, 0),
+                         "Hari Sejak Terbentuk": n - 1 - i})
+    return pd.DataFrame(rows)
+
+
+_GAP_HORIZONS = [("~1 bulan", 20), ("~3 bulan", 60), ("~6 bulan", 120), ("~1 tahun", 250),
+                  ("Selamanya (s.d. data terakhir)", None)]
+
+
+def ihsg_gap_fill_stats(df: pd.DataFrame) -> dict:
+    """Breakdown lengkap fill-rate gap IHSG - per HORIZON waktu (~1bln/~3bln/~6bln/~1th/
+    selamanya) x per TIPE (NAIK/TURUN/Gabungan) - dihitung LIVE dari seluruh histori yang
+    diberikan (bukan angka statis), supaya tetap akurat & bisa jadi acuan jangka panjang
+    (user, 2026-09-01: "menghitung berapa lama gap tertutup ... ditampilkan datanya
+    sepanjang ihsg. mungkin bisa jadi acuan kedepannya"). Lihat `detect_open_ihsg_gaps()`
+    di atas & README > "Analisis Gap IHSG (fill rate)" utk definisi, konteks, dan
+    peringatan bahwa ini INFO/edukasi (gap BUKAN target istimewa dibanding level acak),
+    bukan sinyal trading."""
+    empty_row = {"n": 0, "median_hari": None, **{label: None for label, _ in _GAP_HORIZONS}}
+    if df is None or len(df) < 2:
+        return {"NAIK": dict(empty_row), "TURUN": dict(empty_row), "Gabungan": dict(empty_row)}
+    df = df.dropna(subset=["High", "Low"])
+    n = len(df)
+    highs = df["High"].to_numpy()
+    lows = df["Low"].to_numpy()
+    gaps = _find_ihsg_gaps(df)
+
+    fill_days_by_tipe = {"NAIK": [], "TURUN": []}
+    for g in gaps:
+        i, tipe, level = g["idx"], g["tipe"], g["level"]
+        filled_at = None
+        for j in range(i + 1, n):
+            if tipe == "NAIK" and lows[j] <= level:
+                filled_at = j - i
+                break
+            if tipe == "TURUN" and highs[j] >= level:
+                filled_at = j - i
+                break
+        fill_days_by_tipe[tipe].append(filled_at)  # None kalau blm pernah terisi
+
+    def _row(fill_days_list):
+        n_gap = len(fill_days_list)
+        row = {"n": n_gap}
+        finite = [d for d in fill_days_list if d is not None]
+        row["median_hari"] = float(pd.Series(finite).median()) if finite else None
+        for label, horizon in _GAP_HORIZONS:
+            if n_gap == 0:
+                row[label] = None
+            elif horizon is None:
+                row[label] = 100 * sum(1 for d in fill_days_list if d is not None) / n_gap
+            else:
+                row[label] = 100 * sum(1 for d in fill_days_list if d is not None and d <= horizon) / n_gap
+        return row
+
+    naik_row = _row(fill_days_by_tipe["NAIK"])
+    turun_row = _row(fill_days_by_tipe["TURUN"])
+    gabungan_row = _row(fill_days_by_tipe["NAIK"] + fill_days_by_tipe["TURUN"])
+    return {"NAIK": naik_row, "TURUN": turun_row, "Gabungan": gabungan_row}
