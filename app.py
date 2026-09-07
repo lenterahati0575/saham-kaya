@@ -12,9 +12,9 @@ import numpy as np
 from scipy import stats
 from scipy.stats import norm
 from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_with_report, build_screener_table,
-                      build_trade_candidates, build_simple_candidates, fetch_ihsg_history, market_regime,
-                      _donchian_levels, fetch_index_snapshot, ihsg_seasonality, detect_open_ihsg_gaps,
-                      ihsg_gap_fill_stats)
+                      build_trade_candidates, build_simple_candidates, build_vcp_candidates, fetch_ihsg_history,
+                      market_regime, _donchian_levels, fetch_index_snapshot, ihsg_seasonality,
+                      detect_open_ihsg_gaps, ihsg_gap_fill_stats)
 from telegram_notify import send_telegram_message, format_watchlist_message
 import gsheet_journal as gj
 import riwayat_journal
@@ -1282,6 +1282,39 @@ with t_sederhana:
                     "ragu: keraguan yang tidak berdasar aturan di atas justru menjalankan "
                     "strategi LAIN yang belum diuji, bukan strategi yang PF 12,49 ini."
                 )
+
+    # VCP (Volatility Contraction Pattern) - jalur entry TERPISAH dari Breakout di atas
+    # (2026-09-06, user cerita kisah sukses "David Noah, beli saat masih konsolidasi").
+    # DIUJI gabung dgn Breakout (share slot) TERBUKTI mengencerkan Breakout (PF 12,49 ->
+    # 4,50) - user pilih "opsi 3": tetap TERPISAH, TIDAK berbagi slot/tabel, supaya
+    # Breakout di atas TIDAK terpengaruh sama sekali. Lihat screener.py::
+    # build_vcp_candidates() utk detail lengkap hasil uji (PF 1,89, N=549, median POSITIF
+    # +0,77% - lebih lemah dari Breakout tapi genuinely stabil, bukan noise).
+    st.divider()
+    with st.expander("🔎 VCP (Konsolidasi) - Opsional, Terpisah dari Breakout di Atas"):
+        st.caption("Entry saat saham SEDANG konsolidasi kuat (rentang harian menyempit "
+                   ">=30% dibanding 10 hari sebelumnya) + posisi 52-minggu + volume rendah, "
+                   "RR minimum 1,5x - SAMA syarat dgn Breakout, cuma beda pemicu (konsolidasi, "
+                   "bukan tembus high). Diuji (336 saham/3 tahun, walk-forward): N=549, avg "
+                   "+1,42%/trade, median +0,77%, win rate 54,6%, Profit Factor 1,89, stabil "
+                   "membaik di kedua paruh waktu - JAUH lebih lemah dari Breakout (PF 12,49) "
+                   "TAPI genuinely positif, bukan sekadar kebetulan sampel kecil. Jurnal & "
+                   "Lot TIDAK otomatis tercatat terpisah - kalau mau eksekusi, catat manual "
+                   "di Jurnal Real dgn kode saham yang sama.")
+        cands_vcp = build_vcp_candidates(
+            table, price_data, top_n=int(jumlah_kandidat_tampil),
+            total_equity=total_equity_now, risk_pct=risk_pct_per_trade,
+            min_value_traded=(DEFAULT_PARAMS["min_value_traded"] if filter_likuiditas_sederhana else 0),
+            sl_cap_pct=sl_cap_pct_sederhana,
+        )
+        if cands_vcp.empty:
+            st.info("Tidak ada kandidat VCP hari ini.")
+        else:
+            tampil_vcp = cands_vcp.rename(columns={"Saham": "Kode"})
+            kolom_tampil_vcp = [c for c in ["Kode", "Tipe Sinyal", "Entry", "Target", "Stop Loss", "% SL", "RR", "Lot", "Chart"]
+                                 if c in tampil_vcp.columns]
+            dataframe_with_chart(tampil_vcp[kolom_tampil_vcp], kode_col="Kode",
+                                  height=300, key="df_vcp")
 
     # SINYAL JUAL (SAMA fitur dgn tab Kandidat, README > "Sinyal Jual Tampil Langsung di
     # Tab Kandidat") - user: "lakukan juga discreener sederhana."

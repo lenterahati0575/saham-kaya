@@ -3254,7 +3254,53 @@ tidak cukup menutup kerugian mayoritas yg gagal di tengah jalan.
 **Kesimpulan gabungan**: ketiga ide - meski masing2 punya contoh nyata yg meyakinkan
 (INET) - TIDAK terbukti sbg strategi sistematis yg reliable, konsisten lebih lemah dari
 Breakout yg sekarang live (PF 12,49, N=204, stabil kedua paruh). Tidak ada perubahan kode
-dari investigasi ini - screener.py TETAP Breakout-saja.
+dari investigasi ini - screener.py TETAP Breakout-saja saat itu (lihat section VCP di
+bawah utk ide KE-4 yang MENYUSUL & LOLOS).
+
+## VCP (Volatility Contraction Pattern) sbg Entry Terpisah - Satu-satunya Ide yang Lolos (2026-09-06)
+
+User cerita kisah sukses "David Noah, beli saham saat masih konsolidasi". Konsep ini
+("VCP Kuat") SUDAH ada sejak lama di `compute_metrics()` sbg info+ranking boost saja
+(README > "Referensi Screener Profesional"), belum pernah dijadikan entry trigger
+tersendiri - diuji sbg itu sekarang (336 saham/3 tahun, walk-forward, +Minervini+volume
+rendah+RR>=1,5, SAMA gate dgn Breakout, +cooldown 10 hari spy 1 fase konsolidasi cuma
+hasilkan 1 sinyal):
+
+| | N | Avg | Median | Win Rate | PF | Split-half |
+|---|---|---|---|---|---|---|
+| VCP mentah (tanpa filter) | 3.373 | +0,37% | -0,69% (negatif!) | 36,2% | 1,24 | +0,29%/+0,46% |
+| **VCP + filter penuh** | **549** | **+1,42%** | **+0,77%** | **54,6%** | **1,89** | **+0,94%/+1,90%** |
+| Breakout (baseline live) | 204 | +18,51% | +2,10% | 69,6% | 12,49 | +17,91%/+19,12% |
+
+BEDA dari ZigZag/CHoCH/Bottom+Volume+HH yang SEMUA ditolak: VCP+filter median-nya
+POSITIF (bukan skewed oleh sedikit winner besar), N besar (549, bukan sampel kecil
+kebetulan), dan split-half STABIL MEMBAIK. Jauh lebih lemah dari Breakout, tapi genuinely
+reliable.
+
+**Diuji GABUNG dgn Breakout** (share slot 5/hari, prioritas RR) juga: TERBUKTI
+mengencerkan Breakout (PF 12,49 -> 4,50, avg 18,51%->5,59%; 18 dari 204 sinyal Breakout
+kalah slot lawan VCP di hari ramai) - meski hari-ada-sinyal naik 21,0%->49,4% dan PF
+gabungan (4,50) masih solid profitable. User pilih **"opsi 3"**: TETAP TERPISAH (fungsi &
+tampilan sendiri, `screener.py::build_vcp_candidates()`, TIDAK berbagi slot/tabel dgn
+Breakout) - Breakout 100% tidak terganggu, VCP jadi expander opsional di tab Screener
+Sederhana ("🔎 VCP (Konsolidasi) - Opsional, Terpisah dari Breakout").
+
+## Timing Eksekusi: Entry=Close vs Entry=Open Besok (2026-09-06)
+
+User tanya "apakah teknik backtest sudah yang terbaik/benar" - salah satu keterbatasan
+jujur yang diangkat: seluruh backtest sesi ini asumsi Entry = Close PADA HARI SINYAL itu
+sendiri, padahal eksekusi riil baru mungkin besok pagi (Open). Diuji ulang Breakout
+dengan asumsi realistis ini (336 saham/3 tahun):
+
+| | N | Avg | Median | Win Rate | PF | Split-half |
+|---|---|---|---|---|---|---|
+| Entry=Close hari sinyal (asumsi lama) | 204 | +18,51% | +2,10% | 69,6% | 12,49 | +17,91%/+19,12% |
+| **Entry=Open besok (realistis)** | 204 | **+14,08%** | +2,10% | 60,8% | **7,75** | +13,69%/+14,48% |
+
+Turun (wajar, harga sudah bereaksi semalam) TAPI tetap kuat & stabil di kedua paruh -
+edge Breakout TIDAK rapuh/tergantung asumsi eksekusi yang tidak realistis. Ekspektasi
+realistis: PF ~7,75, bukan 12,49, kalau eksekusi benar2 besok pagi. Tidak ada perubahan
+kode dari temuan ini - murni penyesuaian ekspektasi.
 
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 

@@ -1343,6 +1343,117 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
     return out.sort_values("RR", ascending=False).head(top_n).reset_index(drop=True)
 
 
+def _compute_vcp_kuat_series(df: pd.DataFrame) -> pd.Series:
+    """VCP kuat per hari (walk-forward, no lookahead) - PERSIS definisi yang sudah ada di
+    `compute_metrics()` (rasio rentang harian High-Low/Close 10 hari TERAKHIR vs 10 hari
+    SEBELUM itu, <0.7 = kontraksi >=30%, tanda konsolidasi kuat)."""
+    high, low, close = df["High"], df["Low"], df["Close"]
+    range_pct = (high - low) / close * 100
+    range_pct_hist = range_pct.shift(1)
+    recent10 = range_pct_hist.rolling(10).mean()
+    prior10 = range_pct_hist.shift(10).rolling(10).mean()
+    vcp_rasio = recent10 / prior10
+    return ((vcp_rasio < 0.7) & (prior10 > 0)).fillna(False)
+
+
+def build_vcp_candidates(table: pd.DataFrame, price_data: dict, lookback: int = 20,
+                          min_rr: float = 1.5, top_n: int = 20,
+                          total_equity: float | None = None, risk_pct: float = 1.0,
+                          sl_cap_pct: float = 0.05, min_value_traded: float = 0.0,
+                          target_proj_mult: float = 0.5, cooldown_days: int = 10) -> pd.DataFrame:
+    """Entry TERPISAH dari `build_simple_candidates()` (Breakout) - VCP (Volatility
+    Contraction Pattern): saham lagi konsolidasi kuat. User cerita kisah sukses "David
+    Noah, beli saham saat masih konsolidasi" (2026-09-06) - konsep ini TERNYATA sudah
+    dipakai sbg info+ranking boost di `compute_metrics()` sejak lama ("VCP Kuat"), TAPI
+    belum pernah dijadikan entry trigger sendiri.
+
+    DIUJI (336 saham/3 tahun, walk-forward, +Minervini+volume rendah+RR>=1,5, SAMA gate
+    dgn Breakout): N=549, avg +1,42%/trade, median +0,77% (POSITIF - beda dari VCP MENTAH
+    tanpa filter yg median NEGATIF -0,69%, pola "sering rugi kecil kadang untung besar"
+    spt cerita David Noah, TAPI dgn filter jadi konsisten positif), win rate 54,6%,
+    Profit Factor 1,89, split-half STABIL & MEMBAIK (+0,93%/+1,91%) - N besar (549),
+    BUKAN kebetulan sampel kecil spt ZigZag/CHoCH yg SUDAH ditolak sebelumnya (README >
+    "3 Ide Entry Alternatif Diuji, Tidak Ada yang Lolos").
+
+    DIUJI GABUNGAN dgn Breakout juga (slot cap 5/hari, prioritas RR) - hasilnya
+    MENGENCERKAN Breakout (PF 12,49 -> 4,50, 18 dari 204 sinyal Breakout kalah slot lawan
+    VCP). User: "opsi 3" - TETAP TERPISAH (fungsi & tampilan sendiri, TIDAK berbagi slot
+    dgn Breakout) - Breakout tetap 100% murni tanpa terganggu, VCP jadi pilihan TAMBAHAN
+    yang bisa dilihat/dipakai terpisah.
+
+    `cooldown_days` (default 10): jeda minimum sejak hari VCP kuat TERAKHIR - tanpa ini,
+    state VCP-kuat naik-turun berkali2 dlm 1 fase konsolidasi yg sama (window rolling
+    harian berisik), bikin sinyal duplikat/redundan (TERBUKTI saat diuji: 19% hari
+    trigger tanpa cooldown vs 3,4% dgn cooldown 10 hari - jauh lebih masuk akal sbg
+    kejadian diskrit)."""
+    if table.empty:
+        return pd.DataFrame()
+    minervini_ok = table["Minervini Position OK"].fillna(False)
+    volume_rendah = table["Volume Ratio"].fillna(999) <= 1.0
+    if min_value_traded and min_value_traded > 0 and "Value Traded (Rp)" in table.columns:
+        likuiditas_ok = table["Value Traded (Rp)"].fillna(0) >= min_value_traded
+    else:
+        likuiditas_ok = pd.Series(True, index=table.index)
+    eligible = minervini_ok & volume_rendah & likuiditas_ok
+
+    vcp_kode: set[str] = set()
+    if eligible.any():
+        for kode in table.loc[eligible, "Kode"]:
+            df = price_data.get(kode)
+            if df is None or len(df) < 25:
+                continue
+            vcp_series = _compute_vcp_kuat_series(df)
+            if not bool(vcp_series.iloc[-1]):
+                continue
+            recent_window = vcp_series.iloc[-(cooldown_days + 1):-1]
+            if recent_window.any():
+                continue
+            vcp_kode.add(kode)
+
+    picks = table[table["Kode"].isin(vcp_kode)]
+    rows = []
+    for _, r in picks.iterrows():
+        kode = r["Kode"]
+        df = price_data.get(kode)
+        dh, dl = _donchian_levels(df, lookback)
+        if dh is None or dl is None or dl <= 0:
+            continue
+        entry = float(r["Harga"])
+        ma20 = float(df["Close"].rolling(20).mean().iloc[-1]) if df is not None and len(df) >= 20 else dl
+        sl_cap = entry * (1 - sl_cap_pct)
+        sl_candidates = [x for x in [dl, ma20, sl_cap] if x < entry]
+        sl = max(sl_candidates) if sl_candidates else sl_cap
+        if entry <= sl:
+            continue
+        target = dh + target_proj_mult * (dh - dl)
+        risk = entry - sl
+        reward = target - entry
+        if risk <= 0 or reward <= 0:
+            continue
+        rr = reward / risk
+        if rr < min_rr:
+            continue
+        row_out = {
+            "Saham": kode, "RR": round(rr, 2), "Entry": round(entry, 0),
+            "Target": round(target, 0), "Stop Loss": round(sl, 0),
+            "% SL": round(risk / entry * 100, 2),
+            "Tipe Sinyal": "VCP",
+            "Chart": tradingview_url(kode),
+        }
+        if total_equity and total_equity > 0:
+            risiko_rp = total_equity * (risk_pct / 100)
+            lembar = risiko_rp / risk
+            lot = int(lembar // 100)
+            if lot < 1:
+                continue
+            row_out["Lot"] = lot
+        rows.append(row_out)
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return out.sort_values("RR", ascending=False).head(top_n).reset_index(drop=True)
+
+
 def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
     """Tentukan kondisi pasar keseluruhan (regime) dari IHSG."""
     if ihsg_df is None or ihsg_df.empty or len(ihsg_df) < ma_period:

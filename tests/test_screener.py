@@ -11,7 +11,8 @@ import pytest
 
 from screener import (DEFAULT_PARAMS, compute_metrics, market_regime, build_trade_candidates,
                       ihsg_seasonality, build_screener_table, build_simple_candidates,
-                      compute_zigzag_pivots, detect_open_ihsg_gaps, ihsg_gap_fill_stats)
+                      compute_zigzag_pivots, detect_open_ihsg_gaps, ihsg_gap_fill_stats,
+                      build_vcp_candidates, _compute_vcp_kuat_series)
 
 
 def _flat_ohlcv(n: int, price: float = 1000.0, volume: float = 2_000_000.0) -> pd.DataFrame:
@@ -580,6 +581,80 @@ class TestBuildSimpleCandidates:
         out = build_simple_candidates(self._table(), self._price_data(), lookback=20, min_rr=1.5,
                                        min_value_traded=3_000_000_000)
         assert not out.empty
+
+
+class TestBuildVcpCandidates:
+    """VCP (Volatility Contraction Pattern) sbg entry TERPISAH dari Breakout (2026-09-06,
+    user cerita kisah sukses "David Noah, beli saham saat masih konsolidasi"). DIUJI (336
+    saham/3 tahun, walk-forward, +Minervini+volume rendah+RR>=1,5): N=549, avg
+    +1,42%/trade, median +0,77% (POSITIF - beda dari VCP mentah tanpa filter yg median
+    NEGATIF -1,98%/-0,69%), win rate 54,6%, Profit Factor 1,89, stabil membaik di kedua
+    paruh - README > "3 Ide Entry Alternatif Diuji" (VCP satu2nya yang lolos dari 4 ide).
+    Sengaja TERPISAH dari build_simple_candidates() (Breakout) - digabung TERBUKTI
+    mengencerkan Breakout (PF 12,49 -> 4,50), user pilih tetap terpisah ("opsi 3")."""
+
+    def _table_vcp(self, harga=1000.0, minervini_ok=True, volume_ratio=0.8):
+        return pd.DataFrame([{
+            "Kode": "AAA", "Harga": harga,
+            "Minervini Position OK": minervini_ok, "Volume Ratio": volume_ratio,
+        }])
+
+    def _df_first_trigger(self, prior_range_pct=10.0, recent_range_pct=1.0):
+        # _vcp_ohlcv() tetap vcp_kuat BEBERAPA hari berturut2 menjelang baris terakhirnya
+        # (window rolling bikin kondisi menyala sebelum baris "hari ini" tercapai) - utk
+        # uji "trigger BARU" yang bersih (bukan ketabrak cooldown-nya sendiri), potong df
+        # persis di hari PERTAMA vcp_kuat menyala (>=10 hari sebelumnya semua False).
+        df = _vcp_ohlcv(n_base=40, prior_range_pct=prior_range_pct, recent_range_pct=recent_range_pct)
+        vcp = _compute_vcp_kuat_series(df)
+        true_idx = vcp[vcp]
+        if true_idx.empty:
+            return df.iloc[:0]  # tidak pernah vcp_kuat sama sekali (dipakai test negatif)
+        first_true_pos = vcp.index.get_loc(true_idx.index[0])
+        return df.iloc[:first_true_pos + 1]
+
+    def test_vcp_terdeteksi_lolos_semua_kriteria(self):
+        df = self._df_first_trigger()
+        out = build_vcp_candidates(self._table_vcp(), {"AAA": df}, lookback=20, min_rr=0.1)
+        assert list(out["Saham"]) == ["AAA"]
+        assert out.iloc[0]["Tipe Sinyal"] == "VCP"
+
+    def test_tanpa_kontraksi_tidak_lolos(self):
+        # Rentang recent MELEBAR (bukan menyempit) dibanding prior - bukan VCP sama sekali.
+        df = _vcp_ohlcv(n_base=40, prior_range_pct=1.0, recent_range_pct=10.0)
+        out = build_vcp_candidates(self._table_vcp(), {"AAA": df}, lookback=20, min_rr=0.1)
+        assert out.empty
+
+    def test_kontraksi_tidak_cukup_kuat_tidak_lolos(self):
+        # Rasio 0.9 (recent/prior) - menyempit TAPI tidak sampai ambang <0.7.
+        df = _vcp_ohlcv(n_base=40, prior_range_pct=5.0, recent_range_pct=4.5)
+        out = build_vcp_candidates(self._table_vcp(), {"AAA": df}, lookback=20, min_rr=0.1)
+        assert out.empty
+
+    def test_minervini_gagal_dikeluarkan(self):
+        df = self._df_first_trigger()
+        out = build_vcp_candidates(self._table_vcp(minervini_ok=False), {"AAA": df},
+                                    lookback=20, min_rr=0.1)
+        assert out.empty
+
+    def test_volume_tinggi_dikeluarkan(self):
+        df = self._df_first_trigger()
+        out = build_vcp_candidates(self._table_vcp(volume_ratio=1.5), {"AAA": df},
+                                    lookback=20, min_rr=0.1)
+        assert out.empty
+
+    def test_cooldown_mencegah_sinyal_berulang(self):
+        # df UTUH (tidak dipotong di trigger pertama) - baris TERAKHIRNYA vcp_kuat=True,
+        # TAPI beberapa hari sebelumnya JUGA sudah vcp_kuat (dlm window cooldown 10 hari)
+        # - harus dianggap BUKAN trigger baru, dikeluarkan.
+        df = _vcp_ohlcv(n_base=40, prior_range_pct=10.0, recent_range_pct=1.0)
+        out = build_vcp_candidates(self._table_vcp(harga=1020.0), {"AAA": df}, lookback=20,
+                                    min_rr=0.1, cooldown_days=10)
+        assert out.empty
+
+    def test_tipe_sinyal_selalu_vcp(self):
+        df = self._df_first_trigger()
+        out = build_vcp_candidates(self._table_vcp(), {"AAA": df}, lookback=20, min_rr=0.1)
+        assert (out["Tipe Sinyal"] == "VCP").all()
 
 
 class TestComputeZigzagPivots:
