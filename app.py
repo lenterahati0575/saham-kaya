@@ -1282,6 +1282,18 @@ with t_sederhana:
                     "ragu: keraguan yang tidak berdasar aturan di atas justru menjalankan "
                     "strategi LAIN yang belum diuji, bukan strategi yang PF 12,49 ini."
                 )
+                # Peringatan pasang Stop Order SUNGGUHAN (2026-09-09, user cerita nyata:
+                # floating loss FPNI -17%/MDIA -10% jauh melewati SL manapun yang diuji,
+                # krn SL-nya "di kepala" - dipantau manual, begitu lepas pantau harga
+                # terjun tanpa ada yang mengeksekusi. SL cap berapa pun (2%/5%/10%) TIDAK
+                # ada gunanya kalau bukan ORDER SUNGGUHAN ke broker - beda dari poin
+                # checklist lain di atas (yang soal KRITERIA sinyal), ini soal EKSEKUSI.
+                st.warning(
+                    f"⚠️ **Pasang Stop Order SEKARANG di Rp{_row['Stop Loss']:,.0f}** - jangan "
+                    "andalkan pantau manual. SL cuma efektif kalau jadi order SUNGGUHAN ke "
+                    "broker (Stop Order/Trigger Order), bukan rencana di kepala - begitu Anda "
+                    "lepas pantau, tidak ada yang mengeksekusi rencana itu."
+                )
 
     # VCP (Volatility Contraction Pattern) - jalur entry TERPISAH dari Breakout di atas
     # (2026-09-06, user cerita kisah sukses "David Noah, beli saat masih konsolidasi").
