@@ -1037,7 +1037,14 @@ with t_kandidat:
         # kedua paruh) - INFO + boost ranking (lihat komentar di screener.py).
         if "Momentum 5 Hari" in show.columns:
             show["Momentum 5 Hari"] = show["Momentum 5 Hari"].map(lambda x: "🚀 Ya" if x else "-")
-        for col in ["RR", "Entry", "Target", "Stop Loss"]:
+        # "SL 5%" - referensi cepat kalau user mau pakai SL flat 5% sendiri (bukan SL
+        # struktural sistem, yg dibatasi 10% - lihat catatan diuji di screener.py::
+        # build_trade_candidates()) - user: "mungkin yang dibutuhkan ada nilai kolom SL
+        # untuk yang 5%, jadi tidak perlu hitung". MURNI referensi, TIDAK menggantikan
+        # kolom "Stop Loss" (yang tetap SL resmi sistem, dipakai utk hitung Lot/RR).
+        if "Entry" in show.columns:
+            show["SL 5%"] = (picks["Entry"] * 0.95)
+        for col in ["RR", "Entry", "Target", "Stop Loss", "SL 5%"]:
             if col in show.columns:
                 if col == "RR":
                     show[col] = show[col].map(lambda x: f"{x:.2f}x" if pd.notnull(x) and x > 0 else "-")
@@ -1046,7 +1053,7 @@ with t_kandidat:
         # "Tipe" (selalu sama) & "Harga" (= Entry dibulatkan) tidak ditampilkan - redundan.
         kolom_tampil = [
             "Kode", "Nama", "Signal", "Score",
-            "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss",
+            "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss", "SL 5%",
             "Rekomendasi", "Confidence", "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
             "Perubahan %", "Naik dari Open %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout",
             # VCP Kuat & Momentum 5 Hari dipindah ke PALING AKHIR (saran user) - relatif jarang
