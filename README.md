@@ -3624,6 +3624,38 @@ lebih rendah (msh solid, jauh di atas breakeven) bisa longgarkan sendiri ke 1,3-
 perlu ubah kode. 2 test baru (`test_volume_ratio_max_bisa_dilonggarkan`,
 `test_volume_ratio_max_default_tetap_1_0`) - 313 total, semua lolos.
 
+## Bug: V-Shape Recovery SELALU Kosong di Live (2026-09-12)
+
+User kirim screenshot tab live: "Tidak ada saham yang turun dalam & mulai stabil sesuai
+kriteria hari ini" walau sudah coba ubah "Min turun dari puncak" & "Hari stabil" -
+*"bagaimana mengaturnya ini, saya sudah coba ganti angka tetapi tidak ada yang tertangkap
+screener"*.
+
+**Root cause ditemukan**: `build_v_shape_candidates()` (dibuat hari ini juga, di sesi yg
+sama) punya guard `len(df) < 252 + stabilize_days + 1` (butuh >=263 baris histori) -
+TAPI `price_data` yg dipakai tab ini (`app.py`) di-fetch pakai
+`fetch_price_history(tickers, period="1y")`, yg CUMA balik ~244-249 baris (yfinance "1y"
+bukan PERSIS 252 hari bursa kalender). Akibatnya **SEMUA saham gagal guard ini, fungsi
+SELALU return kosong** - independen TOTAL dari parameter apapun yang diubah user
+(makanya "ganti angka" tidak berpengaruh sama sekali, root cause-nya di panjang data,
+bukan di ambang batas). Bug murni dari validasi awal yang dites pakai pickle 3 tahun
+(`price_data_350_3y.pkl`, selalu >263 baris) tanpa dicek ulang thd panjang data
+SESUNGGUHNYA yang dipakai live (1 tahun) - lolos dari test unit krn semua fixture test
+juga pakai >=263 baris.
+
+**Fix**: guard diturunkan ke `60 + stabilize_days + 1` (SAMA minimum dgn Minervini/
+`compute_metrics()`, bukan 252 penuh) - baris `high.iloc[-252:-1]` DIBIARKAN apa adanya,
+Python slicing otomatis clamp ke awal array kalau datanya lebih pendek dari 252 (jadi
+otomatis pakai SEMUA histori yang ada, tidak perlu logika tambahan). Konsekuensi: puncak
+acuan "V-Shape" jadi puncak dari ~11-11,5 bulan (bukan PERSIS 12 bulan) saat data live
+cuma 1 tahun - beda di bawah sebulan, dampak diabaikan utk strategi horizon sampai 1
+tahun. Diverifikasi dgn data FRESH (333 saham, panjang sama persis dgn live ~244-249
+baris) - default 30%/10 hari sekarang mengembalikan 20 kandidat (kena batas top_n),
+BUKAN lagi selalu kosong. 2 test V-Shape diupdate/ditambah (`test_histori_kurang_
+dikeluarkan_tanpa_crash` disesuaikan ke ambang baru, `test_histori_kurang_dari_252_tapi_
+cukup_tetap_terdeteksi` baru - mensimulasikan PERSIS panjang 245 baris spt live) - 314
+test total, semua lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

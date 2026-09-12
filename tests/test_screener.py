@@ -945,9 +945,27 @@ class TestBuildVShapeCandidates:
         assert not out_off.empty
 
     def test_histori_kurang_dikeluarkan_tanpa_crash(self):
-        df = self._df_vshape().iloc[:100]  # jauh di bawah 252+10+1 hari yg dibutuhkan
+        # Di bawah minimum BARU (60+stabilize_days+1=71, lihat catatan bug "1y fetch" di
+        # screener.py) - harus tetap dikeluarkan dgn aman, bukan crash.
+        df = self._df_vshape().iloc[:50]
         out = build_v_shape_candidates({"AAA": df}, decline_threshold=30.0, stabilize_days=10)
         assert out.empty
+
+    def test_histori_kurang_dari_252_tapi_cukup_tetap_terdeteksi(self):
+        # BUG NYATA 2026-09-12 (laporan user: "sudah coba ganti angka tetapi tidak ada
+        # yang tertangkap"): price_data live di-fetch period="1y" (~244-249 baris, BUKAN
+        # 252+), dulu guard `len(df) < 252+stabilize_days+1` membuang SEMUA saham tanpa
+        # peduli parameter apapun. Fixture ini mensimulasikan histori 245 baris (realistis
+        # spt fetch "1y" di live) dgn pola turun dalam + stabil yang GENUINE - harus tetap
+        # TERDETEKSI (bukan lagi selalu kosong) setelah guard diturunkan.
+        n_puncak = 234
+        closes = [2000.0] * n_puncak + [1300.0] * 11  # turun (2000->1300)=35%; 10 hari stabil + hari ini
+        idx = pd.date_range("2020-01-01", periods=len(closes), freq="B")
+        df = pd.DataFrame({"Open": closes, "High": closes, "Low": closes, "Close": closes,
+                            "Volume": 5_000_000.0}, index=idx)
+        assert len(df) == 245  # sama persis dgn panjang realistis fetch "1y" live
+        out = build_v_shape_candidates({"AAA": df}, decline_threshold=30.0, stabilize_days=10)
+        assert list(out["Kode"]) == ["AAA"]
 
 
 class TestFilterAntiKejarHarga:

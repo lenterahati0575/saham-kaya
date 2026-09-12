@@ -1569,13 +1569,32 @@ def build_v_shape_candidates(price_data: dict, decline_threshold: float = 30.0,
     V-Shape Recovery (Deep Value)".
 
     Tidak ada Entry/SL/Target/RR ala swing - kolom "Target Pemulihan" = harga puncak
-    252h (level yg jadi acuan "sudah pulih"), "Potensi Return" = jarak ke situ."""
+    252h (level yg jadi acuan "sudah pulih"), "Potensi Return" = jarak ke situ.
+
+    BUG NYATA yg ditemukan & diperbaiki 2026-09-12 (laporan user: "saya sudah coba ganti
+    angka tetapi tidak ada yang tertangkap screener", screenshot tab live SELALU kosong
+    apapun parameternya): guard panjang histori dulu `len(df) < 252 + stabilize_days + 1`
+    (butuh >=263 baris) - TAPI `price_data` yg dipakai tab ini di app.py di-fetch
+    `fetch_price_history(tickers, period="1y")`, yg CUMA balik ~244-249 baris (yfinance
+    "1y" bukan PERSIS 252 hari bursa). Akibatnya SEMUA saham gagal guard ini, fungsi
+    SELALU return kosong - independen total dari decline_threshold/stabilize_days yang
+    diubah user manapun (makanya "ganti angka" tidak berpengaruh sama sekali, root cause-
+    nya bukan di parameter). Fix: guard diturunkan ke minimum yg jauh lebih longgar (SAMA
+    spirit dgn `min_periods=60` di Minervini/compute_metrics() - lihat di atas), &
+    `high.iloc[-252:-1]` DIBIARKAN APA ADANYA - slicing Python otomatis clamp ke awal
+    array kalau datanya lebih pendek dari 252 (`arr[-252:-1]` pada array 245-baris = SAMA
+    dgn `arr[0:-1]`, otomatis pakai SEMUA histori yg ada, TIDAK perlu logika tambahan).
+    Konsekuensi: puncak acuan jadi "puncak SELURUH histori yg tersedia" (~11-11,5 bulan
+    dari fetch "1y" standar) bukan PERSIS 252 hari kalender - beda brand jauh di bawah 1
+    bulan, dampak praktis diabaikan utk strategi horizon SAMPAI 1 TAHUN ini."""
+    MIN_HISTORY_VSHAPE = 60  # sama minimum dgn Minervini (compute_metrics) - bukan 252 penuh
     rows = []
     for kode, df in price_data.items():
-        if df is None or len(df) < 252 + stabilize_days + 1:
+        if df is None or len(df) < MIN_HISTORY_VSHAPE + stabilize_days + 1:
             continue
         close = df["Close"]; low = df["Low"]; high = df["High"]; vol = df["Volume"]
-        high252 = float(high.iloc[-252:-1].max())  # puncak 252 hari SEBELUM hari ini
+        high252 = float(high.iloc[-252:-1].max())  # puncak s.d. 252 hari SEBELUM hari ini
+        # (otomatis pakai SEMUA histori tersedia kalau < 252 baris - lihat catatan bug di atas)
         if high252 <= 0:
             continue
         entry = float(close.iloc[-1])
