@@ -3357,6 +3357,41 @@ perubahan tetap diuji terpisah per sistem, tidak asal disamakan):
 PF naik 25% (2,96->3,71), split-half LEBIH konsisten, dan tetap sering muncul (47,8%
 hari ada sinyal, turun dari 55,8% tapi jauh dari langka spt Screener Sederhana).
 
+## Info Konsistensi Likuiditas - "Hari Likuid (20h)" (2026-09-12)
+
+User cerita pengalaman nyata: pernah pegang saham yang "hanya sewaktu-waktu banyak
+sekali volumenya" - sulit keluar posisi saat volume sepi lagi. Gate likuiditas UTAMA
+(`min_value_traded`) pakai RATA-RATA Value Traded 20 hari - bisa tertarik naik cukup
+tinggi oleh 1-2 hari lonjakan meski hari lainnya sepi ("meledak sewaktu-waktu").
+
+**Diuji dulu sbg FILTER** (bukan cuma info) - hitung berapa dari 20 hari terakhir yang
+Value Traded HARIANNYA SENDIRI (bukan rata-rata) individual lolos ambang, lalu pecah
+sinyal Breakout jadi "spiky" (<10 dari 20 hari) vs "konsisten" (>=10):
+
+| | N | Avg | Win Rate | PF |
+|---|---|---|---|---|
+| Baseline (skrg live) | 169 | +22,71% | 76% | 18,33 |
+| n_hari_layak < 10 (spiky) | 35 | **+64,03%** | 91% | **139,34** |
+| n_hari_layak >= 10 (konsisten) | 134 | +11,92% | 72% | 8,78 |
+
+**Hasil MENYESATKAN, bukan bukti "spiky itu bagus"** - dicek lebih lanjut: likuiditas
+saat EXIT justru 20x LEBIH TINGGI dari saat ENTRY di grup "spiky" ini (median Rp0,94M
+-> Rp18,6M), dan 5 trade dengan return tertinggi tanggalnya MENGELOMPOK (13&15 Agu 2024;
+3,4,5 Feb 2026) - kemungkinan besar cuma 1-2 saham yang lagi rally besar yang
+mendominasi statistik PF 139 itu, bukan edge sistematis di banyak saham.
+
+**Keterbatasan mendasar**: backtest ini TIDAK BISA menguji risiko eksekusi nyata (order
+tidak terisi, harga bergerak melawan saat coba jual saham tipis) - simulasinya SELALU
+asumsi order terisi persis di harga yang dihitung, berapa pun likuiditasnya sungguhan.
+Kekhawatiran user soal "sulit keluar" adalah risiko GENUINE yang backtest berbasis
+harga historis saja secara struktural buta terhadapnya - bukan sesuatu yang bisa
+dibuktikan/dibantah lewat re-slicing data harga.
+
+**Keputusan**: ditampilkan sbg kolom INFO "Hari Likuid (20h)" (0-20) di tabel Kandidat,
+Screener Sederhana, & VCP - bukan filter, supaya user bisa nilai sendiri sebelum beli
+(mis. saham lolos gate likuiditas RATA-RATA tapi "Hari Likuid" cuma 3-5 dari 20 = tanda
+peringatan wajar utk dicek manual, TANPA sistem otomatis mencoret kandidatnya).
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

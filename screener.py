@@ -998,6 +998,26 @@ def _donchian_levels(df: pd.DataFrame, lookback: int):
     return float(hist["High"].max()), float(hist["Low"].min())
 
 
+def _hitung_hari_likuid(df: pd.DataFrame, min_value_traded: float, window: int = 20) -> int | None:
+    """Berapa dari `window` hari TERAKHIR (termasuk hari ini) yang Value Traded HARIAN-nya
+    SENDIRI (Close x Volume hari itu, BUKAN rata-rata) sudah >= `min_value_traded` -
+    kolom INFO (2026-09-12, user khawatir saham yang "cuma meledak sewaktu-waktu" susah
+    dijual lagi setelah volume sepi kembali; gate likuiditas UTAMA pakai RATA-RATA 20
+    hari, jadi bisa tertarik naik oleh 1-2 hari lonjakan meski hari lainnya sepi).
+
+    SENGAJA info, BUKAN filter keras - diuji dulu sbg filter (README > "Info Konsistensi
+    Likuiditas"): hasil justru MENYESATKAN (grup 'spiky' PF 139 tapi ternyata cuma
+    segelintir winner ekstrem terkonsentrasi di 1-2 saham/periode, BUKAN edge sistematis
+    - dan backtest MEMANG tidak bisa menguji risiko eksekusi nyata krn selalu asumsi
+    order terisi persis di harga manapun). Ditampilkan apa adanya spy user bisa nilai
+    sendiri, bukan sistem yang memutuskan."""
+    if df is None or len(df) < 1 or min_value_traded is None or min_value_traded <= 0:
+        return None
+    daily_value = df["Close"] * df["Volume"]
+    window_vals = daily_value.tail(window)
+    return int((window_vals >= min_value_traded).sum())
+
+
 def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int, min_rr: float = 2.0,
                             top_n: int = 10, signal_filter=("STRONG BUY", "BUY"),
                             require_bullish_regime: bool = False, regime_status: str | None = None,
@@ -1105,6 +1125,7 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
             "Saham": kode, "RR": round(rr, 2), "Entry": round(entry, 0),
             "Target": round(target, 0), "Stop Loss": round(sl, 0),
             "Score": int(r["Score"]), "Nilai Transaksi": r["Value Traded (Rp)"],
+            "Hari Likuid (20h)": _hitung_hari_likuid(df, DEFAULT_PARAMS["min_value_traded"]),
             "Chart": tradingview_url(kode),
             # VCP Kuat (kontraksi volatilitas sebelum breakout, referensi Minervini/VCP) -
             # TERBUKTI menaikkan win rate (45,9% vs baseline ~33%) & menurunkan SL rate (46,9%
@@ -1367,6 +1388,7 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
             # asumsi selalu 5%.
             "% SL": round(risk / entry * 100, 2),
             "Tipe Sinyal": "Breakout",
+            "Hari Likuid (20h)": _hitung_hari_likuid(df, DEFAULT_PARAMS["min_value_traded"]),
             "Chart": tradingview_url(kode),
         }
         if total_equity and total_equity > 0:
@@ -1478,6 +1500,7 @@ def build_vcp_candidates(table: pd.DataFrame, price_data: dict, lookback: int = 
             "Target": round(target, 0), "Stop Loss": round(sl, 0),
             "% SL": round(risk / entry * 100, 2),
             "Tipe Sinyal": "VCP",
+            "Hari Likuid (20h)": _hitung_hari_likuid(df, DEFAULT_PARAMS["min_value_traded"]),
             "Chart": tradingview_url(kode),
         }
         if total_equity and total_equity > 0:

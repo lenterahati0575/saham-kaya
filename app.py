@@ -984,7 +984,7 @@ with t_kandidat:
             # apa pun. TIDAK PERLU digabung ulang - `picks` SUDAH punya nilai yang identik
             # langsung dari `table` (build_trade_candidates() sendiri MEMBACA nilai ini dari
             # `table` yang sama, jadi nilainya pasti sama, redundan kalau digabung lagi).
-            kolom_merge = ["Kode", "Tipe", "RR", "Entry", "Target", "Stop Loss", "Risiko %"]
+            kolom_merge = ["Kode", "Tipe", "RR", "Entry", "Target", "Stop Loss", "Risiko %", "Hari Likuid (20h)"]
             picks = picks.merge(cands_valid[kolom_merge], on="Kode", how="inner")
         else:
             picks = picks.iloc[0:0]
@@ -1065,7 +1065,7 @@ with t_kandidat:
             "Kode", "Nama", "Signal", "Score",
             "RR", "Risiko %", "Entry", "Tanggal Harga", "Target", "Stop Loss", kolom_sl_ref,
             "Rekomendasi", "Confidence", "Quality", "Quality Score", "Trend", "Smart Money", "Momentum",
-            "Perubahan %", "Naik dari Open %", "Volume Ratio", "Value Traded (Rp)", "Status Breakout",
+            "Perubahan %", "Naik dari Open %", "Volume Ratio", "Value Traded (Rp)", "Hari Likuid (20h)", "Status Breakout",
             # VCP Kuat & Momentum 5 Hari dipindah ke PALING AKHIR (saran user) - relatif jarang
             # terisi (cuma sedikit saham yang lolos kriteria ini tiap hari), jadi lebih pas di
             # ujung drpd di tengah tabel yang bikin kolom2 utama (RR/Entry/Target/SL) makin ke
@@ -1115,6 +1115,13 @@ with t_kandidat:
             styler = styler.map(color_q, subset=["Quality"])
         if "RR" in kolom_tampil:
             styler = styler.map(color_rr, subset=["RR"])
+        if "Hari Likuid (20h)" in kolom_tampil:
+            st.caption("💧 **Hari Likuid (20h)**: dari 20 hari bursa terakhir, berapa hari yang Value "
+                       "Traded HARIANNYA SENDIRI (bukan rata-rata) sudah >= Rp3 M - kalau angkanya "
+                       "rendah (mis. <10) padahal lolos gate likuiditas (yang pakai RATA-RATA), "
+                       "kemungkinan besar likuiditasnya 'meledak sewaktu-waktu' - lebih sulit keluar "
+                       "posisi nanti. INFO saja, bukan filter (belum cukup bukti utk jadi aturan keras) "
+                       "- nilai sendiri sebelum beli.")
         st.dataframe(styler, use_container_width=True, hide_index=True, height=460, key="df_kandidat_final")
         st.download_button("⬇️ Download CSV", to_csv_excel_id(show[kolom_tampil]), file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
 
@@ -1275,7 +1282,11 @@ with t_sederhana:
         st.info("Tidak ada kandidat Breakout + posisi 52-minggu hari ini.")
     else:
         tampil_sederhana = cands_sederhana.rename(columns={"Saham": "Kode"})
-        kolom_tampil_sederhana = [c for c in ["Kode", "Tipe Sinyal", "Entry", "Target", "Stop Loss", "% SL", "RR", "Lot", "Chart"]
+        st.caption("💧 **Hari Likuid (20h)**: dari 20 hari bursa terakhir, berapa hari Value Traded "
+                   "HARIANNYA SENDIRI (bukan rata-rata) sudah >= Rp3 M - rendah = kemungkinan "
+                   "likuiditasnya 'meledak sewaktu-waktu', lebih sulit keluar posisi. INFO saja, "
+                   "nilai sendiri sebelum beli.")
+        kolom_tampil_sederhana = [c for c in ["Kode", "Tipe Sinyal", "Entry", "Target", "Stop Loss", "% SL", "RR", "Hari Likuid (20h)", "Lot", "Chart"]
                                   if c in tampil_sederhana.columns]
         dataframe_with_chart(tampil_sederhana[kolom_tampil_sederhana], kode_col="Kode",
                               height=350, key="df_sederhana")
@@ -1350,7 +1361,7 @@ with t_sederhana:
             st.info("Tidak ada kandidat VCP hari ini.")
         else:
             tampil_vcp = cands_vcp.rename(columns={"Saham": "Kode"})
-            kolom_tampil_vcp = [c for c in ["Kode", "Tipe Sinyal", "Entry", "Target", "Stop Loss", "% SL", "RR", "Lot", "Chart"]
+            kolom_tampil_vcp = [c for c in ["Kode", "Tipe Sinyal", "Entry", "Target", "Stop Loss", "% SL", "RR", "Hari Likuid (20h)", "Lot", "Chart"]
                                  if c in tampil_vcp.columns]
             dataframe_with_chart(tampil_vcp[kolom_tampil_vcp], kode_col="Kode",
                                   height=300, key="df_vcp")

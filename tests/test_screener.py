@@ -12,7 +12,7 @@ import pytest
 from screener import (DEFAULT_PARAMS, compute_metrics, market_regime, build_trade_candidates,
                       ihsg_seasonality, build_screener_table, build_simple_candidates,
                       compute_zigzag_pivots, detect_open_ihsg_gaps, ihsg_gap_fill_stats,
-                      build_vcp_candidates, _compute_vcp_kuat_series)
+                      build_vcp_candidates, _compute_vcp_kuat_series, _hitung_hari_likuid)
 
 
 def _flat_ohlcv(n: int, price: float = 1000.0, volume: float = 2_000_000.0) -> pd.DataFrame:
@@ -837,6 +837,47 @@ class TestIhsgGap:
         stats = ihsg_gap_fill_stats(pd.DataFrame())
         assert stats["Gabungan"]["n"] == 0
         assert stats["Gabungan"]["median_hari"] is None
+
+
+class TestHitungHariLikuid:
+    """Info konsistensi likuiditas (2026-09-12, user khawatir saham yang "cuma meledak
+    sewaktu-waktu" susah dijual lagi) - berapa dari 20 hari TERAKHIR yang Value Traded
+    HARIANNYA SENDIRI (bukan rata-rata 20 hari, itu gate likuiditas UTAMA yg terpisah)
+    sudah >= ambang. Diuji sbg FILTER dulu - hasil MENYESATKAN (README > "Info
+    Konsistensi Likuiditas"), jadi ditampilkan sbg INFO saja, bukan aturan keras."""
+
+    def _df_likuid(self, closes, volumes):
+        idx = pd.date_range("2024-01-01", periods=len(closes), freq="B")
+        return pd.DataFrame({"Open": closes, "High": closes, "Low": closes, "Close": closes,
+                              "Volume": volumes}, index=idx)
+
+    def test_semua_hari_likuid(self):
+        # 20 hari, Value Traded harian = 1000 x 5_000_000 = Rp5 M (>= ambang 3 M) semua.
+        df = self._df_likuid([1000.0] * 20, [5_000_000.0] * 20)
+        assert _hitung_hari_likuid(df, 3_000_000_000) == 20
+
+    def test_sebagian_hari_likuid(self):
+        # 12 hari Value Traded Rp5 M (lolos), 8 hari Rp1 M (tidak lolos ambang 3 M).
+        closes = [1000.0] * 20
+        volumes = [5_000_000.0] * 12 + [1_000_000.0] * 8
+        df = self._df_likuid(closes, volumes)
+        assert _hitung_hari_likuid(df, 3_000_000_000) == 12
+
+    def test_cuma_hitung_20_hari_terakhir(self):
+        # 30 hari histori, 10 hari PALING AWAL sengaja Value Traded rendah (tidak boleh
+        # ikut terhitung krn di luar window 20 hari terakhir).
+        closes = [1000.0] * 30
+        volumes = [500_000.0] * 10 + [5_000_000.0] * 20  # 10 hari awal rendah, 20 terakhir tinggi
+        df = self._df_likuid(closes, volumes)
+        assert _hitung_hari_likuid(df, 3_000_000_000) == 20  # semua 20 hari TERAKHIR lolos
+
+    def test_min_value_traded_nonpositif_return_none(self):
+        df = self._df_likuid([1000.0] * 20, [5_000_000.0] * 20)
+        assert _hitung_hari_likuid(df, 0) is None
+        assert _hitung_hari_likuid(df, -1) is None
+
+    def test_df_none_return_none(self):
+        assert _hitung_hari_likuid(None, 3_000_000_000) is None
 
 
 class TestFilterAntiKejarHarga:
