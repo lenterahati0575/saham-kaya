@@ -1517,6 +1517,71 @@ def build_vcp_candidates(table: pd.DataFrame, price_data: dict, lookback: int = 
     return out.sort_values("RR", ascending=False).head(top_n).reset_index(drop=True)
 
 
+def build_v_shape_candidates(price_data: dict, decline_threshold: float = 30.0,
+                              stabilize_days: int = 10, min_value_traded: float = 0.0,
+                              top_n: int = 20) -> pd.DataFrame:
+    """V-SHAPE RECOVERY (2026-09-12) - user: "saya juga akan mencari saham yang
+    kecenderungan setelah turun dalam dia akan kembali bullish dengan lebih cepat bahkan
+    melebihi harga sebelumnya. ini cocok untuk investasi jangka pendek dibawah 1 tahun".
+
+    BEDA TOTAL dari Breakout/VCP di atas: bukan momentum-lanjut, ini beli SAAT SUDAH
+    TURUN DALAM & mulai stabil, target = harga puncak SEBELUM turun (bukan proyeksi
+    Donchian), horizon SAMPAI 1 TAHUN (bukan 15 hari) - makanya fungsi & tab-nya
+    TERPISAH, exit mechanism SAMA SEKALI beda (tidak ada SL/target/partial-lock ala
+    swing, murni "beli murah, tunggu pulih").
+
+    Kriteria: Harga turun >= `decline_threshold`% dari Harga TERTINGGI 252 hari bursa
+    (~1 tahun) terakhir (SEBELUM hari ini - no lookahead) + hari ini TIDAK membuat Low
+    baru dibanding `stabilize_days` hari SEBELUMNYA (proxy "sudah mulai stabil/dasar",
+    bukan masih terjun bebas).
+
+    DIUJI (336 saham/3 tahun, walk-forward, cooldown 60 hari/saham spy tidak duplikat):
+    N=697, avg +62,16%/trade, median +11,14%, win rate 60,7%, Profit Factor 9,63 - LEBIH
+    BAIK dari kontrol acak (beli & tahan 252 hari hari manapun: avg +48,48%, PF 6,47),
+    TAPI marginnya moderat (bukan dominan spt Breakout) krn IHSG sendiri cenderung naik
+    jangka panjang di periode ini, jadi baseline acaknya SUDAH kuat. Cuma 43,0% kasus
+    yang BENAR-BENAR pulih penuh ke harga sebelum turun dalam 1 tahun (rata-rata 116
+    hari kalau pulih) - LEBIH DARI SETENGAH TIDAK pulih penuh dlm setahun, meski return
+    rata-rata tetap positif (pemulihan sebagian + tren pasar). Makin dalam penurunan:
+    makin besar potensi untung KALAU pulih (turun >=50% -> avg +86,86%, median +27,05%)
+    TAPI makin kecil peluang pulih penuh (33,5%) & makin lama (143 hari). README > "Ide
+    V-Shape Recovery (Deep Value)".
+
+    Tidak ada Entry/SL/Target/RR ala swing - kolom "Target Pemulihan" = harga puncak
+    252h (level yg jadi acuan "sudah pulih"), "Potensi Return" = jarak ke situ."""
+    rows = []
+    for kode, df in price_data.items():
+        if df is None or len(df) < 252 + stabilize_days + 1:
+            continue
+        close = df["Close"]; low = df["Low"]; high = df["High"]; vol = df["Volume"]
+        high252 = float(high.iloc[-252:-1].max())  # puncak 252 hari SEBELUM hari ini
+        if high252 <= 0:
+            continue
+        entry = float(close.iloc[-1])
+        decline_pct = (high252 - entry) / high252 * 100
+        if decline_pct < decline_threshold:
+            continue
+        low_recent = float(low.iloc[-(stabilize_days + 1):-1].min())
+        if float(low.iloc[-1]) < low_recent:
+            continue  # masih bikin low baru - belum stabil
+        avg_volume20 = float(vol.tail(20).mean())
+        value_traded = entry * avg_volume20
+        if min_value_traded and min_value_traded > 0 and value_traded < min_value_traded:
+            continue
+        potensi_return = (high252 - entry) / entry * 100
+        rows.append({
+            "Kode": kode, "Harga": round(entry, 0), "Target Pemulihan (Puncak 252h)": round(high252, 0),
+            "Turun dari Puncak %": round(decline_pct, 1),
+            "Potensi Return %": round(potensi_return, 1),
+            "Hari Likuid (20h)": _hitung_hari_likuid(df, DEFAULT_PARAMS["min_value_traded"]),
+            "Chart": tradingview_url(kode),
+        })
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return out.sort_values("Turun dari Puncak %", ascending=False).head(top_n).reset_index(drop=True)
+
+
 def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
     """Tentukan kondisi pasar keseluruhan (regime) dari IHSG."""
     if ihsg_df is None or ihsg_df.empty or len(ihsg_df) < ma_period:

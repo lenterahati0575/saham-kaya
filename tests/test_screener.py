@@ -12,7 +12,8 @@ import pytest
 from screener import (DEFAULT_PARAMS, compute_metrics, market_regime, build_trade_candidates,
                       ihsg_seasonality, build_screener_table, build_simple_candidates,
                       compute_zigzag_pivots, detect_open_ihsg_gaps, ihsg_gap_fill_stats,
-                      build_vcp_candidates, _compute_vcp_kuat_series, _hitung_hari_likuid)
+                      build_vcp_candidates, _compute_vcp_kuat_series, _hitung_hari_likuid,
+                      build_v_shape_candidates)
 
 
 def _flat_ohlcv(n: int, price: float = 1000.0, volume: float = 2_000_000.0) -> pd.DataFrame:
@@ -878,6 +879,61 @@ class TestHitungHariLikuid:
 
     def test_df_none_return_none(self):
         assert _hitung_hari_likuid(None, 3_000_000_000) is None
+
+
+class TestBuildVShapeCandidates:
+    """V-Shape Recovery (deep value, horizon s.d. 1 tahun) - user: "saya juga akan
+    mencari saham yang kecenderungan setelah turun dalam dia akan kembali bullish...
+    cocok untuk investasi jangka pendek dibawah 1 tahun". DIUJI (336 saham/3 tahun,
+    walk-forward): N=697, avg +62,16%/trade, PF 9,63 - lebih baik dari kontrol acak
+    (avg +48,48%, PF 6,47) tapi cuma 43% pulih penuh dlm 1 tahun. README > "Ide V-Shape
+    Recovery (Deep Value)"."""
+
+    def _df_vshape(self, harga_hari_ini=1300.0, low_hari_ini=1300.0, volume=5_000_000.0,
+                    harga_stabil=1300.0):
+        # 252 hari puncak @2000, lalu 10 hari "stabil" @harga_stabil, lalu 1 hari ini.
+        n_puncak = 252
+        closes = [2000.0] * n_puncak + [harga_stabil] * 10 + [harga_hari_ini]
+        highs = list(closes)
+        lows = list(closes)
+        lows[-1] = low_hari_ini
+        idx = pd.date_range("2020-01-01", periods=len(closes), freq="B")
+        return pd.DataFrame({"Open": closes, "High": highs, "Low": lows, "Close": closes,
+                              "Volume": volume}, index=idx)
+
+    def test_turun_dalam_dan_stabil_muncul(self):
+        df = self._df_vshape()  # turun (2000->1300)=35%, low hari ini == 10 hari stabil
+        out = build_v_shape_candidates({"AAA": df}, decline_threshold=30.0, stabilize_days=10)
+        assert list(out["Kode"]) == ["AAA"]
+        assert out.iloc[0]["Turun dari Puncak %"] == 35.0
+        assert out.iloc[0]["Target Pemulihan (Puncak 252h)"] == 2000.0
+
+    def test_turun_tidak_cukup_dalam_dikeluarkan(self):
+        # Turun cuma (2000-1900)/2000=5% - di bawah ambang 30%.
+        df = self._df_vshape(harga_hari_ini=1900.0, low_hari_ini=1900.0, harga_stabil=1900.0)
+        out = build_v_shape_candidates({"AAA": df}, decline_threshold=30.0, stabilize_days=10)
+        assert out.empty
+
+    def test_belum_stabil_masih_bikin_low_baru_dikeluarkan(self):
+        # Low hari ini (1200) LEBIH RENDAH dari low 10 hari stabil (1300) - msh terjun,
+        # belum "dasar" - harus DIKELUARKAN meski turunnya sudah cukup dalam.
+        df = self._df_vshape(harga_hari_ini=1300.0, low_hari_ini=1200.0, harga_stabil=1300.0)
+        out = build_v_shape_candidates({"AAA": df}, decline_threshold=30.0, stabilize_days=10)
+        assert out.empty
+
+    def test_likuiditas_gate_menyaring(self):
+        df = self._df_vshape(volume=100_000.0)  # 1300*100rb=Rp130jt, di bawah gate 3M
+        out = build_v_shape_candidates({"AAA": df}, decline_threshold=30.0, stabilize_days=10,
+                                        min_value_traded=3_000_000_000)
+        assert out.empty
+        out_off = build_v_shape_candidates({"AAA": df}, decline_threshold=30.0, stabilize_days=10,
+                                            min_value_traded=0)
+        assert not out_off.empty
+
+    def test_histori_kurang_dikeluarkan_tanpa_crash(self):
+        df = self._df_vshape().iloc[:100]  # jauh di bawah 252+10+1 hari yg dibutuhkan
+        out = build_v_shape_candidates({"AAA": df}, decline_threshold=30.0, stabilize_days=10)
+        assert out.empty
 
 
 class TestFilterAntiKejarHarga:

@@ -3392,6 +3392,43 @@ Screener Sederhana, & VCP - bukan filter, supaya user bisa nilai sendiri sebelum
 (mis. saham lolos gate likuiditas RATA-RATA tapi "Hari Likuid" cuma 3-5 dari 20 = tanda
 peringatan wajar utk dicek manual, TANPA sistem otomatis mencoret kandidatnya).
 
+## Ide V-Shape Recovery (Deep Value) - Ditambahkan di Tab Fundamental (2026-09-12)
+
+User: "saya juga akan mencari saham yang kecenderungan setelah turun dalam dia akan
+kembali bullish dengan lebih cepat bahkan melebihi harga sebelumnya. ini cocok untuk
+investasi jangka pendek dibawah 1 tahun" - BEDA TOTAL dari Breakout/VCP (bukan
+momentum-lanjut, ini deep value/mean reversion, horizon SAMPAI 1 TAHUN bukan 15 hari).
+
+**Bug ditemukan & diperbaiki saat uji pertama**: syarat "stabil" (tidak bikin low baru)
+awalnya SELALU True (bandingan termasuk hari ini sendiri, bukan cuma hari sebelumnya) -
+N mentah 33.683 (terlalu banyak, tanda syarat itu tidak berfungsi). Diperbaiki (exclude
+hari ini + cooldown 60 hari/saham, pelajaran dari bug VCP sebelumnya) - N jadi 697,
+jauh lebih masuk akal.
+
+**Diuji** (336 saham/3 tahun, walk-forward): saham turun >=30% dari puncak 252 hari +
+tidak bikin low baru dlm 10 hari terakhir, target = harga puncak sebelum turun:
+
+| | N | Avg | Median | Win Rate | PF | Pulih Penuh (<=1th) |
+|---|---|---|---|---|---|---|
+| **V-shape (turun>=30%, stabil)** | 697 | +62,16% | +11,14% | 60,7% | **9,63** | 43,0% (rata2 116 hari) |
+| Kontrol (beli & tahan acak, 252hr) | 2.000 | +48,48% | +5,46% | 56,4% | 6,47 | - |
+
+Lebih baik dari kontrol di semua metrik, TAPI marginnya moderat (bukan dominan spt
+Breakout) krn IHSG sendiri cenderung naik jangka panjang di periode ini - baseline
+acaknya sudah kuat. **Lebih dari separuh kasus (57%) TIDAK pulih penuh** ke harga
+sebelum turun dlm 1 tahun, meski return rata-rata tetap positif.
+
+Pecah berdasar kedalaman: makin dalam turun, makin besar potensi untung KALAU pulih
+(turun>=50% -> avg +86,86%, median +27,05%) TAPI makin kecil peluang pulih penuh (33,5%)
+& makin lama (143 hari vs 104 hari utk turun 30-40%).
+
+**Ditempatkan di tab Fundamental** (user: "kita sudah punya header Fundamental, mungkin
+cocok ditempatkan disitu?") sbg sub-tab baru "📉 V-Shape Recovery" - `screener.py::
+build_v_shape_candidates()`, scan LIVE dari `price_data` yg sudah ada (tidak perlu fetch
+tambahan). Kolom "Target Pemulihan" = puncak 252h, "Potensi Return %" = jarak ke situ -
+TIDAK ada SL/target/RR ala sistem swing, murni "beli murah, tunggu pulih", parameter
+(% turun min, hari stabil, gate likuiditas) bisa diatur user.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

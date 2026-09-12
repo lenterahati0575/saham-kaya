@@ -12,8 +12,8 @@ import numpy as np
 from scipy import stats
 from scipy.stats import norm
 from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_with_report, build_screener_table,
-                      build_trade_candidates, build_simple_candidates, build_vcp_candidates, fetch_ihsg_history,
-                      market_regime, _donchian_levels, fetch_index_snapshot, ihsg_seasonality,
+                      build_trade_candidates, build_simple_candidates, build_vcp_candidates, build_v_shape_candidates,
+                      fetch_ihsg_history, market_regime, _donchian_levels, fetch_index_snapshot, ihsg_seasonality,
                       detect_open_ihsg_gaps, ihsg_gap_fill_stats)
 from telegram_notify import send_telegram_message, format_watchlist_message
 import gsheet_journal as gj
@@ -2850,7 +2850,7 @@ with t_equity:
 with t_fundamental:
     st.markdown("## 📊 Fundamental Analysis Pro")
     st.caption("Metrik value investing: Graham, Buffett, Lynch. Data dari Yahoo Finance.")
-    sub_fund, sub_gainer, sub_compare = st.tabs(["🔬 Fundamental Screener", "🏆 Top Gainer/Loser", "⚖️ Perbandingan"])
+    sub_fund, sub_gainer, sub_compare, sub_vshape = st.tabs(["🔬 Fundamental Screener", "🏆 Top Gainer/Loser", "⚖️ Perbandingan", "📉 V-Shape Recovery"])
     with sub_fund:
         st.markdown("### 🎯 Filter Saham Fundamental")
         c1, c2, c3, c4 = st.columns(4)
@@ -3044,6 +3044,53 @@ with t_fundamental:
                         fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), showlegend=True, height=400, template="plotly_dark", margin=dict(l=40, r=40, t=40, b=10))
                         st.plotly_chart(fig_radar, use_container_width=True)
         else: st.info("Pilih minimal 2 saham untuk perbandingan.")
+
+    # ------------------------------------------------------------------------
+    # V-SHAPE RECOVERY (2026-09-12) - user: "saya juga akan mencari saham yang
+    # kecenderungan setelah turun dalam dia akan kembali bullish dengan lebih cepat
+    # bahkan melebihi harga sebelumnya. ini cocok untuk investasi jangka pendek dibawah
+    # 1 tahun", lalu "kita sudah punya header Fundamental, mungkin cocok ditempatkan
+    # disitu?" - BEDA TOTAL dari Breakout/VCP/Kandidat (bukan momentum, ini deep value/
+    # mean reversion, horizon SAMPAI 1 TAHUN bukan 15 hari) - lihat screener.py::
+    # build_v_shape_candidates() utk detail hasil uji lengkap.
+    # ------------------------------------------------------------------------
+    with sub_vshape:
+        st.markdown("### 📉 V-Shape Recovery (Deep Value, Horizon s.d. 1 Tahun)")
+        st.caption("Saham yang turun DALAM dari puncak 1 tahun terakhir & mulai stabil (tidak "
+                   "bikin low baru) - beli sekarang, target = harga puncak sebelum turun. BEDA "
+                   "TOTAL dari tab Kandidat/Screener Sederhana (itu momentum jangka pendek 15 "
+                   "hari, ini deep value jangka s.d. 1 tahun) - TIDAK ada SL/target ala swing di "
+                   "sini, murni \"beli murah, tunggu pulih\".")
+        st.caption("⚠️ **Diuji (336 saham/3 tahun, walk-forward)**: avg +62,16%/trade, win rate "
+                   "60,7%, Profit Factor 9,63 - LEBIH BAIK dari beli-tahan acak (avg +48,48%, PF "
+                   "6,47), TAPI marginnya moderat (bukan dominan spt Breakout) krn IHSG sendiri "
+                   "cenderung naik jangka panjang. Cuma **43,0%** kasus BENAR-BENAR pulih penuh "
+                   "ke harga sebelum turun dalam 1 tahun (rata-rata 116 hari kalau pulih) - "
+                   "LEBIH DARI SETENGAH TIDAK pulih penuh dlm setahun. Makin dalam turunnya: "
+                   "makin besar potensi untung KALAU pulih, TAPI makin kecil peluang pulih & "
+                   "makin lama waktunya. README > \"Ide V-Shape Recovery (Deep Value)\".")
+        vs_col1, vs_col2, vs_col3 = st.columns(3)
+        with vs_col1:
+            vs_decline = st.number_input("Min turun dari puncak 252 hari (%)", value=30.0,
+                                          min_value=10.0, max_value=80.0, step=5.0, key="vs_decline")
+        with vs_col2:
+            vs_stabilize = st.number_input("Hari stabil (tidak bikin low baru)", value=10,
+                                            min_value=3, max_value=30, step=1, key="vs_stabilize")
+        with vs_col3:
+            vs_likuid = st.checkbox("Wajib likuiditas tinggi (Value Traded >= Rp 3 M/hari)",
+                                     value=True, key="vs_likuid")
+        cands_vshape = build_v_shape_candidates(
+            price_data, decline_threshold=vs_decline, stabilize_days=int(vs_stabilize),
+            min_value_traded=(DEFAULT_PARAMS["min_value_traded"] if vs_likuid else 0),
+            top_n=int(jumlah_kandidat_tampil),
+        )
+        if cands_vshape.empty:
+            st.info("Tidak ada saham yang turun dalam & mulai stabil sesuai kriteria hari ini.")
+        else:
+            dataframe_with_chart(cands_vshape, kode_col="Kode", height=400, key="df_vshape")
+            st.download_button("⬇️ Download CSV", to_csv_excel_id(cands_vshape),
+                               file_name=f"vshape_recovery_{datetime.now().strftime('%Y%m%d')}.csv",
+                               mime="text/csv")
 
 # ============================================================================
 # TAB 11: VALUE INVESTING PORTFOLIO (100% dari app.py asli)
