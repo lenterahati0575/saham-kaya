@@ -709,6 +709,39 @@ with st.sidebar:
              "dgn tab Kandidat - matikan kalau kandidat terasa terlalu sedikit (belum "
              "diuji dampaknya scr spesifik ke sistem ini, beda dari filter lain yang "
              "sudah divalidasi lewat backtest).")
+    # User (2026-09-12): "berhari2 saya ikuti screener sederhana hampir tidak ada yang
+    # tertangkap. mungkin volume rasio perlu dicari idealnya" - diuji funnel dulu (data
+    # fresh 30 hari): syarat "Volume Ratio <= 1,0" terbukti PENGHALANG TERBESAR (-85,7%
+    # dari kandidat yg sudah lolos Breakout+Minervini). Lanjut diuji sweep PENUH (336
+    # saham/3 tahun, walk-forward, formula CURRENT - close_pos>=0.7, target 0.5x, SL cap
+    # 5%, exit 2-lapis+Sinyal Jual Dini SAMA persis dgn sistem live): hasilnya TRADE-OFF
+    # MONOTON bersih (BUKAN optimum interior spt SL cap di bawah) - makin longgar, makin
+    # banyak sinyal TAPI PF turun terus, TIDAK ADA titik ajaib yg dapat KEDUANYA. Volume
+    # TINGGI (kebalikannya, >=1.0) diuji juga sbg pembanding - JAUH lebih lemah (PF
+    # 2,84-3,47) - mengkonfirmasi ULANG volume RENDAH memang genuine edge, bukan cuma
+    # anggapan lama yg belum diuji ulang.
+    #   <=0.3: N=47   PF=33,35  avg+33,46%  WR=80,9%  (paling ketat, paling jarang)
+    #   <=0.5: N=60   PF=27,46  avg+33,34%  WR=76,7%
+    #   <=0.7: N=93   PF=28,71  avg+32,18%  WR=78,5%
+    #   <=1.0: N=168  PF=18,33  avg+22,71%  WR=75,6%  (DEFAULT/live sekarang)
+    #   <=1.3: N=260  PF=10,84  avg+15,53%  WR=70,8%  (~55% lebih sering, PF turun ~41%)
+    #   <=1.5: N=315  PF= 9,16  avg+13,43%  WR=69,5%  (~88% lebih sering, msh JAUH di atas
+    #                                                   breakeven & di atas Kandidat ~3-4x)
+    #   <=2.0: N=425  PF= 6,97  avg+10,79%  WR=66,1%
+    #   Tanpa syarat sama sekali: N=654  PF=5,30  avg+9,16%  WR=60,2%
+    # README > "Sweep Volume Ratio Screener Sederhana" utk detail lengkap.
+    volume_ratio_max_sederhana = st.slider(
+        "Batas Volume Ratio Screener Sederhana (volume HARUS di bawah nilai ini x rata-rata 20D)",
+        min_value=0.3, max_value=2.0, value=1.0, step=0.1,
+        help="Volume RENDAH saat breakout = inti keunggulan Screener Sederhana (BUKAN salah "
+             "ketik - kebalikan dari intuisi umum 'volume tinggi = konfirmasi kuat'). Makin "
+             "KECIL angka ini: sinyal makin JARANG tapi makin berkualitas (PF lebih tinggi). "
+             "Makin BESAR: sinyal lebih SERING tapi kualitas turun - trade-off MONOTON murni, "
+             "bukan ada titik 'terbaik' tunggal. Diuji (336 saham/3 tahun): 1,0 (default, "
+             "N=168/3th, PF=18,33) -> 1,3 (~55% lebih sering, PF=10,84) -> 1,5 (~88% lebih "
+             "sering, PF=9,16, masih jauh di atas breakeven). Naikkan kalau Bro merasa terlalu "
+             "jarang & siap terima kualitas sedikit lebih rendah (msh solid), turunkan kalau "
+             "mau lebih selektif.")
     # User: "uji juga stop loss 3%,5%,10%" -> hasilnya TRADE-OFF nyata (bukan satu menang
     # jelas spt volume/RR): makin longgar SL, makin tinggi winrate & avg return, TAPI makin
     # rendah Profit Factor & makin besar rugi terburuk/trade. Awalnya dibuat selectbox 3
@@ -1262,8 +1295,9 @@ with t_sederhana:
         "winrate & avg return naik tapi PF & rugi terburuk memburuk, makin ketat "
         "(mendekati 1%) sebaliknya (lihat 3%/5%/10% di bawah sbg titik acuan)")
     st.caption("Entry: **Breakout** (harga > Donchian High 20-hari + posisi 52-minggu "
-               "wajib lolos + volume DI BAWAH rata-rata + Close solid/tidak fade - di "
-               "30% teratas rentang High-Low hari itu), RR minimum 1,5x. Target = "
+               f"wajib lolos + Volume Ratio <= {volume_ratio_max_sederhana:.1f} (bisa "
+               "diubah di sidebar - volume RENDAH, bukan tinggi) + Close solid/tidak fade "
+               "- di 30% teratas rentang High-Low hari itu), RR minimum 1,5x. Target = "
                "proyeksi 0,5x rentang Donchian. "
                f"SL dibatasi {sl_cap_pct_sederhana*100:.0f}% (bisa diubah di "
                "sidebar). Keluar: Sinyal Jual Dini (turun >=5% dari puncak sejak dibeli, "
@@ -1278,6 +1312,7 @@ with t_sederhana:
         total_equity=total_equity_now, risk_pct=risk_pct_per_trade,
         min_value_traded=(DEFAULT_PARAMS["min_value_traded"] if filter_likuiditas_sederhana else 0),
         sl_cap_pct=sl_cap_pct_sederhana,
+        volume_ratio_max=volume_ratio_max_sederhana,
     )
     if cands_sederhana.empty:
         st.info("Tidak ada kandidat Breakout + posisi 52-minggu hari ini.")

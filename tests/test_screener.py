@@ -491,6 +491,20 @@ class TestBuildSimpleCandidates:
         out = build_simple_candidates(self._table(volume_ratio=1.0), self._price_data(), lookback=20, min_rr=1.5)
         assert not out.empty
 
+    def test_volume_ratio_max_bisa_dilonggarkan(self):
+        # user (2026-09-12): "mungkin volume rasio perlu dicari idealnya" - parameter
+        # volume_ratio_max dibuat bisa diatur (default 1.0, tetap sama perilaku lama -
+        # lihat 2 test di atas) - volume_ratio=1.5 yang SEBELUMNYA dibuang (default 1.0)
+        # harus LOLOS kalau ambangnya dilonggarkan ke 1.5 sendiri.
+        out = build_simple_candidates(self._table(volume_ratio=1.5), self._price_data(),
+                                       lookback=20, min_rr=1.5, volume_ratio_max=1.5)
+        assert not out.empty
+
+    def test_volume_ratio_max_default_tetap_1_0(self):
+        # Tidak diisi sama sekali -> perilaku lama TIDAK berubah (default backward-compatible).
+        out = build_simple_candidates(self._table(volume_ratio=1.2), self._price_data(), lookback=20, min_rr=1.5)
+        assert out.empty
+
     def _price_data_close_pos(self, today_high, today_low, today_close, low_override_2nd_last=900.0):
         # Sama basis dgn _price_data(), TAPI baris TERAKHIR (hari breakout) dikontrol
         # penuh Open/High/Low/Close-nya - dipakai uji syarat "Close solid" (close_pos).

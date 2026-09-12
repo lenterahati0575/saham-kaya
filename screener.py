@@ -1227,7 +1227,8 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
                              require_bullish_regime: bool = False, regime_status: str | None = None,
                              total_equity: float | None = None, risk_pct: float = 1.0,
                              sl_cap_pct: float = 0.05,
-                             min_value_traded: float = 0.0, target_proj_mult: float = 0.5) -> pd.DataFrame:
+                             min_value_traded: float = 0.0, target_proj_mult: float = 0.5,
+                             volume_ratio_max: float = 1.0) -> pd.DataFrame:
     """SCREENER SEDERHANA (pembanding) - user: "apakah perlu buat screener pembanding.
     mungkin lebih sederhana tapi bisa winrate lebih tinggi dan buy/sellnya tepat", lalu
     "target saya yang penting profit dengan risk rendah, tetap profesional."
@@ -1310,12 +1311,32 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
     di sample ini, jadi hasil "OFF menang" mencerminkan bias sample, BUKAN bukti nyata thd
     risiko eksekusi di dunia nyata (962 saham penuh, byk yg genuinely tidak likuid). Gate
     TETAP dipertahankan aktif (checkbox default ON di app.py) - keputusan ini TIDAK
-    diubah oleh temuan backtest ini."""
+    diubah oleh temuan backtest ini.
+
+    VOLUME_RATIO_MAX (2026-09-12) - user: "berhari2 saya ikuti screener sederhana hampir
+    tidak ada yang tertangkap...mungkin volume rasio perlu dicari idealnya". Diagnostik
+    funnel (data fresh, 333 saham/30 hari terakhir) membuktikan syarat volume adalah
+    PENGHALANG TERBESAR (-85,7% dari kandidat yg sudah lolos Breakout+Minervini, jauh di
+    atas penghalang lain). Diuji SWEEP PENUH (336 saham/3 tahun, walk-forward, formula
+    CURRENT - close_pos>=0.7, sl_cap_pct=0.05, target_proj_mult=0.5, exit 2-lapis+Sinyal
+    Jual Dini SAMA dgn simple_journal.py live): TRADE-OFF MONOTON MURNI (bukan optimum
+    interior spt SL cap/RR/target_proj_mult) - makin longgar ambangnya, makin sering sinyal
+    TAPI PF turun terus, tidak ada titik yang menang di KEDUA sisi sekaligus:
+        <=0.3: N=47   PF=33,35  |  <=0.5: N=60   PF=27,46  |  <=0.7: N=93   PF=28,71
+        <=1.0: N=168  PF=18,33 (DEFAULT)  |  <=1.3: N=260  PF=10,84  |  <=1.5: N=315 PF=9,16
+        <=2.0: N=425  PF=6,97  |  tanpa syarat: N=654  PF=5,30
+    Volume TINGGI (>=1.0, kebalikannya) diuji sbg pembanding: PF cuma 2,84-3,47 - jauh
+    lebih lemah, mengkonfirmasi ULANG (bukan cuma warisan asumsi lama) bahwa volume RENDAH
+    saat breakout memang genuine edge. Dipertahankan default 1,0 (titik yg sudah lama
+    live & terbukti), TAPI dibuat bisa diatur user (slider di app.py, 0,3-2,0) - user modal
+    kecil yang butuh frekuensi lebih sering & rela PF sedikit lebih rendah (msh solid,
+    bukan buruk) bisa naikkan ke 1,3-1,5 sendiri. README > "Sweep Volume Ratio Screener
+    Sederhana" utk detail lengkap termasuk avg return/win rate per titik."""
     if require_bullish_regime and regime_status != "BULLISH":
         return pd.DataFrame()
     minervini_ok = table["Minervini Position OK"].fillna(False)
     breakout = table["Harga"] > table["Donchian High"]
-    volume_rendah = table["Volume Ratio"].fillna(999) <= 1.0
+    volume_rendah = table["Volume Ratio"].fillna(999) <= volume_ratio_max
     # Gate likuiditas OPSIONAL (min_value_traded=0 -> nonaktif, SAMA perilaku sblm ini
     # ditambahkan - lihat catatan checkbox di app.py). BUKAN duplikat gate di
     # compute_metrics() (yang cuma menghukum Score, TIDAK memfilter baris keluar dari

@@ -3579,6 +3579,51 @@ tapi Win Rate/Profit Factor/Equity Curve di atasnya SEKARANG default bersih dari
 sebelum mekanisme dioptimalkan - persis maksud user ("bersih, bisa diuji kedepannya"),
 tanpa kehilangan jejak audit historisnya.
 
+## Sweep Volume Ratio Screener Sederhana - Jadi Bisa Diatur User (2026-09-12)
+
+Lanjutan investigasi funnel di atas, user: *"mungkin volume rasia perlu dicari idealnya,
+karena berhari2 saya ikuti screener sederhana hampir tidak ada yang tertangkap. padahal
+hari itu banyak saham yang naik"*.
+
+Diuji SWEEP PENUH (336 saham/3 tahun, walk-forward, formula CURRENT - close_pos>=0,7,
+sl_cap_pct=0,05, target_proj_mult=0,5, exit 2-lapis+Sinyal Jual Dini SAMA persis dgn
+`simple_journal.py` live - bukan formula lama), kandidat dibangun TANPA syarat volume sama
+sekali lalu di-slice post-hoc per ambang batas:
+
+| Volume Ratio maks | N (3 tahun) | Avg Return | Win Rate | Profit Factor |
+|---|---|---|---|---|
+| <= 0,3 | 47 | +33,46% | 80,9% | 33,35 |
+| <= 0,5 | 60 | +33,34% | 76,7% | 27,46 |
+| <= 0,7 | 93 | +32,18% | 78,5% | 28,71 |
+| **<= 1,0 (default/live)** | **168** | **+22,71%** | **75,6%** | **18,33** |
+| <= 1,3 | 260 | +15,53% | 70,8% | 10,84 |
+| <= 1,5 | 315 | +13,43% | 69,5% | 9,16 |
+| <= 2,0 | 425 | +10,79% | 66,1% | 6,97 |
+| Tanpa syarat volume | 654 | +9,16% | 60,2% | 5,30 |
+| >= 1,0 (KEBALIKAN, volume tinggi) | 486 | +4,44% | 54,9% | 2,84 |
+| >= 3,0 (volume sangat tinggi) | 107 | +7,96% | 40,2% | 3,47 |
+
+**Kesimpulan: TRADE-OFF MONOTON MURNI, bukan optimum interior** (beda dari SL cap/RR
+minimum/target proyeksi yg semua punya titik "terbaik" di tengah) - makin longgar
+ambangnya, makin sering sinyal TAPI PF turun terus tanpa jeda, TIDAK ADA titik ajaib yg
+menang di frekuensi MAUPUN kualitas sekaligus. Volume TINGGI (kebalikannya) diuji juga
+sbg pembanding - jauh lebih lemah (PF 2,84-3,47) - mengkonfirmasi ULANG (dgn formula
+current, bukan cuma warisan klaim lama) bahwa volume RENDAH saat breakout memang genuine
+edge, bukan kebetulan.
+
+**N=168/3 tahun (336 saham) memang secara matematis SANGAT jarang** (~1 sinyal per ~13
+hari bursa DIGABUNG seluruh universe) - inilah akar kenapa user "berhari-hari... hampir
+tidak ada yang tertangkap" meski banyak saham naik hari itu (saham naik != lolos SEMUA
+syarat ketat sekaligus: breakout+Minervini+volume rendah+likuiditas+close_solid+RR).
+
+**Perubahan kode**: `volume_ratio_max` (default 1,0, perilaku lama TIDAK berubah) sekarang
+jadi PARAMETER `build_simple_candidates()` (dulu hardcoded `<=1.0`), diekspos sbg slider
+di sidebar app.py ("Batas Volume Ratio Screener Sederhana", 0,3-2,0) dgn caption tabel
+trade-off di atas - user modal kecil yg butuh frekuensi lebih sering & rela PF sedikit
+lebih rendah (msh solid, jauh di atas breakeven) bisa longgarkan sendiri ke 1,3-1,5, tanpa
+perlu ubah kode. 2 test baru (`test_volume_ratio_max_bisa_dilonggarkan`,
+`test_volume_ratio_max_default_tetap_1_0`) - 313 total, semua lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
