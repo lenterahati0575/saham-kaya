@@ -3429,6 +3429,49 @@ tambahan). Kolom "Target Pemulihan" = puncak 252h, "Potensi Return %" = jarak ke
 TIDAK ada SL/target/RR ala sistem swing, murni "beli murah, tunggu pulih", parameter
 (% turun min, hari stabil, gate likuiditas) bisa diatur user.
 
+## Audit Mendalam 21 Tab - Broker Dirombak, Value Investing Diberi Peringatan (2026-09-12)
+
+User: *"saya berfikir sejauh ini kita sudah melakukan banyak perbaikan di sistem saham
+kaya. mungkin sebaikny kita audit mendalam untuk memastikan semua maih relevan
+dipertahankan, disempurnakan, atau ada yang perlu dihapus atau sudah saling tumpang
+tindih, misal broker yang kemungkinan besar tidak terpakai."*
+
+Dibaca ulang semua 21 tab (`st.tabs()` di `app.py`) satu per satu. Mayoritas SUDAH baik -
+Kandidat/Screener Sederhana/VCP/Breakout/Gap/Open=Low/V-Shape semua sudah dibacktest +
+diberi disclaimer jujur; Astronacci/Sentiment/ML Signal/Options juga sudah mengakui
+keterbatasannya sendiri; Riwayat Saham/Jurnal Real/Equity/Performance BEDA tujuan
+(snapshot sinyal vs uang riil vs modal vs auto-backtest), bukan tumpang tindih. 3 temuan
+nyata, sudah diperbaiki:
+
+1. **Tab 🏦 Broker - dugaan user TERBUKTI BENAR.** "Koneksi Broker" (tombol Connect) &
+   "Quick Order Entry" (tombol Execute Order) KELIHATAN seperti integrasi API sungguhan,
+   tapi `BrokerAPI.connect()`/`place_order()` 100% placeholder (selalu `return True` +
+   teks kaleng, tidak pernah menghubungi broker manapun). Dropdown "Pilih Broker" di situ
+   juga TIDAK terhubung ke daftar Sekuritas asli (tab Jurnal Real > Sekuritas, yg dipakai
+   Kalkulator Profit & Catat Trade sungguhan) - 2 konsep "broker" berbeda & tidak nyambung,
+   berisiko bikin user kira order sudah benar-benar terkirim padahal cuma simulasi UI.
+   Kedua fitur (+ class `BrokerAPI` yg sudah tidak dipakai) DIHAPUS. Tab jadi murni
+   informasi (perbandingan fee 7 broker + panduan API), dgn pointer jelas ke Jurnal Real
+   utk catat transaksi riil. `validate_order()` (matematika validasi lot/harga/dana, ada
+   unit test-nya) DIPERTAHANKAN krn itu bukan bagian yg palsu, cuma sudah tidak dipanggil
+   dari tab ini lagi.
+2. **Tab 🏛️ Value Investing - satu-satunya screener tanpa backtest & tanpa disclaimer.**
+   Beda dari Kandidat/Breakout/Gap/dst yg semua sudah diuji ke data histori, tab ini murni
+   rumus buku Buffett/Graham dari data fundamental live yfinance, TAPI tampilannya (STRONG
+   BUY/BUY berwarna, Value Score) sama percaya-diri dgn sistem yg sudah tervalidasi -
+   berisiko disamakan. Ditambah `st.warning()` di atas kolom filter: jelas menyatakan
+   belum divalidasi backtest, cocok utk riset awal/watchlist saja.
+3. **Duplikasi chart Equity vs IHSG.** Tab Jurnal Real > sub "Performance Real" punya
+   chart "Portfolio Equity Curve (Real Equity vs IHSG)" yg sumber data (`eq.load_equity()`)
+   dan bentuknya IDENTIK dgn chart "Kurva Total Equity vs IHSG" di tab 💰 Equity >
+   Ringkasan. Chart ke-2 di Jurnal Real dihapus, diganti pointer singkat ke tab Equity -
+   chart trade-based ("Grafik Portofolio vs IHSG (Trade-Based)", sumber data beda -
+   dihitung dari P&L trade tertutup, bukan snapshot equity) TETAP ada krn itu bukan
+   duplikat.
+
+Tidak ada perubahan pada sistem Kandidat/Screener Sederhana/VCP/Breakout - murni
+perapian tab yg tidak overlap dgn validasi sebelumnya. 311 test tetap semua lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

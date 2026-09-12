@@ -163,17 +163,11 @@ def analyze_ihsg_gann(ihsg_hist):
     else: bias = "⚪ NEUTRAL — Pantau Breakout"
     return {'current': current_price, 'high_1y': high_1y, 'low_1y': low_1y, 'pivot_low': (pivot_low_idx, pivot_low_price), 'pivot_high': (pivot_high_idx, pivot_high_price), 'gann': gann, 'cycles': upcoming, 'position_pct': position_pct, 'rsi_approx': rsi_approx, 'bias': bias, 'cycle_alert': cycle_alert}
 
-class BrokerAPI:
-    SUPPORTED_BROKERS = ["Mirae Asset Sekuritas", "Ajaib Sekuritas", "Stockbit Sekuritas", "Philip Sekuritas", "IPOT (Indo Premier)", "Sinarmas Sekuritas", "Bahana Sekuritas", "BNI Sekuritas", "Mandiri Sekuritas", "Manual / Lainnya"]
-    def __init__(self, broker_name="Manual / Lainnya", api_key=None, api_secret=None):
-        self.broker = broker_name; self.api_key = api_key; self.api_secret = api_secret; self.connected = False
-    def connect(self):
-        self.connected = True
-        return True, "Manual mode — order dicatat di jurnal saja" if self.broker == "Manual / Lainnya" else f"{self.broker} — API integration placeholder."
-    def place_order(self, kode, side, qty, price, order_type="LIMIT"):
-        if not self.connected: return False, "Not connected to broker"
-        return True, f"Order dicatat di jurnal: {side} {kode} @ Rp{price:,.0f} x {qty} lot" if self.broker == "Manual / Lainnya" else f"[API] {side} {kode} @ Rp{price:,.0f} x {qty} lot — ORDER PLACED (simulasi)"
-
+# BrokerAPI (class placeholder connect()/place_order() - 100% simulasi, tidak pernah benar2
+# menghubungi broker manapun) DIHAPUS per temuan audit 2026-09-12: tab Broker yang dulu
+# memakainya sudah dirombak jadi info-only (lihat komentar di "with t_broker:"). validate_order()
+# di bawah TETAP dipertahankan - itu murni matematika validasi order (lot/harga/dana cukup,
+# ada test unit-nya), bukan bagian yang palsu, dan tetap berguna sbg utility kalau dipakai lagi.
 def validate_order(kode, side, qty, price, cash_available, broker_fee_pct=0.0015):
     errors = []
     if qty < 1: errors.append("Lot minimal 1")
@@ -2459,86 +2453,15 @@ with t_real:
                     st.code(traceback.format_exc())
                 
                 st.divider()
-                
-                # =========================================================================
-                # GRAFIK 2: Equity Curve Riil vs IHSG
-                # =========================================================================
-                try:
-                    st.markdown("### 💼 Portfolio Equity Curve (Real Equity vs IHSG)")
-                    st.caption("Grafik ini menggunakan data **Total Equity riil** dari tab 💰 Equity, bukan dihitung dari jurnal transaksi.")
-                    equity_df = eq.load_equity()
-                    if equity_df.empty:
-                        st.info("📭 Belum ada data equity. Silakan catat snapshot equity pertama di tab **💰 Equity > Catat Snapshot**.")
-                    else:
-                        total_series = eq.total_equity_over_time(equity_df)
-                        total_series["Tanggal"] = pd.to_datetime(total_series["Tanggal"])
-                        total_series = total_series.sort_values("Tanggal")
-                        start_eq = float(total_series["Total Equity (Rp)"].iloc[0])
-                        total_series["Equity_Return_%"] = ((total_series["Total Equity (Rp)"] / start_eq) - 1) * 100
-                        
-                        eq_fd = total_series["Tanggal"].min()
-                        eq_ld = total_series["Tanggal"].max()
-                        ihsg_eq = ihsg_hist.copy()
-                        if ihsg_eq.index.tz is not None:
-                            ihsg_eq.index = ihsg_eq.index.tz_localize(None)
-                        ihsg_eq_range = ihsg_eq[(ihsg_eq.index >= eq_fd) & (ihsg_eq.index <= eq_ld)]
-                        
-                        fig_eq_cmp = go.Figure()
-                        fig_eq_cmp.add_trace(go.Scatter(
-                            x=total_series["Tanggal"],
-                            y=total_series["Equity_Return_%"],
-                            mode="lines+markers",
-                            name="🟦 Portfolio Equity (Real)",
-                            line=dict(color="#4ade80", width=2.5),
-                            fill="tozeroy",
-                            fillcolor="rgba(74,222,128,0.10)",
-                        ))
-                        if not ihsg_eq_range.empty and len(ihsg_eq_range) >= 2:
-                            ihsg_eq_base = float(ihsg_eq_range["Close"].iloc[0])
-                            ihsg_eq_range["IHSG_Return_%"] = ((ihsg_eq_range["Close"] / ihsg_eq_base) - 1) * 100
-                            fig_eq_cmp.add_trace(go.Scatter(
-                                x=ihsg_eq_range.index,
-                                y=ihsg_eq_range["IHSG_Return_%"],
-                                mode="lines",
-                                name="🟨 IHSG (Benchmark)",
-                                line=dict(color="#fbbf24", width=2.5, dash="dash"),
-                            ))
-                            last_eq_ret = total_series["Equity_Return_%"].iloc[-1]
-                            last_ihsg_ret = ihsg_eq_range["IHSG_Return_%"].iloc[-1]
-                            delta_eq = last_eq_ret - last_ihsg_ret
-                            m1, m2, m3, m4 = st.columns(4)
-                            m1.metric("Starting Equity", f"Rp{start_eq:,.0f}")
-                            latest_eq = float(total_series["Total Equity (Rp)"].iloc[-1])
-                            m2.metric("Latest Equity", f"Rp{latest_eq:,.0f}")
-                            m3.metric("Total Return", f"{last_eq_ret:+.2f}%")
-                            pf_display_eq = "∞" if stats_rj["profit_factor"] == float("inf") else f"{stats_rj['profit_factor']:.2f}"
-                            m4.metric("Profit Factor", pf_display_eq)
-                            total_series["Peak"] = total_series["Total Equity (Rp)"].cummax()
-                            total_series["Drawdown"] = (total_series["Total Equity (Rp)"] - total_series["Peak"]) / total_series["Peak"] * 100
-                            max_dd = total_series["Drawdown"].min()
-                            dd1, dd2 = st.columns(2)
-                            dd1.metric("Max Drawdown", f"{max_dd:.2f}%")
-                            if delta_eq > 0:
-                                dd2.success(f"🚀 Portfolio outperform IHSG by **{delta_eq:+.2f}%** (Equity: {last_eq_ret:+.2f}% vs IHSG: {last_ihsg_ret:+.2f}%)")
-                            else:
-                                dd2.warning(f"📉 Portfolio underperform IHSG by **{delta_eq:+.2f}%** (Equity: {last_eq_ret:+.2f}% vs IHSG: {last_ihsg_ret:+.2f}%)")
-                        else:
-                            st.caption("⚠️ Data IHSG tidak tersedia untuk periode equity.")
-                        fig_eq_cmp.update_layout(
-                            height=400,
-                            template="plotly_dark",
-                            title="📊 Portfolio Equity Curve vs IHSG (Real Equity)",
-                            yaxis_title="Return Kumulatif (%)",
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                            margin=dict(l=10, r=10, t=60, b=10),
-                            hovermode="x unified",
-                        )
-                        st.plotly_chart(fig_eq_cmp, use_container_width=True)
-                except Exception as e:
-                    st.error(f"❌ Error grafik equity: {e}")
-                    import traceback
-                    st.code(traceback.format_exc())
-                
+                # Chart "Equity Curve Riil vs IHSG" versi lengkap (starting/latest equity,
+                # max drawdown, dst.) SUDAH ADA di tab 💰 Equity > Ringkasan - sumber datanya
+                # sama-sama eq.load_equity()/total_equity_over_time(), jadi dulu chart itu
+                # ada 2x di 2 tab (temuan audit 2026-09-12). Di sini cukup pointer saja,
+                # supaya tidak ada 2 tempat menampilkan grafik yang identik.
+                st.caption("💼 **Equity Curve Riil vs IHSG** (starting/latest equity, max drawdown) "
+                           "ada di tab **💰 Equity > Ringkasan** - tidak diulang di sini supaya tidak "
+                           "ada 2 chart identik dari sumber data yang sama.")
+
                 st.divider()
                 st.markdown("**Riwayat Semua Trade**")
                 st.dataframe(trades_all, use_container_width=True, hide_index=True, height=350)
@@ -3098,6 +3021,16 @@ with t_fundamental:
 with t_invest:
     st.markdown("## 🏛️ Value Investing Portfolio")
     st.caption("Analisis berbasis prinsip Warren Buffett & Benjamin Graham.")
+    # Temuan audit 2026-09-12: BEDA dari tab Kandidat/Breakout/Gap/V-Shape dkk yang semua
+    # sudah dibacktest histori + diberi disclaimer jujur - tab ini BELUM PERNAH diuji ke
+    # data histori sama sekali (murni rumus buku Buffett/Graham dari data fundamental live
+    # yfinance), tapi tampilannya (STRONG BUY/BUY berwarna, Value Score) sama percaya-diri
+    # dengan sistem yang sudah tervalidasi. Diberi peringatan supaya tidak disamakan.
+    st.warning("⚠️ **BELUM divalidasi backtest** - label STRONG BUY/BUY/WATCHLIST di bawah murni "
+               "dari rumus buku (ROE, Debt/Equity, P/E, Margin of Safety ala Graham), BUKAN hasil "
+               "uji ke data histori seperti Kandidat/Breakout/Gap/V-Shape Recovery. Cocok utk "
+               "riset awal/watchlist, jangan disamakan tingkat kepercayaannya dgn sistem yg sudah "
+               "tervalidasi di tab lain.")
     col_b1, col_b2, col_b3 = st.columns(3)
     with col_b1:
         buffett_min_roe = st.number_input("Min ROE (%)", value=15.0, step=1.0, key="b_roe")
@@ -3727,74 +3660,24 @@ with t_options:
     st.caption("⚠️ **Disclaimer:** IDX tidak memiliki options market aktif untuk retail. Modul ini untuk edukasi dan hedging simulation.")
 
 # ============================================================================
-# TAB 18: BROKER API (Dari app_premium_complete.py)
+# TAB 18: BROKER (INFO SAJA - lihat catatan audit di bawah)
 # ============================================================================
 with t_broker:
-    st.markdown("## 🏦 Broker Integration")
-    st.caption("Hubungkan dashboard dengan broker Anda untuk order entry yang lebih cepat dan portfolio sync.")
-    st.markdown("### 🔌 Koneksi Broker")
-    bcol1, bcol2, bcol3 = st.columns(3)
-    with bcol1: broker_pilih = st.selectbox("Pilih Broker", options=BrokerAPI.SUPPORTED_BROKERS, key="broker_select")
-    with bcol2: api_key_broker = st.text_input("API Key (opsional)", type="password", key="broker_api_key", help="Hubungi broker untuk API access")
-    with bcol3: api_secret_broker = st.text_input("API Secret (opsional)", type="password", key="broker_api_secret")
-    if st.button("🔗 Connect", type="primary", use_container_width=True, key="btn_connect_broker"):
-        broker = BrokerAPI(broker_pilih, api_key_broker, api_secret_broker)
-        ok, msg = broker.connect()
-        if ok:
-            st.success(msg)
-            st.session_state['broker_connected'] = True
-            st.session_state['broker_name'] = broker_pilih
-        else: st.error(msg)
-    st.divider()
-    st.markdown("### ⚡ Quick Order Entry")
-    st.caption("Validasi order sebelum eksekusi. Untuk broker tanpa API, order dicatat di Jurnal Real.")
-    o1, o2, o3, o4, o5 = st.columns(5)
-    with o1: order_kode = st.selectbox("Saham", options=[""] + table["Kode"].tolist() if not table.empty else [""], key="order_kode")
-    with o2: order_side = st.selectbox("Side", options=["BUY", "SELL"], key="order_side")
-    with o3: order_qty = st.number_input("Lot", min_value=1, value=10, step=1, key="order_qty")
-    with o4: 
-        harga_default = float(table.loc[table["Kode"] == order_kode, "Harga"].values[0]) if order_kode and not table.empty and order_kode in table["Kode"].values else 0
-        order_price = st.number_input("Harga (Rp)", min_value=0.0, value=float(harga_default), step=1.0, key="order_price")
-    with o5: cash_avail = st.number_input("Cash Tersedia (Rp)", min_value=0.0, value=10_000_000.0, step=1_000_000.0, key="order_cash")
-    if order_kode and order_price > 0 and order_qty > 0:
-        valid, msg, total = validate_order(order_kode, order_side, order_qty, order_price, cash_avail)
-        if valid:
-            st.success(msg)
-            st.markdown(f"""<div style="background:#0f172a;border-radius:10px;padding:14px;border:1px solid #16a34a;margin:12px 0;"><div style="font-size:13px;color:#16a34a;font-weight:700;">✅ ORDER SUMMARY</div><div style="font-size:12px;color:#e2e8f0;margin-top:8px;line-height:1.6;"><b>Broker:</b> {st.session_state.get('broker_name', 'Manual')}<br><b>Saham:</b> {order_kode}<br><b>Side:</b> {order_side}<br><b>Qty:</b> {order_qty} lot ({order_qty * 100:,} lembar)<br><b>Harga:</b> Rp{order_price:,.0f}<br><b>Total:</b> Rp{total:,.0f}</div></div>""", unsafe_allow_html=True)
-            # PENTING: dulu tombol-tombol ini KLAIM mencatat ke Jurnal Real ("Order juga
-            # dicatat di tab Jurnal Real") tapi TIDAK PERNAH benar-benar memanggil
-            # rj.open_trade() - broker.place_order() cuma placeholder string, jadi klaimnya
-            # bohong (order hilang, tidak ada di Jurnal Real manapun). Sekarang benar-benar
-            # ditulis ke Jurnal Real (BUY dicatat, SELL cuma validasi - lihat catatan di bawah).
-            col_exec, col_journal = st.columns(2)
-
-            def _catat_order_ke_jurnal():
-                if order_side != "BUY":
-                    st.warning("Order SELL belum bisa dicatat otomatis di sini (perlu tahu posisi mana yang "
-                               "ditutup) - buka tab **Jurnal Real > Tutup Posisi** untuk mencatat penjualan.")
-                    return
-                if not gj.is_configured():
-                    st.error("Google Sheets belum terhubung - isi `gcp_service_account` & `GOOGLE_SHEET_ID` "
-                             "di Settings > Secrets dulu (lihat README) sebelum bisa mencatat ke Jurnal Real.")
-                    return
-                no = rj.open_trade(datetime.now().strftime("%Y-%m-%d"),
-                                    st.session_state.get('broker_name', broker_pilih), order_kode, "Lainnya",
-                                    order_price, 0, 0, order_qty, "Dicatat dari tab Broker > Quick Order Entry")
-                st.success(f"✅ Trade #{no} ({order_kode}) BENAR-BENAR tercatat di Jurnal Real (bukan simulasi).")
-
-            with col_exec:
-                if st.button("🚀 Execute Order", type="primary", use_container_width=True, key="btn_exec_order"):
-                    broker = BrokerAPI(st.session_state.get('broker_name', 'Manual'))
-                    ok, msg = broker.place_order(order_kode, order_side, order_qty, order_price)
-                    if ok:
-                        st.success(msg)
-                        _catat_order_ke_jurnal()
-                    else: st.error(msg)
-            with col_journal:
-                if st.button("📝 Catat ke Jurnal Saja", use_container_width=True, key="btn_journal_only"):
-                    _catat_order_ke_jurnal()
-        else: st.error(msg)
-    st.divider()
+    st.markdown("## 🏦 Info Broker")
+    # Temuan audit 2026-09-12 (user minta audit mendalam, secara spesifik menduga tab ini
+    # "kemungkinan besar tidak terpakai" - TERBUKTI BENAR): tab ini dulu punya "Koneksi
+    # Broker" (tombol Connect) & "Quick Order Entry" (tombol Execute Order) yang KELIHATAN
+    # seperti integrasi API sungguhan, tapi BrokerAPI.connect()/place_order() 100% placeholder
+    # (selalu return True + teks kaleng, tidak pernah menghubungi broker manapun - lihat kode
+    # class BrokerAPI di atas). Selain palsu, dropdown "Pilih Broker" di situ juga TIDAK
+    # terhubung ke daftar Sekuritas asli (tab Jurnal Real > Sekuritas, yg dipakai Kalkulator
+    # Profit & drop-down Catat Trade sungguhan) - 2 konsep "broker" yang beda & tidak nyambung,
+    # berisiko bikin Bro kira order sudah benar2 terkirim padahal cuma simulasi UI. Kedua fitur
+    # itu DIHAPUS. Sisa tab ini murni informasi (perbandingan fee & panduan API) - untuk catat
+    # transaksi riil, pakai tab Jurnal Real yang sungguhan terhubung ke Google Sheets.
+    st.caption("Perbandingan fee & panduan API broker Indonesia - murni referensi. Untuk catat "
+               "transaksi riil, gunakan tab **📓 Jurnal Real > Catat Trade** (order/posisi "
+               "sungguhan tercatat di sana, bukan di tab ini).")
     st.markdown("### 📊 Perbandingan Broker Indonesia")
     broker_comparison = pd.DataFrame([
         {"Broker": "Mirae Asset", "Fee Beli": "0.15%", "Fee Jual": "0.25%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐⭐⭐"},
@@ -3812,7 +3695,9 @@ with t_broker:
     with st.expander("Cara Request API Access dari Broker", expanded=False):
         st.markdown("""**Langkah-langkah umum:**\n1. **Hubungi Relationship Manager** Anda di broker\n2. **Ajukan permohonan** API access (sebutkan "algorithmic trading")\n3. **Tanda tangani** NDA dan perjanjian penggunaan API\n4. **Dapatkan** API Key dan Secret\n5. **Integrasikan** ke dalam sistem ini\n\n**Catatan:**\n- Kebanyakan broker Indonesia **belum** menyediakan public API untuk retail\n- API access umumnya hanya untuk **institutional clients** atau **high-net-worth individuals**\n- Alternatif: Gunakan **manual order entry** + auto-catat ke Jurnal Real""")
     st.divider()
-    st.caption("⚠️ **Disclaimer:** Fitur Broker API adalah template untuk pengembangan. Untuk saat ini, gunakan manual order entry melalui aplikasi broker Anda, lalu catat transaksi di tab Jurnal Real untuk tracking.")
+    st.caption("⚠️ **Disclaimer:** IDX belum menyediakan public API order untuk retail (lihat "
+               "panduan di atas) - order tetap dieksekusi manual lewat aplikasi broker Anda "
+               "sendiri, lalu catat transaksinya di tab **📓 Jurnal Real** untuk tracking.")
 
 # ============================================================================
 # AUTO-REFRESH SCHEDULER & FOOTER
