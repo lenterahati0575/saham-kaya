@@ -3429,7 +3429,7 @@ tambahan). Kolom "Target Pemulihan" = puncak 252h, "Potensi Return %" = jarak ke
 TIDAK ada SL/target/RR ala sistem swing, murni "beli murah, tunggu pulih", parameter
 (% turun min, hari stabil, gate likuiditas) bisa diatur user.
 
-## Audit Mendalam 21 Tab - Broker Dirombak, Value Investing Diberi Peringatan (2026-09-12)
+## Audit Mendalam 21 Tab - Broker Dihapus Total, Value Investing Diberi Peringatan (2026-09-12)
 
 User: *"saya berfikir sejauh ini kita sudah melakukan banyak perbaikan di sistem saham
 kaya. mungkin sebaikny kita audit mendalam untuk memastikan semua maih relevan
@@ -3443,18 +3443,22 @@ keterbatasannya sendiri; Riwayat Saham/Jurnal Real/Equity/Performance BEDA tujua
 (snapshot sinyal vs uang riil vs modal vs auto-backtest), bukan tumpang tindih. 3 temuan
 nyata, sudah diperbaiki:
 
-1. **Tab 🏦 Broker - dugaan user TERBUKTI BENAR.** "Koneksi Broker" (tombol Connect) &
-   "Quick Order Entry" (tombol Execute Order) KELIHATAN seperti integrasi API sungguhan,
-   tapi `BrokerAPI.connect()`/`place_order()` 100% placeholder (selalu `return True` +
-   teks kaleng, tidak pernah menghubungi broker manapun). Dropdown "Pilih Broker" di situ
-   juga TIDAK terhubung ke daftar Sekuritas asli (tab Jurnal Real > Sekuritas, yg dipakai
-   Kalkulator Profit & Catat Trade sungguhan) - 2 konsep "broker" berbeda & tidak nyambung,
-   berisiko bikin user kira order sudah benar-benar terkirim padahal cuma simulasi UI.
-   Kedua fitur (+ class `BrokerAPI` yg sudah tidak dipakai) DIHAPUS. Tab jadi murni
-   informasi (perbandingan fee 7 broker + panduan API), dgn pointer jelas ke Jurnal Real
-   utk catat transaksi riil. `validate_order()` (matematika validasi lot/harga/dana, ada
-   unit test-nya) DIPERTAHANKAN krn itu bukan bagian yg palsu, cuma sudah tidak dipanggil
-   dari tab ini lagi.
+1. **Tab 🏦 Broker - dugaan user TERBUKTI BENAR, tab DIHAPUS TOTAL.** "Koneksi Broker"
+   (tombol Connect) & "Quick Order Entry" (tombol Execute Order) KELIHATAN seperti
+   integrasi API sungguhan, tapi `BrokerAPI.connect()`/`place_order()` 100% placeholder
+   (selalu `return True` + teks kaleng, tidak pernah menghubungi broker manapun).
+   Dropdown "Pilih Broker" di situ juga TIDAK terhubung ke daftar Sekuritas asli (tab
+   Jurnal Real > Sekuritas, yg dipakai Kalkulator Profit & Catat Trade sungguhan) - 2
+   konsep "broker" berbeda & tidak nyambung, berisiko bikin user kira order sudah
+   benar-benar terkirim padahal cuma simulasi UI. Langkah pertama (commit sebelumnya)
+   cuma dirombak jadi info-only; user lalu minta dihapus total - tab & entrinya di
+   `st.tabs()` dihapus dari `app.py`, class `BrokerAPI` yg jadi tidak terpakai ikut
+   dihapus. Bagian yg murni informasi (tabel perbandingan fee 7 broker + panduan API
+   access) DIPINDAH, bukan hilang - sekarang ada di tab **📚 Tutorial > 💼 Manajemen
+   Portofolio** (`tutorial.py::show_portfolio_management()`). `validate_order()`
+   (matematika validasi lot/harga/dana, ada unit test-nya) tetap DIPERTAHANKAN di
+   `app.py` krn itu bukan bagian yg palsu, cuma sudah tidak dipanggil dari UI manapun
+   lagi (utility kalau dipakai lagi nanti). Total tab sekarang 20 (dari 21).
 2. **Tab 🏛️ Value Investing - satu-satunya screener tanpa backtest & tanpa disclaimer.**
    Beda dari Kandidat/Breakout/Gap/dst yg semua sudah diuji ke data histori, tab ini murni
    rumus buku Buffett/Graham dari data fundamental live yfinance, TAPI tampilannya (STRONG

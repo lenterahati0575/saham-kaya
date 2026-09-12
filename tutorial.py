@@ -3,6 +3,7 @@ Tutorial Interaktif untuk IDX Screener Dashboard
 Bisa di-import dan dipanggil dari app.py
 """
 import streamlit as st
+import pandas as pd
 
 def show_tutorial():
     st.title("📚 Tutorial Penggunaan Sistem")
@@ -306,6 +307,34 @@ def show_portfolio_management():
             for threshold, label in info['interpretasi'].items():
                 st.write(f"  - {threshold}: {label}")
             st.write(f"**Tips:** {info['tips']}")
+
+    st.divider()
+
+    # Dipindah dari tab "🏦 Broker" (dihapus total 2026-09-12, audit) - tab itu dulu punya
+    # tombol "Connect"/"Execute Order" yang 100% placeholder (tidak pernah menghubungi
+    # broker manapun) & dropdown broker terpisah yang tidak nyambung ke Sekuritas asli
+    # (tab Jurnal Real). Bagian yang murni informasi (tabel perbandingan fee + panduan API)
+    # dipindah kesini, sisanya dihapus - untuk order & catat transaksi riil, pakai tab
+    # Jurnal Real yang sungguhan terhubung ke Google Sheets.
+    st.markdown("### 📋 Memilih Sekuritas / Broker")
+    st.caption("Referensi fee & cara mendapatkan API access - untuk catat transaksi riil, "
+               "gunakan tab **💼 Jurnal Real > Catat Trade**.")
+    broker_comparison = pd.DataFrame([
+        {"Broker": "Mirae Asset", "Fee Beli": "0.15%", "Fee Jual": "0.25%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐⭐⭐"},
+        {"Broker": "Ajaib", "Fee Beli": "0.15%", "Fee Jual": "0.25%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐⭐"},
+        {"Broker": "Stockbit", "Fee Beli": "0.15%", "Fee Jual": "0.25%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐⭐"},
+        {"Broker": "IPOT", "Fee Beli": "0.18%", "Fee Jual": "0.28%", "API": "❌", "Min Deposit": "Rp100K", "Rating": "⭐⭐⭐"},
+        {"Broker": "Philip", "Fee Beli": "0.18%", "Fee Jual": "0.28%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐⭐"},
+        {"Broker": "BNI Sekuritas", "Fee Beli": "0.18%", "Fee Jual": "0.28%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐"},
+        {"Broker": "Mandiri Sekuritas", "Fee Beli": "0.18%", "Fee Jual": "0.28%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐"},
+    ])
+    st.dataframe(broker_comparison, use_container_width=True, hide_index=True)
+    st.caption("💡 **Tips memilih broker:** Cari yang fee rendah + app stabil + customer service responsif.")
+    with st.expander("📚 Cara Request API Access dari Broker", expanded=False):
+        st.markdown("""**Langkah-langkah umum:**\n1. **Hubungi Relationship Manager** Anda di broker\n2. **Ajukan permohonan** API access (sebutkan "algorithmic trading")\n3. **Tanda tangani** NDA dan perjanjian penggunaan API\n4. **Dapatkan** API Key dan Secret\n5. **Integrasikan** ke dalam sistem ini\n\n**Catatan:**\n- Kebanyakan broker Indonesia **belum** menyediakan public API untuk retail\n- API access umumnya hanya untuk **institutional clients** atau **high-net-worth individuals**\n- Alternatif: Gunakan **manual order entry** + catat manual ke Jurnal Real""")
+    st.caption("⚠️ **Disclaimer:** IDX belum menyediakan public API order untuk retail - order "
+               "tetap dieksekusi manual lewat aplikasi broker Anda sendiri, lalu catat "
+               "transaksinya di tab **💼 Jurnal Real** untuk tracking.")
 
 def show_fundamental_analysis():
     st.header(" Analisis Fundamental")

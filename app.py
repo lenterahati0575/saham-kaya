@@ -164,10 +164,12 @@ def analyze_ihsg_gann(ihsg_hist):
     return {'current': current_price, 'high_1y': high_1y, 'low_1y': low_1y, 'pivot_low': (pivot_low_idx, pivot_low_price), 'pivot_high': (pivot_high_idx, pivot_high_price), 'gann': gann, 'cycles': upcoming, 'position_pct': position_pct, 'rsi_approx': rsi_approx, 'bias': bias, 'cycle_alert': cycle_alert}
 
 # BrokerAPI (class placeholder connect()/place_order() - 100% simulasi, tidak pernah benar2
-# menghubungi broker manapun) DIHAPUS per temuan audit 2026-09-12: tab Broker yang dulu
-# memakainya sudah dirombak jadi info-only (lihat komentar di "with t_broker:"). validate_order()
-# di bawah TETAP dipertahankan - itu murni matematika validasi order (lot/harga/dana cukup,
-# ada test unit-nya), bukan bagian yang palsu, dan tetap berguna sbg utility kalau dipakai lagi.
+# menghubungi broker manapun) & tab "🏦 Broker" yang memakainya DIHAPUS TOTAL per audit
+# 2026-09-12 (dugaan user "kemungkinan besar tidak terpakai" terbukti benar - lihat README
+# > "Audit Mendalam 21 Tab"). Tabel perbandingan fee + panduan API-nya dipindah ke tab
+# Tutorial > Manajemen Portofolio (tutorial.py). validate_order() di bawah TETAP
+# dipertahankan - itu murni matematika validasi order (lot/harga/dana cukup, ada test
+# unit-nya), bukan bagian yang palsu, dan tetap berguna sbg utility kalau dipakai lagi.
 def validate_order(kode, side, qty, price, cash_available, broker_fee_pct=0.0015):
     errors = []
     if qty < 1: errors.append("Lot minimal 1")
@@ -939,9 +941,14 @@ with exp_col2:
 <div style="font-size:10px;color:#94a3b8;margin-top:2px;">{int(r['naik'])}↑ {int(r['turun'])}↓ dari {int(r['jumlah_saham'])} saham</div>
 </div>""", unsafe_allow_html=True)
 
-t_kandidat, t_sederhana, t_openlow, t_gap, t_semua, t_grafik, t_riwayat, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_broker, t_tutorial = st.tabs([
+# Tab "🏦 Broker" DIHAPUS TOTAL 2026-09-12 (audit mendalam, user minta dihapus) - dulu isinya
+# tombol "Connect"/"Execute Order" yg 100% placeholder (BrokerAPI tidak pernah menghubungi
+# broker manapun) + dropdown broker terpisah yg tidak nyambung ke Sekuritas asli (tab Jurnal
+# Real). Bagian yg murni informasi (tabel perbandingan fee + panduan API) dipindah ke Tutorial
+# > Manajemen Portofolio (tutorial.py::show_portfolio_management()).
+t_kandidat, t_sederhana, t_openlow, t_gap, t_semua, t_grafik, t_riwayat, t_real, t_equity, t_perf, t_kalk, t_fundamental, t_invest, t_ihsg, t_corr, t_astro, t_sentiment, t_ml, t_options, t_tutorial = st.tabs([
     "🏆 Kandidat", "🔬 Screener Sederhana", "🕯️ Open=Low", "📊 Gap Up/Down", "📋 Semua", "📉 Grafik", "📜 Riwayat Saham", "💼 Jurnal Real", "💰 Equity", "🚀 Performance",
-    "🧮 Kalkulator", "📊 Fundamental", "🏛️ Value Invest", "📊 IHSG Analysis", "🔗 Correlation", "🌙 Astronacci", "📰 Sentiment", "🤖 ML Signal", "📉 Options", "🏦 Broker", "📚 Tutorial"
+    "🧮 Kalkulator", "📊 Fundamental", "🏛️ Value Invest", "📊 IHSG Analysis", "🔗 Correlation", "🌙 Astronacci", "📰 Sentiment", "🤖 ML Signal", "📉 Options", "📚 Tutorial"
 ])
 # Tab "Open=Low" & "Gap Up/Down" SETARA dgn "Kandidat" (bukan sub-menu tersembunyi di
 # dalam tab "Semua") - keduanya TETAP eksploratif/belum dibacktest, cuma diberi status
@@ -3658,46 +3665,6 @@ with t_options:
     else: st.info("Pilih saham untuk melihat analisis options.")
     st.divider()
     st.caption("⚠️ **Disclaimer:** IDX tidak memiliki options market aktif untuk retail. Modul ini untuk edukasi dan hedging simulation.")
-
-# ============================================================================
-# TAB 18: BROKER (INFO SAJA - lihat catatan audit di bawah)
-# ============================================================================
-with t_broker:
-    st.markdown("## 🏦 Info Broker")
-    # Temuan audit 2026-09-12 (user minta audit mendalam, secara spesifik menduga tab ini
-    # "kemungkinan besar tidak terpakai" - TERBUKTI BENAR): tab ini dulu punya "Koneksi
-    # Broker" (tombol Connect) & "Quick Order Entry" (tombol Execute Order) yang KELIHATAN
-    # seperti integrasi API sungguhan, tapi BrokerAPI.connect()/place_order() 100% placeholder
-    # (selalu return True + teks kaleng, tidak pernah menghubungi broker manapun - lihat kode
-    # class BrokerAPI di atas). Selain palsu, dropdown "Pilih Broker" di situ juga TIDAK
-    # terhubung ke daftar Sekuritas asli (tab Jurnal Real > Sekuritas, yg dipakai Kalkulator
-    # Profit & drop-down Catat Trade sungguhan) - 2 konsep "broker" yang beda & tidak nyambung,
-    # berisiko bikin Bro kira order sudah benar2 terkirim padahal cuma simulasi UI. Kedua fitur
-    # itu DIHAPUS. Sisa tab ini murni informasi (perbandingan fee & panduan API) - untuk catat
-    # transaksi riil, pakai tab Jurnal Real yang sungguhan terhubung ke Google Sheets.
-    st.caption("Perbandingan fee & panduan API broker Indonesia - murni referensi. Untuk catat "
-               "transaksi riil, gunakan tab **📓 Jurnal Real > Catat Trade** (order/posisi "
-               "sungguhan tercatat di sana, bukan di tab ini).")
-    st.markdown("### 📊 Perbandingan Broker Indonesia")
-    broker_comparison = pd.DataFrame([
-        {"Broker": "Mirae Asset", "Fee Beli": "0.15%", "Fee Jual": "0.25%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐⭐⭐"},
-        {"Broker": "Ajaib", "Fee Beli": "0.15%", "Fee Jual": "0.25%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐⭐"},
-        {"Broker": "Stockbit", "Fee Beli": "0.15%", "Fee Jual": "0.25%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐⭐"},
-        {"Broker": "IPOT", "Fee Beli": "0.18%", "Fee Jual": "0.28%", "API": "❌", "Min Deposit": "Rp100K", "Rating": "⭐⭐⭐"},
-        {"Broker": "Philip", "Fee Beli": "0.18%", "Fee Jual": "0.28%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐⭐"},
-        {"Broker": "BNI Sekuritas", "Fee Beli": "0.18%", "Fee Jual": "0.28%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐"},
-        {"Broker": "Mandiri Sekuritas", "Fee Beli": "0.18%", "Fee Jual": "0.28%", "API": "❌", "Min Deposit": "Rp0", "Rating": "⭐⭐⭐"},
-    ])
-    st.dataframe(broker_comparison, use_container_width=True, hide_index=True)
-    st.caption("💡 **Tips memilih broker:** Cari yang fee rendah + app stabil + customer service responsif.")
-    st.divider()
-    st.markdown("### 📚 API Integration Guide")
-    with st.expander("Cara Request API Access dari Broker", expanded=False):
-        st.markdown("""**Langkah-langkah umum:**\n1. **Hubungi Relationship Manager** Anda di broker\n2. **Ajukan permohonan** API access (sebutkan "algorithmic trading")\n3. **Tanda tangani** NDA dan perjanjian penggunaan API\n4. **Dapatkan** API Key dan Secret\n5. **Integrasikan** ke dalam sistem ini\n\n**Catatan:**\n- Kebanyakan broker Indonesia **belum** menyediakan public API untuk retail\n- API access umumnya hanya untuk **institutional clients** atau **high-net-worth individuals**\n- Alternatif: Gunakan **manual order entry** + auto-catat ke Jurnal Real""")
-    st.divider()
-    st.caption("⚠️ **Disclaimer:** IDX belum menyediakan public API order untuk retail (lihat "
-               "panduan di atas) - order tetap dieksekusi manual lewat aplikasi broker Anda "
-               "sendiri, lalu catat transaksinya di tab **📓 Jurnal Real** untuk tracking.")
 
 # ============================================================================
 # AUTO-REFRESH SCHEDULER & FOOTER
