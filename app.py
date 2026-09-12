@@ -2068,6 +2068,38 @@ with t_perf:
                      "ingin lihat data mentah aslinya.")
             if exclude_bug_hari_sama and n_bug_hari_sama > 0:
                 closed_df = closed_df[~is_bug_hari_sama].copy()
+            # User (2026-09-12, sambil investigasi CSV export performance): "mungkin
+            # sekalian hapus saja data trade sebelum dioptimal backtest, biar bersih dan
+            # bisa diuji kedepannya" - TIDAK dihapus sungguhan dari sheet (data trade riil,
+            # penghapusan permanen berisiko & tidak reversibel - lihat juga README >
+            # "Investigasi Performance Live" utk bukti kenapa: 25 trade lama malah jadi
+            # bukti penting kalau mekanisme lama itu buruk). Sebagai gantinya: filter
+            # CUTOFF TANGGAL yang SAMA pola dgn "exclude_bug_hari_sama" di atas - data lama
+            # tetap ada & bisa dilihat (matikan checkbox), tapi TIDAK ikut Win Rate/PF/
+            # equity curve kalau checkbox aktif (default ON). Default cutoff 31 Agu 2026 =
+            # tanggal Partial-Lock + Sinyal Jual Dini (mekanisme exit yg SEKARANG dipakai)
+            # mulai aktif - lihat README utk data pendukung (era ini era 62,3% WR, era
+            # sebelumnya cuma 3,6%-22,7%).
+            cutoff_aktif = st.checkbox(
+                "Mulai hitung SEJAK tanggal tertentu (skip trade lama sebelum mekanisme exit dioptimalkan)",
+                value=True,
+                help="TIDAK menghapus data dari sheet POSISI - cuma dikecualikan dari Win Rate/"
+                     "Profit Factor/equity curve di bawah, biar performance yg ditampilkan "
+                     "mencerminkan mekanisme exit yg SEKARANG dipakai (Target-Lock + Sinyal "
+                     "Jual Dini + Partial-Lock), bukan tercampur data dari mekanisme lama yg "
+                     "sudah terbukti buruk & sudah diperbaiki. Riwayat lengkap tetap ada di "
+                     "tabel 'Riwayat Semua Trade' di bawah (tidak difilter cutoff ini).")
+            if cutoff_aktif:
+                cutoff_tgl = st.date_input(
+                    "Hitung performance sejak Tanggal Open >=", value=datetime(2026, 8, 31),
+                    key="perf_cutoff_tgl")
+                if "Tanggal Open" in closed_df.columns:
+                    tgl_open_utk_cutoff = pd.to_datetime(closed_df["Tanggal Open"], errors="coerce")
+                    n_sebelum_cutoff = int((tgl_open_utk_cutoff.notna() & (tgl_open_utk_cutoff.dt.date < cutoff_tgl)).sum())
+                    closed_df = closed_df[tgl_open_utk_cutoff.notna() & (tgl_open_utk_cutoff.dt.date >= cutoff_tgl)].copy()
+                    if n_sebelum_cutoff > 0:
+                        st.caption(f"ℹ️ {n_sebelum_cutoff} trade dgn Tanggal Open sebelum "
+                                   f"{cutoff_tgl.strftime('%d %b %Y')} dikecualikan dari ringkasan di bawah.")
             price_lookup = dict(zip(table["Kode"], table["Harga"])) if not table.empty else {}
             realized_total = closed_df["P&L (Rp)"].sum() if not closed_df.empty and "P&L (Rp)" in closed_df.columns else 0
             floating_total = 0

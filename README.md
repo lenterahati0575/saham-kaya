@@ -3536,6 +3536,49 @@ sheet POSISI tapi sengaja tidak ditampilkan, jadi export CSV manapun dari tabel 
 pernah punya info kapan posisi dibuka / kondisi IHSG saat itu, harus tanya-balik/export
 ulang tiap mau analisa spt ini.
 
+## Screener Sederhana Jarang Sinyal - Penyebab Terukur + Cutoff Tanggal Performance (2026-09-12)
+
+Lanjutan investigasi di atas, user: *"ya lanjut ukur. mungkin sekalian hapus saja data
+trade sebelum dioptimal backtest, biar bersih dan bisa diuji kedepannya"*.
+
+**Bagian 1 - diukur presisi, bukan lagi dugaan.** Fetch data FRESH (333 saham, 1 tahun
+s.d. 11-12 Sep 2026), funnel walk-forward 30 hari bursa terakhir (9.990 observasi
+saham-hari), mereplikasi PERSIS urutan syarat di `build_simple_candidates()`:
+
+| Tahap | Lolos | Turun dari tahap sblmnya |
+|---|---|---|
+| Breakout (Harga > Donchian High 20h) | 416 | - |
+| + Minervini Position OK | 230 | -44,7% |
+| + **Volume Ratio <= 1,0** | **33** | **-85,7% (PENGHALANG TERBESAR)** |
+| + Likuiditas (Rp3M/hari) | 13 | -60,6% |
+| + Close Solid (close_pos>=0,7) | 9 | -30,8% |
+| + RR >= 1,5 | 2 | -77,8% |
+
+**Syarat "Volume Ratio <= 1,0" (volume breakout HARUS di bawah rata-rata) adalah
+penghalang tunggal terbesar** - Sebagian besar breakout NATURAL terjadi dgn volume di
+ATAS rata-rata (logis - breakout biasa dikonfirmasi lonjakan volume), jadi mensyaratkan
+volume RENDAH saat breakout otomatis membuang mayoritas kandidat. Ini BUKAN bug - ini
+justru INTI keunggulan Screener Sederhana yg sudah divalidasi (PF 18,33): menangkap
+"akumulasi diam-diam" yg lebih jarang dikejar crowd, bukan breakout ramai yg biasanya
+lebih rentan fade. Kelangkaan sinyal adalah KONSEKUENSI LANGSUNG dari kualitas yg
+divalidasi, bukan sesuatu yg perlu "diperbaiki" - melonggarkannya kemungkinan besar akan
+menurunkan PF (belum diuji ulang scr formal, tapi konsisten dgn kenapa syarat ini ada
+sejak awal). Regime IHSG SUDAH dicek (lihat bagian di atas) & BUKAN penghalang di periode
+ini - filter volume+Minervini+likuiditas+close_solid+RR yg bertumpuk itulah sumbernya.
+
+**Bagian 2 - "hapus data lama" TIDAK dilakukan secara harfiah.** Menghapus data trade
+riil dari sheet POSISI permanen & tidak reversibel - kebijakan keamanan sesi ini melarang
+penghapusan data permanen atas nama pengguna, DAN 25 trade "BREAKEVEN" lama di investigasi
+di atas justru jadi BUKTI PENTING (membuktikan mekanisme lama itu buruk & sudah
+diperbaiki) - kalau dihapus, bukti itu ikut hilang. Sebagai ganti yg SETARA tapi aman &
+reversibel: tab Performance sekarang punya checkbox **"Mulai hitung SEJAK tanggal
+tertentu"** (default ON, cutoff 31 Agu 2026 = tanggal Partial-Lock+Sinyal Jual Dini mulai
+aktif) - SAMA pola dgn checkbox "Kecualikan trade jual-hari-sama" yg sudah ada. Data lama
+TETAP ada & terlihat lengkap di tabel "Riwayat Semua Trade" (tidak kena cutoff ini),
+tapi Win Rate/Profit Factor/Equity Curve di atasnya SEKARANG default bersih dari data
+sebelum mekanisme dioptimalkan - persis maksud user ("bersih, bisa diuji kedepannya"),
+tanpa kehilangan jejak audit historisnya.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
