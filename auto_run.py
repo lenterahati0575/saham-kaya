@@ -26,7 +26,6 @@ from screener import (
 )
 import gsheet_journal as gj
 import equity as eq
-import riwayat_journal as riwayat
 import simple_journal
 from telegram_notify import send_telegram_message
 
@@ -107,20 +106,11 @@ def main():
         sys.exit(1)
     log(f"Screener selesai: {len(table)} saham lolos data historis minimum.")
 
-    # Riwayat Saham: log snapshot harian (Signal BUY/STRONG BUY) ke sheet RIWAYAT_SAHAM,
-    # TERUS DITAMBAH (append) - user mau performa tiap saham bisa dilihat dari waktu ke
-    # waktu di SATU tempat, tanpa download CSV berulang yg bikin file terpisah tiap kali.
-    # Sengaja di sini (run SORE, sekali sehari) - SAMA rasionalnya dgn kenapa scan
-    # BUY cuma sore: data 1 hari penuh, representatif & sebanding hari-ke-hari - bukan
-    # data pagi yg baru sebagian kecil hari itu. Dibungkus try/except sendiri - gagal di
-    # sini TIDAK BOLEH menghentikan alur BUY/SELL utama di bawah.
-    try:
-        if riwayat.is_configured():
-            n_snapshot = riwayat.append_daily_snapshot(table)
-            log(f"Riwayat Saham: {n_snapshot} snapshot ditambahkan." if n_snapshot
-                else "Riwayat Saham: tidak ada snapshot baru (sudah ada hari ini, atau tidak ada Signal BUY+).")
-    except Exception as e:
-        log(f"⚠️ Riwayat Saham gagal disimpan (tidak menghentikan proses BUY/SELL): {e}")
+    # Snapshot harian "Riwayat Saham" DIHENTIKAN 2026-09-12 (user: "riwayat saham mungkin
+    # dihapus saja sejauh ini belum ada mamfaat" - tab-nya di app.py sudah dihapus) - tidak
+    # ada gunanya lagi terus menulis ke sheet RIWAYAT_SAHAM yang sudah tidak ditampilkan di
+    # manapun. riwayat_journal.py TETAP ada (kode teruji, bukan placeholder palsu) kalau
+    # suatu saat mau dipakai lagi.
 
     # Total Equity terbaru (kalau ada snapshot) - dipakai utk hitung Lot berbasis risiko,
     # bukan angka tetap 10 lot utk semua saham tanpa peduli harga/modal (lihat README).

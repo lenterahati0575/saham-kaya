@@ -3656,6 +3656,30 @@ dikeluarkan_tanpa_crash` disesuaikan ke ambang baru, `test_histori_kurang_dari_2
 cukup_tetap_terdeteksi` baru - mensimulasikan PERSIS panjang 245 baris spt live) - 314
 test total, semua lolos.
 
+## Tab "Riwayat Saham" Dihapus (2026-09-12)
+
+User: *"riwayat saham mungkin dihapus saja sejauh ini belum ada mamfaat"*.
+
+Tab **📜 Riwayat Saham** (snapshot harian saham Signal BUY/STRONG BUY, di-append otomatis
+1x/hari via `auto_run.py`) dihapus dari `app.py` - entrinya di `st.tabs()` dicabut, seluruh
+blok kode tab dihapus, `import riwayat_journal` yg jadi tidak terpakai ikut dihapus. Total
+tab sekarang **19** (dari 20).
+
+Snapshot harian otomatisnya di `auto_run.py` juga DIHENTIKAN (bukan cuma tab-nya
+disembunyikan) - tidak ada gunanya terus menulis ke sheet RIWAYAT_SAHAM yang sudah tidak
+ditampilkan di manapun.
+
+`riwayat_journal.py` (modulnya sendiri) **TETAP disimpan**, tidak dihapus - beda kasus dgn
+`BrokerAPI` (yg dihapus total krn placeholder PALSU): modul ini kode yang genuinely
+berfungsi & teruji (`tests/test_riwayat_journal.py` masih ada & lolos), cuma belum
+terbukti bermanfaat dalam pemakaian - siapa tahu berguna lagi nanti (sama pola dgn
+`compute_zigzag_pivots()` yg tetap disimpan meski jalur ZigZag sudah dihapus). Data yang
+SUDAH terlanjur tersimpan di Google Sheets (sheet RIWAYAT_SAHAM) TIDAK dihapus - sesi ini
+tidak berwenang menghapus data permanen, dan tidak ada akses ke sheet itu dari lingkungan
+kerja saat ini - hapus manual sendiri kalau mau.
+
+314 test tetap semua lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
