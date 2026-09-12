@@ -3476,6 +3476,66 @@ nyata, sudah diperbaiki:
 Tidak ada perubahan pada sistem Kandidat/Screener Sederhana/VCP/Breakout - murni
 perapian tab yg tidak overlap dgn validasi sebelumnya. 311 test tetap semua lolos.
 
+## Investigasi Performance Live (CSV export Jurnal Backtest, 2026-09-12)
+
+User export tabel "🏅 Riwayat Semua Trade" (tab Performance) lewat toolbar download bawaan
+`st.dataframe` (bukan tombol custom): *"kondisi backtest diperformance, menurutku
+memprihatinkan. kalau ini manifestasi kekandidat boleh jadi ini yang membuat sistem
+screener di kandidat cenderung turun kalau dibeli. sedangkan discreener sederhana hampir
+jarang sekali muncul signal mungkin IHSG harus sangat bullis"*.
+
+**Angka mentah (147 closed, 10 Agu - 12 Sep 2026): Win Rate 34,0%, Profit Factor 0,48,
+Total P&L Rp-17.325.603 - kekhawatiran user VALID di angka agregat.** Investigasi lanjut
+sebelum menyimpulkan "sistem Kandidat rusak" (disiplin sesi ini: cek dulu apakah ini
+artefak/era lama sebelum menyalahkan logika inti):
+
+1. **25 trade "BREAKEVEN" (Harga Beli == Harga Jual PERSIS, selalu -0,4%) TERNYATA semua
+   dari mekanisme trailing-ke-breakeven LAMA yang sudah TERBUKTI merugikan & DIHAPUS TOTAL
+   20 Agu 2026** (lihat docstring `gsheet_journal.py` baris ~95-103). Tanggal close 25
+   trade ini: **10-20 Agu PERSIS** (dicek dari data) - NOL kejadian sesudahnya. Bukan bug
+   aktif, cuma residu status lama yg masih ada di sheet.
+2. **Dipecah per era mekanisme (bukti tren, bukan snapshot tunggal):**
+   - 10-20 Agu (mekanisme lama, breakeven-drag aktif): N=56, **WR 3,6%, PF 0,22**
+   - 21-30 Agu (breakeven-drag dihapus, blm ada Partial-Lock/Sinyal Jual Dini): N=22,
+     **WR 22,7%, PF 0,40**
+   - 31 Agu-12 Sep (Target-Lock + Sinyal Jual Dini + Partial-Lock, mekanisme SEKARANG):
+     N=69, **WR 62,3%, PF 0,84**
+
+   Tren naik tajam & konsisten dgn urutan tanggal fix mekanisme (bukan kebetulan) - PF era
+   terbaru masih <1 (N=69/<2 minggu masih kecil utk disimpulkan final), TAPI Win Rate 62,3%
+   itu justru MELEBIHI angka backtest Partial-Lock (60,3%, README > "Partial-Lock di
+   Kandidat/Swing") - sinyal kuat mekanisme SEKARANG sudah jauh lebih sehat dari yg
+   terlihat di angka agregat 1 bulan penuh.
+3. **IHSG dicek (bukan asumsi) sepanjang periode - BULLISH TERUS (Close>MA50) dari 3 Agu
+   s.d. 11 Sep 2026 tanpa jeda**, bahkan naik +2,77% (10 Agu->11 Sep). Ini artinya kerugian
+   P1/P2 BUKAN krn "market lagi jelek" - regime filter yg sudah divalidasi tidak akan
+   memblokir sinyal manapun di periode ini, jadi penyebabnya murni exit mechanism (sudah
+   diperbaiki) & pemilihan saham (`close_pos`/Fade Filter yg baru ditambah HARI INI,
+   12 Sep - lihat bagian "Close Solid" di atas - BELUM aktif utk hampir seluruh trade di
+   CSV ini krn semuanya dibuka SEBELUM fix itu ada).
+4. **`cands_swing_all` (sumber auto-BUY di tab Performance) dipanggil dari
+   `build_trade_candidates()` - FUNGSI YANG SAMA PERSIS dgn tab Kandidat** (app.py baris
+   ~874), jadi Fade Filter (`close_pos`) & info "Hari Likuid" yg baru divalidasi & di-commit
+   hari ini OTOMATIS berlaku juga di sini - TIDAK perlu perubahan kode terpisah (bukan
+   implementasi duplikat, cuma 1 fungsi dipakai 2 tempat).
+5. **"Screener Sederhana jarang muncul sinyal" BUKAN krn IHSG kurang bullish** - dicek
+   langsung, IHSG BULLISH (di atas MA50) SETIAP hari bursa sepanjang Agu-Sep 2026, jadi
+   regime filter tidak menahan sinyal apapun di periode ini. Kelangkaan sinyal lebih
+   mungkin dari TUMPUKAN syarat ketat yg MEMANG jadi ciri validasi strategi ini (breakout
+   Donchian + volume RENDAH/<=1x + posisi Minervini 25-35% + likuiditas + RR>=1.5 + skrg
+   +close_pos>=0.7 SEMUA harus terpenuhi BERSAMAAN) - bukan bug, tapi belum diukur presisi
+   filter mana yg paling sering jadi penghalang di data TERBARU (pickle harga yg ada di
+   scratchpad cuma s.d. 31 Agu) - PERLU fetch data baru kalau mau jawaban pasti "syarat
+   mana yg paling sering gagal", belum dilakukan di investigasi ini.
+
+**Perubahan kode** (murni tampilan, tidak mengubah logika candidate/exit apapun): tabel
+"🏅 Riwayat Semua Trade" (tab Performance) ditambah kolom **"Tanggal Open"**, **"Hari"**,
+dan **"IHSG saat Entry"** (Close IHSG + regime Bullish/Bearish thd MA50 di tanggal posisi
+dibuka, definisi SAMA dgn `screener.py::market_regime()`) - sebelumnya kolom ini ADA di
+sheet POSISI tapi sengaja tidak ditampilkan, jadi export CSV manapun dari tabel ini tidak
+pernah punya info kapan posisi dibuka / kondisi IHSG saat itu, harus tanya-balik/export
+ulang tiap mau analisa spt ini.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

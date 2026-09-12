@@ -2158,9 +2158,55 @@ with t_perf:
             if show_all_trades:
                 st.divider()
                 st.markdown("**🏅 Riwayat Semua Trade**")
-                display_cols = ["Saham", "Tipe", "Tanggal Close", "Harga Beli", "Harga Jual", "Lot", "P&L (Rp)", "P&L (%)", "Status"]
-                display_cols = [c for c in display_cols if c in positions_perf.columns]
-                st.dataframe(positions_perf[display_cols], use_container_width=True, hide_index=True, height=350)
+                # User (2026-09-12, sambil analisa CSV export sendiri): "sebaiknya ada juga
+                # tanggal beli dan mungkin kondisi IHSG saat itu" - dulu tabel ini SENGAJA
+                # tidak menampilkan "Tanggal Open"/"Hari" walau kolomnya ADA di sheet POSISI
+                # (lihat gsheet_journal.py > HEADERS), jadi kalau di-download lewat toolbar
+                # bawaan st.dataframe (nama file "<timestamp>_export.csv"), user tidak bisa
+                # tahu KAPAN posisi dibuka atau kondisi IHSG-nya - butuh export ulang manual
+                # tiap mau analisa. Ditambah di sini, plus kolom baru "IHSG saat Entry" (Close
+                # & regime Bullish/Bearish thd MA50 di TANGGAL OPEN - definisi regime SAMA
+                # persis dgn screener.py::market_regime() yg dipakai filter live) supaya
+                # analisa "apakah floating loss besar krn dibeli pas IHSG lagi jelek" bisa
+                # langsung dari 1 file, tidak perlu tanya balik/export ulang.
+                ihsg_ctx_df = fetch_ihsg_history(period="1y")
+                positions_disp = positions_perf.copy()
+                if not ihsg_ctx_df.empty and "Tanggal Open" in positions_disp.columns:
+                    ihsg_ctx = ihsg_ctx_df[["Close"]].copy()
+                    ihsg_ctx["MA50"] = ihsg_ctx["Close"].rolling(50).mean()
+                    ihsg_ctx.index = pd.to_datetime(ihsg_ctx.index)
+                    if ihsg_ctx.index.tz is not None:
+                        ihsg_ctx.index = ihsg_ctx.index.tz_localize(None)
+                    ihsg_ctx = ihsg_ctx.sort_index()
+
+                    def _ihsg_saat_entry(tgl):
+                        if pd.isna(tgl):
+                            return "-"
+                        try:
+                            ts = pd.Timestamp(tgl).normalize()
+                            row = ihsg_ctx.asof(ts)
+                            if row is None or pd.isna(row.get("Close")):
+                                return "-"
+                            close_v = float(row["Close"])
+                            ma_v = row.get("MA50")
+                            if pd.isna(ma_v):
+                                return f"{close_v:,.0f}"
+                            regime_v = "🟢 Bullish" if close_v > ma_v else "🔴 Bearish"
+                            return f"{close_v:,.0f} ({regime_v})"
+                        except Exception:
+                            return "-"
+
+                    positions_disp["IHSG saat Entry"] = pd.to_datetime(
+                        positions_disp["Tanggal Open"], errors="coerce"
+                    ).map(_ihsg_saat_entry)
+                display_cols = ["Saham", "Tipe", "Tanggal Open", "IHSG saat Entry", "Tanggal Close", "Hari",
+                                 "Harga Beli", "Harga Jual", "Lot", "P&L (Rp)", "P&L (%)", "Status"]
+                display_cols = [c for c in display_cols if c in positions_disp.columns]
+                st.dataframe(positions_disp[display_cols], use_container_width=True, hide_index=True, height=350)
+                st.caption("💡 \"IHSG saat Entry\" = Close IHSG & regime (Bullish/Bearish thd MA50) di "
+                           "**tanggal posisi dibuka** - definisi regime sama dgn filter live di tab "
+                           "Kandidat, jadi kalau banyak entry dgn regime 🔴 Bearish, itu berarti filter "
+                           "regime saat itu belum/tidak aktif atau kondisinya baru berbalik.")
 
 # ============================================================================
 # TAB: RIWAYAT SAHAM - log snapshot harian (Signal BUY/STRONG BUY), TERUS DITAMBAH
