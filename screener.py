@@ -1009,6 +1009,15 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
     Target = Donchian High + (Donchian High - Donchian Low) - proyeksi measured-move dari lebar channel.
     RR = (Target-Entry)/(Entry-SL), difilter RR >= min_rr supaya rasio untung:rugi benar-benar >2:1.
 
+    SYARAT "CLOSE SOLID" (2026-09-12, sama temuan dgn build_simple_candidates() - user
+    tunjukkan MGNA: puncak intraday +33,8%, tutup cuma +4,41%, "fade" besar; lalu minta
+    diterapkan jg ke sini krn Screener Sederhana jarang sinyal): Close hari ini wajib di
+    30% teratas rentang High-Low hari itu (ARA/limit terkunci = High==Low dihitung solid,
+    bukan dibuang). DIUJI (336 saham/3 tahun, walk-forward, proxy formula fungsi ini -
+    target 1,0x, RR>=2,0, SL cap 10%): PF 2,96->3,71 (+25%), avg +6,81%->+9,00%,
+    split-half LEBIH konsisten (+9,5%/+8,5% vs +7,9%/+5,7%), N 901->664 (msh 47,8% hari
+    ada sinyal, tetap sering muncul).
+
     require_bullish_regime=True: kembalikan kosong kalau regime_status bukan "BULLISH" (dari
     market_regime()). Divalidasi lewat backtest realistis + walk-forward out-of-sample untuk
     Swing (lookback=20): breakout system ini net RUGI di pasar sideways/bearish IHSG, net
@@ -1055,6 +1064,20 @@ def build_trade_candidates(table: pd.DataFrame, price_data: dict, lookback: int,
         if dh is None or dl is None or dl <= 0:
             continue
         entry = float(r["Harga"])
+        # Syarat "Close solid" (2026-09-12, sama temuan dgn build_simple_candidates() di
+        # bawah, user minta diterapkan juga ke sini krn Screener Sederhana jarang sinyal)
+        # - Close hari ini wajib di 30% teratas rentang High-Low hari itu (ARA/limit
+        # terkunci = High==Low dihitung solid, bukan dibuang). DIUJI (336 saham/3 tahun,
+        # walk-forward, proxy formula Kandidat - target 1,0x, RR>=2,0, SL cap 10%): PF
+        # 2,96->3,71 (+25%), avg +6,81%->+9,00%, split-half LEBIH konsisten (+9,5%/+8,5%
+        # vs +7,9%/+5,7%), N 901->664 (msh 47,8% hari ada sinyal, TETAP sering).
+        if df is not None and len(df) >= 1:
+            today_high = float(df["High"].iloc[-1])
+            today_low = float(df["Low"].iloc[-1])
+            day_range = today_high - today_low
+            close_pos = 1.0 if day_range <= 0 else (entry - today_low) / day_range
+            if close_pos < 0.7:
+                continue
         # Stop Loss = PALING KETAT dari (Donchian Low, MA20, 10% di bawah entry) yang masih
         # < entry - BUKAN Donchian Low murni. Diuji head-to-head (walk-forward, 615 saham
         # x 5 tahun, regime IHSG>MA50, RR>=1.5, fee dipotong, metodologi sama dgn README >
@@ -1191,10 +1214,10 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
     Entry = **Breakout**: Harga > Donchian High (lookback hari) + wajib lolos Posisi
     52-minggu/Minervini + Volume Ratio <= 1.0 (volume hari ini DI BAWAH rata-rata 20
     hari - KEBALIKAN dari intuisi umum "volume tinggi = konfirmasi kuat", TAPI terbukti
-    lebih baik di data). DIUJI (336 saham/3 tahun, walk-forward, batas realistis 5 slot
-    posisi baru/hari): N=204/3th (21,0% hari ada sinyal), avg +18,51%/trade, win rate
-    69,6%, Profit Factor 12,49, split-half STABIL (+17,91%/+19,12% - membaik di paruh
-    kedua, bukan cuma searah).
+    lebih baik di data) + Close solid (lihat catatan "close_pos" di bawah). DIUJI (336
+    saham/3 tahun, walk-forward, batas realistis 5 slot posisi baru/hari, SUDAH termasuk
+    syarat close_pos): N=169/3th (18,5% hari ada sinyal), avg +22,71%/trade, win rate
+    76%, Profit Factor 18,33, split-half STABIL & MEMBAIK (+21,7%/+23,8%).
 
     ZIG ZAG DIHAPUS (2026-09-01, user: "hapus zigzat, kalau itu yang terbaik", setelah
     saya laporkan temuan). Riwayat singkat: sempat ditambahkan sbg jalur entry KEDUA
@@ -1291,6 +1314,23 @@ def build_simple_candidates(table: pd.DataFrame, price_data: dict, lookback: int
         if dh is None or dl is None or dl <= 0:
             continue
         entry = float(r["Harga"])
+        # Syarat "Close solid" (2026-09-12, user tunjukkan MGNA: puncak intraday +33,8%,
+        # tutup cuma +4,41% - "fade" besar, banyak yg jual di harga tinggi) - Close hari
+        # breakout HARUS di 30% teratas rentang High-Low hari itu (dekat High = gain
+        # dipertahankan, bukan dibuang sebelum tutup). Hari ARA/limit terkunci (High==Low,
+        # tidak ada rentang sama sekali) dihitung SOLID (close_pos=1.0), bukan dibuang -
+        # gain-nya memang tidak sempat/bisa di-fade krn harga tidak bergerak dari limit.
+        # DIUJI (336 saham/3 tahun, walk-forward, sistem gabungan): PF 12,49->18,33 (+47%),
+        # avg +18,51%->+22,71%, win rate 70%->76%, split-half MEMBAIK di kedua paruh
+        # (+21,7%/+23,8%) - N turun 204->169 (LEBIH SEDIKIT, TAPI lebih berkualitas, bukan
+        # trade-off merugikan spt SL cap). README > "Syarat Close Solid (Fade Filter)".
+        if df is not None and len(df) >= 1:
+            today_high = float(df["High"].iloc[-1])
+            today_low = float(df["Low"].iloc[-1])
+            day_range = today_high - today_low
+            close_pos = 1.0 if day_range <= 0 else (entry - today_low) / day_range
+            if close_pos < 0.7:
+                continue
         # SL = PALING KETAT dari (Donchian Low, MA20, sl_cap_pct di bawah entry) - SAMA
         # pola dgn build_trade_candidates(), cuma sl_cap_pct=0.05 (bukan 0.10) - lihat
         # komentar diuji di atas.

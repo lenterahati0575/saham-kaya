@@ -3302,6 +3302,61 @@ edge Breakout TIDAK rapuh/tergantung asumsi eksekusi yang tidak realistis. Ekspe
 realistis: PF ~7,75, bukan 12,49, kalau eksekusi benar2 besok pagi. Tidak ada perubahan
 kode dari temuan ini - murni penyesuaian ekspektasi.
 
+## Syarat "Close Solid" (Fade Filter) - Breakout Diperkuat Lagi (2026-09-12)
+
+User tunjukkan chart MGNA: puncak intraday +33,8%, tutup cuma +4,41% - "fade" besar,
+mengkhawatirkan bahwa breakout seperti ini (naik lalu ditutup jauh dari titik tertinggi
+hari itu, ekor atas panjang) sering berbalik turun besoknya, sementara indikator Smart
+Money Concept di TradingView (CHoCH) menyarankan tunggu koreksi dulu.
+
+**Uji langsung**: sebelum menyimpulkan, dites dulu apakah besar LONJAKAN Close-ke-Close
+hari breakout itu sendiri (bukan fade) memprediksi hasil buruk - TERNYATA SEBALIKNYA:
+lonjakan >=4% (persis kategori MGNA) justru kategori TERKUAT (N=130/204, PF 20,24,
+turun-besok cuma 20%) - lonjakan MODERAT (3-4%) yang justru PF-nya cuma 0,99 (nyaris
+impas). Jadi "sudah naik banyak" itu sendiri BUKAN alasan valid utk waspada.
+
+**Tapi ide "fade" (Close jauh dari High hari itu) TERBUKTI valid** - dipecah berdasar
+posisi Close dalam rentang High-Low hari breakout:
+
+| Posisi Close dlm rentang hari itu | N | Avg | Win Rate | PF |
+|---|---|---|---|---|
+| Dekat Low (<30%) - fade parah | 7 | -1,14% | 57% | 0,51 (rugi) |
+| Tengah (30-70%) | 28 | -1,89% | 36% | 0,42 (rugi) |
+| **Dekat High (>=70%) - solid** | 89 | +5,08% | 73% | 4,49 |
+
+**Bug ditemukan saat uji sistem penuh**: 81 dari 204 sinyal awalnya SALAH ter-exclude
+krn High==Low (ARA/limit harga terkunci, day_range=0 -> close_pos tak terdefinisi) -
+diperbaiki: hari ARA dihitung SOLID (close_pos=1,0, gain tidak sempat di-fade krn harga
+tidak bergerak dari limit), bukan dibuang sbg data hilang. Setelah diperbaiki, uji
+sistem PENUH (336 saham/3 tahun, walk-forward, syarat Close di >=30% teratas rentang):
+
+| | N | Avg | Win Rate | PF | Split-half |
+|---|---|---|---|---|---|
+| Breakout (sebelum) | 204 | +18,51% | 70% | 12,49 | +17,9%/+19,1% |
+| **+ syarat Close solid (SEKARANG live)** | **169** | **+22,71%** | **76%** | **18,33** | **+21,7%/+23,8%** |
+
+PF naik 47% (12,49->18,33), win rate naik, split-half MEMBAIK di kedua paruh, cuma
+kehilangan 17% sinyal (204->169) - validasi kuat, bukan trade-off merugikan. Diterapkan
+ke `build_simple_candidates()` sbg syarat tambahan (bukan opsional) - user: "ya, lanjut
+ke situ". Statistik SL cap sweep (3%/5%/10%) BELUM diuji ulang dgn syarat ini kecuali
+titik 5% (dipakai sbg baseline uji di atas) - anggap 3%/10% sbg estimasi arah.
+
+**Diterapkan JUGA ke Kandidat** (`build_trade_candidates()`) - user: "saya mau di
+kandidat diupdate juga karena screener sederhana jarang sekali muncul signal". Diuji
+dulu khusus formula Kandidat sendiri (target 1,0x, RR>=2,0, SL cap 10% - beda dari
+Screener Sederhana; sebelumnya user pernah minta SL Kandidat diturunkan ke 2% spt
+Screener Sederhana, TAPI diuji khusus & TIDAK diterapkan - median jadi negatif & win
+rate <50% utk formula Kandidat, beda karakter dari Screener Sederhana. Jadi setiap
+perubahan tetap diuji terpisah per sistem, tidak asal disamakan):
+
+| | N | Avg | Win Rate | PF | Split-half |
+|---|---|---|---|---|---|
+| Kandidat (sebelum) | 901 | +6,81% | 62% | 2,96 | +7,9%/+5,7% |
+| **+ syarat Close solid (SEKARANG live)** | **664** | **+9,00%** | **63%** | **3,71** | **+9,5%/+8,5%** |
+
+PF naik 25% (2,96->3,71), split-half LEBIH konsisten, dan tetap sering muncul (47,8%
+hari ada sinyal, turun dari 55,8% tapi jauh dari langka spt Screener Sederhana).
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

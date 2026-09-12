@@ -723,8 +723,10 @@ with st.sidebar:
     sl_cap_pct_sederhana_persen = st.slider(
         "Batas SL Screener Sederhana (%)", min_value=1, max_value=10, value=5, step=1,
         help="Diuji (336 saham/3 tahun, Breakout saja, walk-forward benar, target "
-             "proyeksi 0,5x, RR minimum 1,5x): 3% = PF 12,27 (avg +14,44%, winrate 62,3%, "
-             "PALING stabil split-half). 5% = PF 12,49 (TERTINGGI, avg +18,51%, winrate "
+             "proyeksi 0,5x, RR minimum 1,5x) - angka di bawah dari SEBELUM syarat 'Close "
+             "solid' ditambahkan (2026-09-12), belum diuji ulang per titik SL dgn filter "
+             "itu, anggap sbg estimasi arah: 3% = PF 12,27 (avg +14,44%, winrate 62,3%, "
+             "PALING stabil split-half). 5% = PF 12,49 (avg +18,51%, winrate "
              "69,6% - default). 10% = PF 10,76 (avg +25,55%, winrate 74,1% TERTINGGI, "
              "tapi rugi terburuk/trade jauh lebih besar). Makin longgar SL: winrate & avg "
              "return naik, TAPI PF & rugi terburuk memburuk - pilih sesuai toleransi "
@@ -1231,15 +1233,20 @@ with t_sederhana:
     # melebih-lebihkan frekuensi sinyalnya 6x. Diuji ULANG walk-forward yg benar: ZigZag
     # SENDIRIAN cuma N=23/3th (langka), PF 2,40, win rate 39,1%, paruh kedua malah NEGATIF
     # - sampel terlalu kecil utk dipercaya. Breakout (yg SEKARANG satu-satunya jalur di
-    # sini) jauh lebih kuat & stabil: N=204/3th, PF 12,49, split-half +17,91%/+19,12%.
-    # Detail lengkap di screener.py::build_simple_candidates() & README.
-    # Statistik cuma diuji PERSIS di 3%/5%/10% (336 saham/3 tahun, Breakout saja,
-    # walk-forward benar) - slider skrg bebas 1-10%, titik lain diinterpolasi via catatan
-    # arah trade-off-nya, bukan dites satu2 - README > "SL Cap: Trade-off Risk vs Return".
+    # sini) jauh lebih kuat & stabil.
+    # SYARAT "CLOSE SOLID" DITAMBAHKAN (2026-09-12, user tunjukkan MGNA: puncak intraday
+    # +33,8%, tutup cuma +4,41% - "fade" besar) - Close hari breakout wajib di 30% teratas
+    # rentang High-Low hari itu (ARA/limit terkunci dihitung solid). DIUJI: PF 12,49->18,33
+    # (+47%), avg +18,51%->+22,71%, win rate 70%->76%, N 204->169 (18,5% hari ada sinyal),
+    # split-half MEMBAIK di kedua paruh (+21,7%/+23,8%). Detail lengkap di screener.py::
+    # build_simple_candidates() & README.
+    # Statistik SL cap di bawah BELUM diuji ulang dgn syarat close_pos ini (masih dari
+    # sebelum 2026-09-12) - anggap sbg estimasi arah, bukan angka final - README > "SL
+    # Cap: Trade-off Risk vs Return".
     _stat_sl_cap = {
-        3: "avg +14,44%/trade, win rate 62,3%, Profit Factor 12,27, paling stabil (+14,38%/+14,51%)",
-        5: "avg +18,51%/trade, win rate 69,6%, Profit Factor 12,49 (tertinggi)",
-        10: "avg +25,55%/trade, win rate 74,1% (tertinggi), Profit Factor 10,76",
+        3: "avg +14,44%/trade, win rate 62,3%, Profit Factor 12,27, paling stabil (+14,38%/+14,51%) (blm diuji ulang dgn syarat Close solid)",
+        5: "avg +22,71%/trade, win rate 76%, Profit Factor 18,33 (SUDAH termasuk syarat Close solid)",
+        10: "avg +25,55%/trade, win rate 74,1% (tertinggi), Profit Factor 10,76 (blm diuji ulang dgn syarat Close solid)",
     }
     _stat_sl_cap_teks = _stat_sl_cap.get(
         sl_cap_pct_sederhana_persen,
@@ -1247,7 +1254,8 @@ with t_sederhana:
         "winrate & avg return naik tapi PF & rugi terburuk memburuk, makin ketat "
         "(mendekati 1%) sebaliknya (lihat 3%/5%/10% di bawah sbg titik acuan)")
     st.caption("Entry: **Breakout** (harga > Donchian High 20-hari + posisi 52-minggu "
-               "wajib lolos + volume DI BAWAH rata-rata), RR minimum 1,5x. Target = "
+               "wajib lolos + volume DI BAWAH rata-rata + Close solid/tidak fade - di "
+               "30% teratas rentang High-Low hari itu), RR minimum 1,5x. Target = "
                "proyeksi 0,5x rentang Donchian. "
                f"SL dibatasi {sl_cap_pct_sederhana*100:.0f}% (bisa diubah di "
                "sidebar). Keluar: Sinyal Jual Dini (turun >=5% dari puncak sejak dibeli, "
@@ -1288,14 +1296,16 @@ with t_sederhana:
                     f"- ✅ **Breakout**: Harga (Rp{_row['Entry']:,.0f}) sudah menembus Donchian High 20-hari\n"
                     f"- ✅ **Posisi 52-minggu (Minervini)**: lolos\n"
                     f"- ✅ **Volume rendah**: hari ini di bawah rata-rata 20 hari\n"
+                    f"- ✅ **Close solid**: penutupan di 30% teratas rentang High-Low hari ini "
+                    "(bukan fade/dibuang sebelum tutup)\n"
                     f"- ✅ **RR {_row['RR']}x** (minimum 1,5x)\n"
                     f"- ✅ **Stop Loss Rp{_row['Stop Loss']:,.0f}** ({_row['% SL']}% risiko dari entry)"
                     f"{_lot_line}\n\n"
                     "Semua syarat di atas sudah lolos otomatis - saham ini TIDAK butuh "
-                    "pertimbangan tambahan dari Anda. Sistem ini teruji PF 12,49, win rate "
-                    "69,6% dari 204 sinyal nyata (336 saham/3 tahun, walk-forward). Kalau "
+                    "pertimbangan tambahan dari Anda. Sistem ini teruji PF 18,33, win rate "
+                    "76% dari 169 sinyal nyata (336 saham/3 tahun, walk-forward). Kalau "
                     "ragu: keraguan yang tidak berdasar aturan di atas justru menjalankan "
-                    "strategi LAIN yang belum diuji, bukan strategi yang PF 12,49 ini."
+                    "strategi LAIN yang belum diuji, bukan strategi yang PF 18,33 ini."
                 )
                 # Peringatan pasang Stop Order SUNGGUHAN (2026-09-09, user cerita nyata:
                 # floating loss FPNI -17%/MDIA -10% jauh melewati SL manapun yang diuji,
@@ -1312,19 +1322,21 @@ with t_sederhana:
 
     # VCP (Volatility Contraction Pattern) - jalur entry TERPISAH dari Breakout di atas
     # (2026-09-06, user cerita kisah sukses "David Noah, beli saat masih konsolidasi").
-    # DIUJI gabung dgn Breakout (share slot) TERBUKTI mengencerkan Breakout (PF 12,49 ->
-    # 4,50) - user pilih "opsi 3": tetap TERPISAH, TIDAK berbagi slot/tabel, supaya
-    # Breakout di atas TIDAK terpengaruh sama sekali. Lihat screener.py::
+    # DIUJI gabung dgn Breakout (share slot) TERBUKTI mengencerkan Breakout - user pilih
+    # "opsi 3": tetap TERPISAH, TIDAK berbagi slot/tabel, supaya Breakout di atas TIDAK
+    # terpengaruh sama sekali (termasuk saat syarat "Close solid" ditambahkan belakangan
+    # ke Breakout, 2026-09-12 - VCP TIDAK ikut berubah). Lihat screener.py::
     # build_vcp_candidates() utk detail lengkap hasil uji (PF 1,89, N=549, median POSITIF
     # +0,77% - lebih lemah dari Breakout tapi genuinely stabil, bukan noise).
     st.divider()
     with st.expander("🔎 VCP (Konsolidasi) - Opsional, Terpisah dari Breakout di Atas"):
         st.caption("Entry saat saham SEDANG konsolidasi kuat (rentang harian menyempit "
                    ">=30% dibanding 10 hari sebelumnya) + posisi 52-minggu + volume rendah, "
-                   "RR minimum 1,5x - SAMA syarat dgn Breakout, cuma beda pemicu (konsolidasi, "
-                   "bukan tembus high). Diuji (336 saham/3 tahun, walk-forward): N=549, avg "
+                   "RR minimum 1,5x - SAMA syarat dgn Breakout (KECUALI syarat Close solid, "
+                   "belum diuji utk VCP), cuma beda pemicu (konsolidasi, bukan tembus high). "
+                   "Diuji (336 saham/3 tahun, walk-forward): N=549, avg "
                    "+1,42%/trade, median +0,77%, win rate 54,6%, Profit Factor 1,89, stabil "
-                   "membaik di kedua paruh waktu - JAUH lebih lemah dari Breakout (PF 12,49) "
+                   "membaik di kedua paruh waktu - JAUH lebih lemah dari Breakout (PF 18,33) "
                    "TAPI genuinely positif, bukan sekadar kebetulan sampel kecil. Jurnal & "
                    "Lot TIDAK otomatis tercatat terpisah - kalau mau eksekusi, catat manual "
                    "di Jurnal Real dgn kode saham yang sama.")

@@ -417,6 +417,35 @@ class TestBuildTradeCandidates:
                                       total_equity=100.0, risk_pct=1.0)
         assert out.empty
 
+    def _price_data_close_pos(self, today_high, today_low):
+        # dh=1000 (High flat sepanjang histori), dl=900 (Low di-override 2-dari-akhir) -
+        # SAMA seperti fixture RR test di atas. Baris TERAKHIR (hari ini) High/Low
+        # dikontrol penuh - dipakai uji syarat "Close solid" (entry=950 dari table).
+        df = _flat_ohlcv(25, price=1000).assign(
+            **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], 900)})
+        df = df.astype({"Open": float, "High": float, "Low": float, "Close": float})
+        df.iloc[-1, df.columns.get_loc("High")] = today_high
+        df.iloc[-1, df.columns.get_loc("Low")] = today_low
+        return {"AAA": df}
+
+    def test_close_solid_dekat_high_lolos(self):
+        table = pd.DataFrame([{"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 950.0, "Value Traded (Rp)": 5e9}])
+        pd_ = self._price_data_close_pos(today_high=960.0, today_low=900.0)  # close_pos=0.83
+        out = build_trade_candidates(table, pd_, lookback=20, min_rr=0.1, top_n=10, require_minervini_position=False)
+        assert not out.empty
+
+    def test_close_solid_fade_dikeluarkan(self):
+        table = pd.DataFrame([{"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 950.0, "Value Traded (Rp)": 5e9}])
+        pd_ = self._price_data_close_pos(today_high=1000.0, today_low=900.0)  # close_pos=0.5, fade
+        out = build_trade_candidates(table, pd_, lookback=20, min_rr=0.1, top_n=10, require_minervini_position=False)
+        assert out.empty
+
+    def test_close_solid_ara_high_eq_low_dianggap_solid(self):
+        table = pd.DataFrame([{"Kode": "AAA", "Signal": "BUY", "Score": 5, "Harga": 950.0, "Value Traded (Rp)": 5e9}])
+        pd_ = self._price_data_close_pos(today_high=950.0, today_low=950.0)  # High==Low
+        out = build_trade_candidates(table, pd_, lookback=20, min_rr=0.1, top_n=10, require_minervini_position=False)
+        assert not out.empty
+
 
 class TestBuildSimpleCandidates:
     """Screener SEDERHANA (pembanding) - user: "apakah perlu buat screener pembanding.
@@ -459,6 +488,50 @@ class TestBuildSimpleCandidates:
     def test_volume_persis_1_0_tetap_lolos(self):
         # Ambang inklusif (<=1.0), bukan eksklusif (<1.0).
         out = build_simple_candidates(self._table(volume_ratio=1.0), self._price_data(), lookback=20, min_rr=1.5)
+        assert not out.empty
+
+    def _price_data_close_pos(self, today_high, today_low, today_close, low_override_2nd_last=900.0):
+        # Sama basis dgn _price_data(), TAPI baris TERAKHIR (hari breakout) dikontrol
+        # penuh Open/High/Low/Close-nya - dipakai uji syarat "Close solid" (close_pos).
+        # Rentang hari ini SENGAJA kecil (skala puluhan, bukan ratusan) & entry tetap
+        # cukup rendah - supaya TETAP di bawah Target (dihitung dari dh/dl histori
+        # price_data yg SEBENARNYA dipakai, BUKAN dari kolom "Donchian High" di table
+        # yg cuma dipakai utk cek awal breakout) - target > entry tetap terjaga di semua
+        # kasus, jadi yang diuji murni close_pos, bukan ketabrak reward<=0.
+        df = _flat_ohlcv(25, price=1000).assign(
+            **{"Low": lambda d: d["Low"].where(d.index != d.index[-2], low_override_2nd_last)})
+        df = df.astype({"Open": float, "High": float, "Low": float, "Close": float})
+        df.iloc[-1, df.columns.get_loc("High")] = today_high
+        df.iloc[-1, df.columns.get_loc("Low")] = today_low
+        df.iloc[-1, df.columns.get_loc("Close")] = today_close
+        df.iloc[-1, df.columns.get_loc("Open")] = today_close
+        return {"AAA": df}
+
+    def test_close_dekat_high_lolos(self):
+        # Close di 90% rentang hari itu (dekat High) - solid, harus LOLOS.
+        pd_ = self._price_data_close_pos(today_high=1020.0, today_low=1000.0, today_close=1018.0)
+        out = build_simple_candidates(self._table(harga=1018.0), pd_, lookback=20, min_rr=0.1)
+        assert not out.empty
+
+    def test_close_dekat_low_fade_dikeluarkan(self):
+        # Close di 5% rentang hari itu (dekat Low) - "fade" parah (persis kasus user:
+        # MGNA puncak +33,8% intraday, tutup cuma +4,41%) - harus DIKELUARKAN.
+        pd_ = self._price_data_close_pos(today_high=1020.0, today_low=1000.0, today_close=1001.0)
+        out = build_simple_candidates(self._table(harga=1001.0), pd_, lookback=20, min_rr=0.1)
+        assert out.empty
+
+    def test_ara_high_eq_low_dianggap_solid_bukan_dibuang(self):
+        # High==Low (ARA/limit terkunci, tanpa rentang sama sekali) - dianggap SOLID
+        # (close_pos=1.0), BUKAN dibuang sbg data hilang - bug yang ditemukan & diperbaiki
+        # saat diuji (versi awal salah exclude 81 dari 204 sinyal krn ini).
+        pd_ = self._price_data_close_pos(today_high=1005.0, today_low=1005.0, today_close=1005.0)
+        out = build_simple_candidates(self._table(harga=1005.0), pd_, lookback=20, min_rr=0.1)
+        assert not out.empty
+
+    def test_close_pos_tepat_0_7_tetap_lolos(self):
+        # Ambang inklusif (>=0.7), bukan eksklusif.
+        pd_ = self._price_data_close_pos(today_high=1020.0, today_low=1000.0, today_close=1014.0)
+        out = build_simple_candidates(self._table(harga=1014.0), pd_, lookback=20, min_rr=0.1)
         assert not out.empty
 
     def test_sl_dibatasi_5_persen_bukan_10_persen(self):
@@ -1073,6 +1146,14 @@ class TestVCPBoostRankingDiTradeCandidates:
         df_vcp.iloc[-2, df_vcp.columns.get_loc("Low")] = df_vcp["Close"].iloc[0] * 0.9  # Donchian Low seragam
         df_non_vcp = _vcp_ohlcv(n_base=250, prior_range_pct=1.0, recent_range_pct=10.0)
         df_non_vcp.iloc[-2, df_non_vcp.columns.get_loc("Low")] = df_non_vcp["Close"].iloc[0] * 0.9
+        # Close hari ini (baris terakhir) DINAIKKAN ke High-nya sendiri (2026-09-12,
+        # setelah syarat "Close solid" ditambahkan ke build_trade_candidates() - Close
+        # bawaan _vcp_ohlcv cuma di 67% rentang, di bawah ambang 70%, TIDAK relevan dgn
+        # yang diuji test ini (soal urutan VCP, bukan soal close_pos) - baris SEBELUM
+        # terakhir yg dipakai hist_before_today/dh/dl TIDAK tersentuh, jadi VCP Kuat & RR
+        # tetap identik seperti semula.
+        df_vcp.iloc[-1, df_vcp.columns.get_loc("Close")] = df_vcp["High"].iloc[-1]
+        df_non_vcp.iloc[-1, df_non_vcp.columns.get_loc("Close")] = df_non_vcp["High"].iloc[-1]
 
         m_vcp = compute_metrics(df_vcp, _params())
         m_non_vcp = compute_metrics(df_non_vcp, _params())
