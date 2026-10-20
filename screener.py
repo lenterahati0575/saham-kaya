@@ -1613,6 +1613,7 @@ def build_v_shape_candidates(price_data: dict, decline_threshold: float = 30.0,
             "Kode": kode, "Harga": round(entry, 0), "Target Pemulihan (Puncak 252h)": round(high252, 0),
             "Turun dari Puncak %": round(decline_pct, 1),
             "Potensi Return %": round(potensi_return, 1),
+            "Nilai Transaksi 20h (Rp M)": round(value_traded / 1e9, 1),
             "Hari Likuid (20h)": _hitung_hari_likuid(df, DEFAULT_PARAMS["min_value_traded"]),
             "Chart": tradingview_url(kode),
         })
@@ -1620,6 +1621,163 @@ def build_v_shape_candidates(price_data: dict, decline_threshold: float = 30.0,
     if out.empty:
         return out
     return out.sort_values("Turun dari Puncak %", ascending=False).head(top_n).reset_index(drop=True)
+
+
+# ============================================================================
+# REBOUND BERKUALITAS (2026-10-20) - saham jatuh dalam + fundamental sehat + risiko ARB
+# ============================================================================
+# User (IHSG -11,57% pd 16 Okt 2026 krn kekhawatiran reklasifikasi MSCI, lalu +4,66% pd
+# 20 Okt): "selalu ada peluang di kondisi apapun market... kesempatan untuk screener saham
+# berfundamental baik... terkait perubahan aturan ARB-ARA, perlu berhati-hati, kalau tidak
+# jika ARB sangat dalam 35%".
+#
+# JADWAL ARB - dari RINGKASAN BERITA (Ajaib, Bisnis, Kabarbursa; pengumuman primer BEI
+# BELUM dibaca langsung - halaman Ajaib 403 saat dicoba), HARUS dicek ulang ke pengumuman
+# resmi BEI sebelum dijadikan dasar keputusan:
+#   - Harga minimum saham diturunkan Rp50 -> Rp1 mulai 28 Sep 2026.
+#   - Masa transisi 28 Sep - 31 Des 2026: saham Rp1-Rp10 ARA/ARB nominal Rp1; di atas Rp10
+#     ARB TETAP 15% (batas simetris tidak berlaku dulu; ARB 15% dipakai sejak Apr 2025).
+#   - Mulai 1 Jan 2027 ARA & ARB simetris: Rp11-Rp200 35%; >Rp200-Rp5.000 25%; >Rp5.000 20%.
+#   - Rp1-Rp10 setelah 2027: tidak disebut di ringkasan - diasumsikan TETAP nominal Rp1.
+ARB_TRANSISI_SAMPAI = (2026, 12, 31)
+
+
+def arb_limit_pct(harga: float, tanggal=None) -> float | None:
+    """Batas ARB (% turun maksimum SATU hari) utk harga & tanggal tertentu - lihat catatan
+    jadwal (dari berita, BUKAN pengumuman primer BEI) di atas. `tanggal` = datetime.date
+    (default: hari ini WIB). Return None kalau harga tidak valid."""
+    from datetime import date, datetime
+    from zoneinfo import ZoneInfo
+    if harga is None or pd.isna(harga) or harga <= 0:
+        return None
+    if tanggal is None:
+        tanggal = datetime.now(ZoneInfo("Asia/Jakarta")).date()
+    if harga <= 10:
+        return round(1.0 / harga * 100, 1)  # ARB nominal Rp1 -> % bisa sangat besar (Rp5 = 20%)
+    if tanggal <= date(*ARB_TRANSISI_SAMPAI):
+        return 15.0
+    if harga <= 200:
+        return 35.0
+    if harga <= 5000:
+        return 25.0
+    return 20.0
+
+
+def lot_maks_arb(modal: float, harga: float, arb_pct: float, risiko_arb_pct: float) -> int | None:
+    """Lot MAKSIMAL supaya kalau saham kena ARB penuh SATU hari, kerugiannya <= `risiko_arb_pct`%
+    dari `modal` (belum termasuk fee, dan mengasumsikan bisa keluar di harga ARB - kenyataannya
+    saat ARB antrean jual bisa tidak terjual sama sekali, jadi ini batas ATAS, bukan jaminan).
+    Nilai posisi maks = modal x risiko% / ARB%."""
+    if not modal or modal <= 0 or not harga or harga <= 0 or not arb_pct or arb_pct <= 0:
+        return None
+    nilai_maks = modal * (risiko_arb_pct / 100) / (arb_pct / 100)
+    return int(nilai_maks // (harga * 100))
+
+
+def fetch_fundamental_snapshot(kode_list: list[str]) -> pd.DataFrame:
+    """Ambil fundamental SEKARANG dari Yahoo Finance (`Ticker.info`) utk daftar KECIL saham
+    (hasil shortlist harga, bukan seluruh universe - 1 request per saham ~0,5-1 detik).
+    PERINGATAN KUALITAS DATA: yfinance utk saham IDX sering kosong/telat update/aneh (mis.
+    Debt/Equity bank tidak bermakna) - kolom yg tidak tersedia jadi NaN, BUKAN ditebak. Ini
+    snapshot TERKINI saja, bukan histori (fundamental point-in-time tidak tersedia gratis -
+    makanya kriteria kualitas di bawah TIDAK bisa dibacktest, lihat build_rebound_berkualitas)."""
+    rows = []
+    for kode in kode_list:
+        try:
+            info = yf.Ticker(f"{kode}.JK").info or {}
+        except Exception:
+            info = {}
+        if len(info) < 5:
+            rows.append({"Kode": kode, "Ada Data Fundamental": False})
+            continue
+        de = info.get("debtToEquity")
+        rows.append({
+            "Kode": kode, "Ada Data Fundamental": True,
+            "Nama": (info.get("longName") or kode)[:32],
+            "ROE %": round(info["returnOnEquity"] * 100, 1) if info.get("returnOnEquity") is not None else np.nan,
+            "Debt/Equity": round(de / 100, 2) if de is not None else np.nan,
+            "Current Ratio": round(info["currentRatio"], 2) if info.get("currentRatio") is not None else np.nan,
+            "EPS": info.get("trailingEps", np.nan),
+            "Margin Laba %": round(info["profitMargins"] * 100, 1) if info.get("profitMargins") is not None else np.nan,
+            "P/B": round(info["priceToBook"], 2) if info.get("priceToBook") is not None else np.nan,
+            "Free Cash Flow": info.get("freeCashflow", np.nan),
+        })
+    return pd.DataFrame(rows)
+
+
+def build_rebound_berkualitas(cands: pd.DataFrame, fundamentals: pd.DataFrame,
+                               sektor_map: dict | None = None,
+                               min_roe: float = 8.0, max_der: float = 1.5,
+                               min_current_ratio: float = 1.0, wajib_laba: bool = True,
+                               wajib_fcf_positif: bool = False, min_harga: float = 0.0,
+                               modal: float | None = None, risiko_arb_pct: float = 2.0,
+                               tanggal=None) -> pd.DataFrame:
+    """Gabungkan shortlist HARGA (`cands` = output build_v_shape_candidates: turun dalam +
+    mulai stabil + likuid) dgn gerbang KUALITAS FUNDAMENTAL (`fundamentals` = output
+    fetch_fundamental_snapshot) + kolom risiko ARB & lot maksimal.
+
+    Gerbang kualitas (semua yg BERLAKU harus lolos; data kosong = TIDAK lolos, bukan dianggap
+    lolos): laba (EPS>0 & margin laba>0), ROE >= min_roe, Debt/Equity <= max_der, Current
+    Ratio >= min_current_ratio, FCF>0 (opsional). Sektor "Financials" (bank/asuransi/
+    multifinance) TIDAK dicek Debt/Equity & Current Ratio - tidak bermakna utk lembaga
+    keuangan (leverage memang bisnisnya), cuma dicek laba & ROE.
+
+    STATUS VALIDASI (jujur): bagian HARGA diuji sbg proxy di 6 episode rebound IHSG (Mar-2020,
+    Nov-2020, Mar-2025, Apr-2025, Apr-2026, Jun-2026): saham turun >=40% & stabil rebound
+    median +17% s.d. +36% dlm 60 hari di 5 episode, TAPI di episode Apr-2026 (rebound gagal,
+    IHSG bikin low baru) SEMUA kelompok jatuh (median -29%, 87% kena -25%) - hasil
+    ditentukan oleh apakah pasar benar2 bottom, BUKAN pemilihan saham. Gerbang FUNDAMENTAL
+    TIDAK bisa diuji (fundamental historis point-in-time tdk tersedia gratis; memakai
+    fundamental sekarang utk menguji masa lalu = look-ahead bias) - jadi kriteria ini
+    pertimbangan akal sehat (hindari yg rugi/berutang berat/arus kas kering), BUKAN terbukti
+    menambah return."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    if cands is None or cands.empty:
+        return pd.DataFrame()
+    if tanggal is None:
+        tanggal = datetime.now(ZoneInfo("Asia/Jakarta")).date()
+    from datetime import date as _date
+    sektor_map = sektor_map or {}
+    df = cands.merge(fundamentals, on="Kode", how="left") if fundamentals is not None and not fundamentals.empty \
+        else cands.assign(**{"Ada Data Fundamental": False})
+    df["Ada Data Fundamental"] = df["Ada Data Fundamental"].fillna(False).astype(bool)
+    if min_harga and min_harga > 0:
+        df = df[df["Harga"] > min_harga]
+    rows = []
+    for _, r in df.iterrows():
+        sektor = sektor_map.get(r["Kode"], "")
+        bank = sektor == "Financials"
+        tes = {}
+        if r["Ada Data Fundamental"]:
+            if wajib_laba:
+                tes["Laba"] = bool(pd.notna(r.get("EPS")) and r["EPS"] > 0
+                                   and pd.notna(r.get("Margin Laba %")) and r["Margin Laba %"] > 0)
+            tes["ROE"] = bool(pd.notna(r.get("ROE %")) and r["ROE %"] >= min_roe)
+            if not bank:
+                tes["DER"] = bool(pd.notna(r.get("Debt/Equity")) and r["Debt/Equity"] <= max_der)
+                tes["CR"] = bool(pd.notna(r.get("Current Ratio")) and r["Current Ratio"] >= min_current_ratio)
+            if wajib_fcf_positif:
+                tes["FCF"] = bool(pd.notna(r.get("Free Cash Flow")) and r["Free Cash Flow"] > 0)
+        lolos = bool(tes) and all(tes.values())
+        arb_now = arb_limit_pct(r["Harga"], tanggal)
+        arb_2027 = arb_limit_pct(r["Harga"], _date(2027, 1, 1))
+        row = r.to_dict()
+        row.update({
+            "Sektor": sektor or "-",
+            "Tes Kualitas": f"{sum(tes.values())}/{len(tes)}" if tes else "tanpa data",
+            "Lolos Kualitas": lolos,
+            "Gagal di": ", ".join(k for k, v in tes.items() if not v) if tes else "data fundamental kosong",
+            "ARB Sekarang %": arb_now, "ARB 1 Jan 2027 %": arb_2027,
+        })
+        if modal and modal > 0:
+            row["Lot Maks (ARB 2027)"] = lot_maks_arb(modal, r["Harga"], arb_2027 or arb_now, risiko_arb_pct)
+        rows.append(row)
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    kunci = ["Lolos Kualitas"] + (["ROE %"] if "ROE %" in out.columns else [])
+    return out.sort_values(kunci, ascending=False, na_position="last").reset_index(drop=True)
 
 
 def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:

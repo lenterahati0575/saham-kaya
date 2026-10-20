@@ -13,7 +13,7 @@ from screener import (DEFAULT_PARAMS, compute_metrics, market_regime, build_trad
                       ihsg_seasonality, build_screener_table, build_simple_candidates,
                       compute_zigzag_pivots, detect_open_ihsg_gaps, ihsg_gap_fill_stats,
                       build_vcp_candidates, _compute_vcp_kuat_series, _hitung_hari_likuid,
-                      build_v_shape_candidates)
+                      build_v_shape_candidates, arb_limit_pct, lot_maks_arb, build_rebound_berkualitas)
 
 
 def _flat_ohlcv(n: int, price: float = 1000.0, volume: float = 2_000_000.0) -> pd.DataFrame:
@@ -966,6 +966,75 @@ class TestBuildVShapeCandidates:
         assert len(df) == 245  # sama persis dgn panjang realistis fetch "1y" live
         out = build_v_shape_candidates({"AAA": df}, decline_threshold=30.0, stabilize_days=10)
         assert list(out["Kode"]) == ["AAA"]
+
+
+class TestArbDanReboundBerkualitas:
+    """Rebound Berkualitas (2026-10-20) - jadwal ARB dari berita (bukan primer BEI), lot maks
+    berbasis ARB, & gerbang kualitas fundamental. Semua data SINTETIS."""
+    from datetime import date as _d
+
+    def test_arb_masa_transisi_15_persen_di_atas_rp10(self):
+        assert arb_limit_pct(150.0, self._d(2026, 10, 20)) == 15.0
+        assert arb_limit_pct(3000.0, self._d(2026, 12, 31)) == 15.0
+
+    def test_arb_mulai_2027_bertingkat_harga(self):
+        d = self._d(2027, 1, 1)
+        assert arb_limit_pct(150.0, d) == 35.0      # Rp11-200
+        assert arb_limit_pct(200.0, d) == 35.0      # batas atas inklusif
+        assert arb_limit_pct(201.0, d) == 25.0      # >200 - 5000
+        assert arb_limit_pct(5000.0, d) == 25.0
+        assert arb_limit_pct(5001.0, d) == 20.0     # >5000
+
+    def test_arb_harga_sangat_rendah_nominal_rp1(self):
+        assert arb_limit_pct(5.0, self._d(2026, 10, 20)) == 20.0   # Rp1 / Rp5
+        assert arb_limit_pct(0, self._d(2026, 10, 20)) is None
+
+    def test_lot_maks_arb(self):
+        # modal 100jt, risiko 2% = 2jt; ARB 35% -> nilai posisi maks 5,714jt; harga 100 -> Rp10rb/lot -> 571 lot
+        assert lot_maks_arb(100_000_000, 100.0, 35.0, 2.0) == 571
+        assert lot_maks_arb(None, 100.0, 35.0, 2.0) is None
+
+    def _cands(self, harga=1000.0, kode="AAA"):
+        return pd.DataFrame([{"Kode": kode, "Harga": harga, "Turun dari Puncak %": 45.0, "Potensi Return %": 80.0}])
+
+    def _fund(self, kode="AAA", **kw):
+        base = {"Kode": kode, "Ada Data Fundamental": True, "ROE %": 15.0, "Debt/Equity": 0.5,
+                "Current Ratio": 1.8, "EPS": 50.0, "Margin Laba %": 8.0, "Free Cash Flow": 1e9}
+        base.update(kw)
+        return pd.DataFrame([base])
+
+    def test_kualitas_lolos_semua(self):
+        out = build_rebound_berkualitas(self._cands(), self._fund(), tanggal=self._d(2026, 10, 20))
+        assert bool(out.iloc[0]["Lolos Kualitas"]) and out.iloc[0]["Tes Kualitas"] == "4/4"
+
+    def test_rugi_gagal_gerbang_laba(self):
+        out = build_rebound_berkualitas(self._cands(), self._fund(EPS=-5.0), tanggal=self._d(2026, 10, 20))
+        assert not bool(out.iloc[0]["Lolos Kualitas"]) and "Laba" in out.iloc[0]["Gagal di"]
+
+    def test_utang_berat_gagal_der(self):
+        out = build_rebound_berkualitas(self._cands(), self._fund(**{"Debt/Equity": 3.0}), tanggal=self._d(2026, 10, 20))
+        assert not bool(out.iloc[0]["Lolos Kualitas"]) and "DER" in out.iloc[0]["Gagal di"]
+
+    def test_bank_tidak_dicek_der_dan_current_ratio(self):
+        f = self._fund(**{"Debt/Equity": 9.0, "Current Ratio": 0.2})
+        out = build_rebound_berkualitas(self._cands(), f, sektor_map={"AAA": "Financials"}, tanggal=self._d(2026, 10, 20))
+        assert bool(out.iloc[0]["Lolos Kualitas"]) and out.iloc[0]["Tes Kualitas"] == "2/2"
+
+    def test_data_fundamental_kosong_bukan_dianggap_lolos(self):
+        kosong = pd.DataFrame([{"Kode": "AAA", "Ada Data Fundamental": False}])
+        out = build_rebound_berkualitas(self._cands(), kosong, tanggal=self._d(2026, 10, 20))
+        assert not bool(out.iloc[0]["Lolos Kualitas"]) and out.iloc[0]["Tes Kualitas"] == "tanpa data"
+
+    def test_min_harga_membuang_saham_murah_dan_kolom_arb_2027(self):
+        c = pd.concat([self._cands(150.0, "AAA"), self._cands(1000.0, "BBB")], ignore_index=True)
+        f = pd.concat([self._fund("AAA"), self._fund("BBB")], ignore_index=True)
+        out = build_rebound_berkualitas(c, f, min_harga=200.0, modal=100_000_000, tanggal=self._d(2026, 10, 20))
+        assert list(out["Kode"]) == ["BBB"]
+        assert out.iloc[0]["ARB 1 Jan 2027 %"] == 25.0 and out.iloc[0]["ARB Sekarang %"] == 15.0
+        assert out.iloc[0]["Lot Maks (ARB 2027)"] == 80   # 100jt*2%/25% = 8jt / Rp100rb per lot
+
+    def test_cands_kosong_return_kosong(self):
+        assert build_rebound_berkualitas(pd.DataFrame(), pd.DataFrame()).empty
 
 
 class TestFilterAntiKejarHarga:

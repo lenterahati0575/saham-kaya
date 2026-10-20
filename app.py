@@ -14,7 +14,8 @@ from scipy.stats import norm
 from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_with_report, build_screener_table,
                       build_trade_candidates, build_simple_candidates, build_vcp_candidates, build_v_shape_candidates,
                       fetch_ihsg_history, market_regime, _donchian_levels, fetch_index_snapshot, ihsg_seasonality,
-                      detect_open_ihsg_gaps, ihsg_gap_fill_stats)
+                      detect_open_ihsg_gaps, ihsg_gap_fill_stats, fetch_fundamental_snapshot,
+                      build_rebound_berkualitas, arb_limit_pct)
 from telegram_notify import send_telegram_message, format_watchlist_message
 import gsheet_journal as gj
 import simple_journal
@@ -2837,7 +2838,7 @@ with t_equity:
 with t_fundamental:
     st.markdown("## 📊 Fundamental Analysis Pro")
     st.caption("Metrik value investing: Graham, Buffett, Lynch. Data dari Yahoo Finance.")
-    sub_fund, sub_gainer, sub_compare, sub_vshape = st.tabs(["🔬 Fundamental Screener", "🏆 Top Gainer/Loser", "⚖️ Perbandingan", "📉 V-Shape Recovery"])
+    sub_fund, sub_gainer, sub_compare, sub_vshape, sub_rebound = st.tabs(["🔬 Fundamental Screener", "🏆 Top Gainer/Loser", "⚖️ Perbandingan", "📉 V-Shape Recovery", "🛡️ Rebound Berkualitas"])
     with sub_fund:
         st.markdown("### 🎯 Filter Saham Fundamental")
         c1, c2, c3, c4 = st.columns(4)
@@ -3078,6 +3079,94 @@ with t_fundamental:
             st.download_button("⬇️ Download CSV", to_csv_excel_id(cands_vshape),
                                file_name=f"vshape_recovery_{datetime.now().strftime('%Y%m%d')}.csv",
                                mime="text/csv")
+
+    # ------------------------------------------------------------------------
+    # REBOUND BERKUALITAS (2026-10-20) - user (IHSG -11,57% 16 Okt krn isu reklasifikasi
+    # MSCI, +4,66% 20 Okt): "selalu ada peluang di kondisi apapun market... kesempatan
+    # untuk screener saham berfundamental baik... perlu berhati-hati soal aturan ARB (35%)".
+    # Tahap 1 (cepat, tanpa jaringan): shortlist HARGA dari price_data yg sudah ada (turun
+    # dalam + mulai stabil + likuid - fungsi SAMA dgn V-Shape). Tahap 2 (lambat ~1 detik/saham):
+    # fundamental Yahoo Finance HANYA utk shortlist teratas (bukan seluruh universe). Lihat
+    # screener.py::build_rebound_berkualitas() utk status validasi (bagian harga diuji di 6
+    # episode; bagian fundamental TIDAK bisa diuji) & jadwal ARB (dari berita, bukan primer).
+    # ------------------------------------------------------------------------
+    with sub_rebound:
+        st.markdown("### 🛡️ Rebound Berkualitas - Jatuh Dalam, Fundamental Sehat, Risiko ARB Terkontrol")
+        _ih = fetch_ihsg_history(period="1y")
+        if not _ih.empty and len(_ih) >= 50:
+            _c = _ih["Close"]
+            _dd = (float(_c.iloc[-1]) / float(_c.max()) - 1) * 100
+            _ma50 = float(_c.rolling(50).mean().iloc[-1])
+            _chg = (float(_c.iloc[-1]) / float(_c.iloc[-2]) - 1) * 100
+            rb1, rb2, rb3, rb4 = st.columns(4)
+            rb1.metric("IHSG", f"{float(_c.iloc[-1]):,.0f}", f"{_chg:+.2f}% hari ini")
+            rb2.metric("Dari puncak 1 tahun", f"{_dd:.1f}%")
+            rb3.metric("vs MA50", f"{(float(_c.iloc[-1]) / _ma50 - 1) * 100:+.1f}%")
+            rb4.metric("Regime", "🔴 BEARISH" if float(_c.iloc[-1]) < _ma50 else "🟢 BULLISH")
+        st.warning("⚠️ **Rebound di tengah crash BUKAN konfirmasi dasar pasar.** Diuji di 6 episode "
+                   "rebound IHSG sejak 2020 (saham turun >=40% & mulai stabil): di 5 episode naik "
+                   "median +17% s.d. +36% dlm 60 hari, TAPI di Apr-2026 (rebound gagal, IHSG bikin low "
+                   "baru) SEMUA saham jatuh (median -29%, 87% kena -25%). Hasilnya ditentukan "
+                   "APAKAH pasar benar2 bottom, bukan pilihan saham - masuk BERTAHAP & kecil. "
+                   "Gerbang FUNDAMENTAL di bawah TIDAK bisa dibacktest (fundamental historis tidak "
+                   "tersedia gratis) - pertimbangan akal sehat, bukan terbukti menambah return. "
+                   "Data fundamental Yahoo utk saham IDX sering kosong/telat - cek laporan keuangan resmi.")
+        st.info("📏 **Aturan ARB (dari berita, BELUM dicek ke pengumuman primer BEI - verifikasi dulu!)**: "
+                "harga minimum jadi Rp1 mulai 28 Sep 2026. **Sampai 31 Des 2026**: ARB 15% utk harga >Rp10. "
+                "**Mulai 1 Jan 2027** ARA/ARB simetris: Rp11-200 = **35%**, >Rp200-5.000 = 25%, >Rp5.000 = 20%. "
+                "Kolom **Lot Maks** menghitung lot terbesar supaya 1 hari ARB penuh (aturan 2027) "
+                "rugi <= batas risiko Bro - ini batas ATAS: saat ARB antrean jual bisa tidak terjual sama sekali, "
+                "dan 2 hari ARB beruntun bisa -58% di tier 35%.")
+        rbc1, rbc2, rbc3, rbc4 = st.columns(4)
+        with rbc1:
+            rb_turun = st.number_input("Min turun dari puncak (%)", value=30.0, min_value=10.0, max_value=80.0, step=5.0, key="rb_turun")
+            rb_stabil = st.number_input("Hari stabil", value=5, min_value=3, max_value=30, step=1, key="rb_stabil")
+        with rbc2:
+            rb_roe = st.number_input("Min ROE (%)", value=8.0, step=1.0, key="rb_roe")
+            rb_der = st.number_input("Max Debt/Equity (non-bank)", value=1.5, min_value=0.0, step=0.1, key="rb_der")
+        with rbc3:
+            rb_laba = st.checkbox("Wajib laba (EPS & margin > 0)", value=True, key="rb_laba")
+            rb_fcf = st.checkbox("Wajib arus kas bebas positif", value=False, key="rb_fcf")
+            rb_murah = st.checkbox("Hindari harga <= Rp200 (ARB 35% di 2027)", value=False, key="rb_murah")
+        with rbc4:
+            rb_modal = st.number_input("Modal utk hitung Lot Maks (Rp)", value=int(total_equity_now) if total_equity_now else 10_000_000, step=1_000_000, key="rb_modal")
+            rb_risiko = st.number_input("Maks rugi bila 1 hari ARB (% modal)", value=2.0, min_value=0.1, max_value=20.0, step=0.5, key="rb_risiko")
+        rb_n = st.slider("Jumlah saham teratas (berdasar nilai transaksi) yg dicek fundamentalnya", 10, 100, 40, step=10, key="rb_n",
+                         help="~1 detik per saham (Yahoo Finance). Saham paling likuid dicek duluan.")
+        if st.button("🔍 Cari Rebound Berkualitas", type="primary", use_container_width=True, key="btn_rebound"):
+            _cands_rb = build_v_shape_candidates(price_data, decline_threshold=rb_turun, stabilize_days=int(rb_stabil),
+                                                  min_value_traded=DEFAULT_PARAMS["min_value_traded"], top_n=1000)
+            if _cands_rb.empty:
+                st.session_state["rb_hasil"] = ("kosong", None, 0)
+            else:
+                _short = _cands_rb.sort_values("Nilai Transaksi 20h (Rp M)", ascending=False).head(int(rb_n))
+                with st.spinner(f"Mengambil fundamental {len(_short)} saham (shortlist dari {len(_cands_rb)} lolos harga)..."):
+                    _f = st.cache_data(ttl=3600, show_spinner=False)(fetch_fundamental_snapshot)(_short["Kode"].tolist())
+                _hasil = build_rebound_berkualitas(
+                    _short, _f, sektor_map=dict(zip(universe["Kode"], universe["Sektor"])),
+                    min_roe=rb_roe, max_der=rb_der, wajib_laba=rb_laba, wajib_fcf_positif=rb_fcf,
+                    min_harga=(200.0 if rb_murah else 0.0), modal=rb_modal, risiko_arb_pct=rb_risiko)
+                st.session_state["rb_hasil"] = ("ok", _hasil, len(_cands_rb))
+        _rb = st.session_state.get("rb_hasil")
+        if _rb:
+            if _rb[0] == "kosong":
+                st.info("Tidak ada saham yang turun sesuai ambang & mulai stabil + likuid saat ini. Turunkan 'Min turun' atau 'Hari stabil'.")
+            else:
+                _h = _rb[1]
+                st.markdown(f"**{int(_h['Lolos Kualitas'].sum())} lolos kualitas** dari {len(_h)} yang dicek fundamental "
+                            f"(shortlist harga: {_rb[2]} saham lolos turun-dalam+stabil+likuid).")
+                _kol = ["Kode", "Nama", "Sektor", "Harga", "Turun dari Puncak %", "Potensi Return %", "Nilai Transaksi 20h (Rp M)",
+                        "ROE %", "Debt/Equity", "Current Ratio", "P/B", "Tes Kualitas", "Gagal di",
+                        "ARB Sekarang %", "ARB 1 Jan 2027 %", "Lot Maks (ARB 2027)", "Chart"]
+                _kol = [c for c in _kol if c in _h.columns]
+                _tampil = st.radio("Tampilkan", ["Lolos kualitas saja", "Semua yang dicek"], horizontal=True, key="rb_tampil")
+                _df_t = _h[_h["Lolos Kualitas"]] if _tampil == "Lolos kualitas saja" else _h
+                if _df_t.empty:
+                    st.info("Tidak ada yang lolos semua gerbang kualitas. Pilih 'Semua yang dicek' untuk lihat gagal di mana, atau longgarkan ROE/DER.")
+                else:
+                    dataframe_with_chart(_df_t[_kol], kode_col="Kode", height=420, key="df_rebound")
+                    st.download_button("⬇️ Download CSV", to_csv_excel_id(_df_t[_kol]),
+                                       file_name=f"rebound_berkualitas_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
 
 # ============================================================================
 # TAB 11: VALUE INVESTING PORTFOLIO (100% dari app.py asli)

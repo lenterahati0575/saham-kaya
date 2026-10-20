@@ -3680,6 +3680,55 @@ kerja saat ini - hapus manual sendiri kalau mau.
 
 314 test tetap semua lolos.
 
+## Rebound Berkualitas + Risiko ARB - Respons ke Crash IHSG 16 Okt 2026 (2026-10-20)
+
+Konteks (dicek dari data & berita, bukan asumsi): IHSG **-11,57% pd 16 Okt 2026** (trading halt;
+pemicu = konsultasi MSCI soal kemungkinan penurunan status Indonesia dari Emerging ke
+Standalone/Frontier krn transparansi kepemilikan & tata kelola), -3,64% 19 Okt (low 4.996,6),
+**+4,66% 20 Okt**. IHSG 5.229 = **-42,8% dari puncak 252 hari** (puncak awal 2026), di bawah MA50.
+User: *"selalu ada peluang di kondisi apapun market... kesempatan untuk screener saham
+berfundamental baik... terkait aturan ARB-ARA perlu berhati-hati, kalau tidak jika ARB sangat dalam 35%"*.
+
+**Pertanyaan "apakah IHSG sudah bottom?" - TIDAK bisa dijawab pasti, ini data analognya.** Semua hari
+IHSG naik >=+3% saat drawdown 252h >=15% sejak 1990 (27 episode, kemunculan pertama per episode):
+return +20 hari median +2,7% (16/27 positif), +60 hari median +8,0% (18/27), +120 hari median
++13,4% (17/27); TAPI **13/27 (48%) masih bikin low penutupan baru dlm 60 hari** - lempar koin. Utk
+drawdown >=30% (8 episode: 1990, 1991x2, 1997, 2001, 2002, 2008, 2020) 5/8 masih bikin low baru.
+Di 2026 sendiri: rebound +4,42% 8 Apr 2026 gagal total (-18,6% dlm 60 hari). Kesimpulan: hari
+rebound besar BUKAN konfirmasi dasar; peluang positif ke depan ADA tapi sebaran lebar (60 hari:
+-29% s.d. +32%) -> masuk bertahap & ukuran kecil.
+
+**Uji bagian HARGA ke level saham** (333 saham likuid, data 10 tahun, 6 episode rebound IHSG: 26 Mar
+2020, 5 Nov 2020, 3 Mar 2025, 10 Apr 2025, 8 Apr 2026, 9 Jun 2026; return 60 hari dari close hari
+rebound): saham turun >=40% dari puncak 252h & tdk bikin low baru 5 hari (kelompok B) vs semua
+likuid (A): median B +24,8% / +36,3% / +17,1% / +27,6% / **-28,7%** / +22,5% vs A +25,0% / +25,4% /
++8,3% / +14,8% / **-18,3%** / +19,4%. B lebih baik di 4 dari 6, ~sama di 1, lebih buruk di 1; di
+episode gagal (Apr-2026) 87% kelompok B kena -25%. Harga <=Rp200 vs >Rp200: tdk ada beda return
+yang konsisten (jadi filter harga murah di screener = soal risiko ARB, bukan terbukti
+mengurangi return). **Hanya 6 episode (2025 ada 2 yg tumpang tindih) - kekuatan statistik sangat
+rendah, baca sbg gambaran, bukan bukti.** Hasil ditentukan apakah PASAR bottom, bukan pilihan saham.
+
+**Fundamental TIDAK bisa diuji**: fundamental historis point-in-time tidak tersedia gratis; memakai
+fundamental sekarang utk menguji masa lalu = look-ahead bias. Gerbang kualitas = pertimbangan akal
+sehat (hindari yg rugi, utang berat, arus kas kering), BUKAN terbukti menambah return. Data
+Yahoo utk saham IDX sering kosong/telat - kolom kosong dianggap TIDAK lolos, bukan ditebak lolos.
+
+**Jadwal ARB (dari RINGKASAN BERITA - Ajaib/Bisnis/Kabarbursa; pengumuman primer BEI BELUM dibaca,
+halaman Ajaib 403 saat dicoba - WAJIB diverifikasi sebelum jadi dasar keputusan)**: harga minimum
+Rp50->Rp1 mulai 28 Sep 2026; masa transisi s.d. 31 Des 2026: Rp1-10 ARA/ARB nominal Rp1, >Rp10 ARB
+15%; mulai 1 Jan 2027 ARA/ARB simetris Rp11-200 = 35%, >Rp200-5.000 = 25%, >Rp5.000 = 20%. Jadi
+angka 35% yg user sebut benar TAPI cuma utk tier Rp11-200 & baru berlaku 2027.
+
+**Perubahan kode**: `screener.py` - `arb_limit_pct()` (batas ARB per harga & tanggal),
+`lot_maks_arb()` (lot terbesar supaya 1 hari ARB penuh rugi <= X% modal; batas ATAS - saat ARB
+antrean jual bisa tdk terjual), `fetch_fundamental_snapshot()` (Yahoo, hanya utk shortlist),
+`build_rebound_berkualitas()` (gerbang laba/ROE/DER/Current Ratio/FCF; bank tdk dicek DER &
+Current Ratio). `build_v_shape_candidates()` dapat kolom baru "Nilai Transaksi 20h (Rp M)". `app.py`
+- sub-tab baru **"🛡️ Rebound Berkualitas"** di tab Fundamental: panel kondisi IHSG, peringatan
+validasi, aturan ARB, parameter, 2 tahap (shortlist harga cepat -> fundamental ~1 detik/saham HANYA
+utk N saham paling likuid). Dicoba live (data 20 Okt, 921/962 saham): 73 lolos turun>=30%+stabil+likuid,
+dari 50 teratas 28 lolos kualitas. 11 test baru - 325 total, semua lolos.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
