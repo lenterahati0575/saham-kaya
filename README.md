@@ -3729,6 +3729,24 @@ validasi, aturan ARB, parameter, 2 tahap (shortlist harga cepat -> fundamental ~
 utk N saham paling likuid). Dicoba live (data 20 Okt, 921/962 saham): 73 lolos turun>=30%+stabil+likuid,
 dari 50 teratas 28 lolos kualitas. 11 test baru - 325 total, semua lolos.
 
+## Fundamental + Teknikal Digabung (2026-10-20)
+
+User: *"mungkin digabungkan fundamental dan technical"* (menanggapi tawaran memasang info ARB di
+Kandidat/Screener Sederhana). Pembagian peran yang JUJUR: keputusan MASUK tetap dari sinyal
+TEKNIKAL yg sudah divalidasi backtest (Kandidat/Screener Sederhana); fundamental = LAPISAN KEAMANAN
+yg belum bisa diuji historis (tdk ada data point-in-time gratis) - bukan dijadikan syarat baru yg
+mengubah sistem tervalidasi.
+
+- **Tab Kandidat & Screener Sederhana**: expander baru "🛡️ Cek Fundamental & Risiko ARB kandidat ini"
+  di bawah tabel (default tertutup, on-demand krn ~1 detik/saham dari Yahoo). Isi: Kualitas Fundamental
+  (✅ Lolos / ❌ Gagal / ❔ Tanpa data), tes mana yg gagal, ROE, Debt/Equity, Current Ratio, ARB sekarang,
+  ARB 1 Jan 2027, Lot Maks. Tabel kandidat aslinya TIDAK diubah (urutan, kolom, perilaku tetap).
+  Fungsi: `screener.py::tambah_fundamental_arb()` + `app.py::overlay_fundamental_arb()`.
+- **Sub-tab Rebound Berkualitas** (arah sebaliknya): kolom TEKNIKAL (Signal, Score, Trend, Momentum,
+  Volume Ratio, Status Breakout) dari tabel screener utama ditampilkan berdampingan dgn fundamental.
+  Saat crash hampir semua Signal HOLD/SELL - tabel ini daftar pantau, bukan sinyal beli.
+- 3 test baru (328 total, semua lolos) + diuji end-to-end dgn streamlit AppTest.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

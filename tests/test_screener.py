@@ -13,7 +13,7 @@ from screener import (DEFAULT_PARAMS, compute_metrics, market_regime, build_trad
                       ihsg_seasonality, build_screener_table, build_simple_candidates,
                       compute_zigzag_pivots, detect_open_ihsg_gaps, ihsg_gap_fill_stats,
                       build_vcp_candidates, _compute_vcp_kuat_series, _hitung_hari_likuid,
-                      build_v_shape_candidates, arb_limit_pct, lot_maks_arb, build_rebound_berkualitas)
+                      build_v_shape_candidates, arb_limit_pct, lot_maks_arb, build_rebound_berkualitas, tambah_fundamental_arb)
 
 
 def _flat_ohlcv(n: int, price: float = 1000.0, volume: float = 2_000_000.0) -> pd.DataFrame:
@@ -1035,6 +1035,41 @@ class TestArbDanReboundBerkualitas:
 
     def test_cands_kosong_return_kosong(self):
         assert build_rebound_berkualitas(pd.DataFrame(), pd.DataFrame()).empty
+
+
+class TestTambahFundamentalArb:
+    """Overlay fundamental+ARB ke daftar kandidat teknikal manapun (2026-10-20)."""
+    from datetime import date as _d
+
+    def _cands(self):
+        return pd.DataFrame([{"Saham": "AAA", "Entry": 1000.0, "RR": 2.0}, {"Saham": "BBB", "Entry": 150.0, "RR": 3.0},
+                             {"Saham": "CCC", "Entry": 5000.0, "RR": 1.6}])
+
+    def _fund(self):
+        base = {"Ada Data Fundamental": True, "ROE %": 15.0, "Debt/Equity": 0.5, "Current Ratio": 1.8,
+                "EPS": 50.0, "Margin Laba %": 8.0, "Free Cash Flow": 1e9}
+        return pd.DataFrame([{"Kode": "AAA", **base}, {"Kode": "BBB", **{**base, "EPS": -1.0}},
+                             {"Kode": "CCC", "Ada Data Fundamental": False}])
+
+    def test_urutan_dan_kolom_asli_terjaga_dan_label_benar(self):
+        out = tambah_fundamental_arb(self._cands(), self._fund(), tanggal=self._d(2027, 1, 5))
+        assert list(out["Saham"]) == ["AAA", "BBB", "CCC"]          # urutan asli tidak berubah
+        assert list(out["RR"]) == [2.0, 3.0, 1.6]                   # kolom asli utuh
+        assert list(out["Kualitas Fundamental"]) == ["✅ Lolos", "❌ Gagal", "❔ Tanpa data"]
+        assert "Lolos Kualitas" not in out.columns
+
+    def test_kolom_arb_2027_dan_lot_maks(self):
+        out = tambah_fundamental_arb(self._cands(), self._fund(), modal=100_000_000, risiko_arb_pct=2.0,
+                                      tanggal=self._d(2026, 10, 20))
+        r = out.set_index("Saham")
+        assert r.loc["BBB", "ARB 1 Jan 2027 %"] == 35.0 and r.loc["BBB", "ARB Sekarang %"] == 15.0
+        assert r.loc["AAA", "Lot Maks (ARB 2027)"] == 80            # 8jt / Rp100rb per lot
+
+    def test_kolom_kode_harga_bisa_diganti_dan_kosong_aman(self):
+        c = self._cands().rename(columns={"Saham": "Kode", "Entry": "Harga"})
+        out = tambah_fundamental_arb(c, self._fund(), kode_col="Kode", harga_col="Harga")
+        assert len(out) == 3
+        assert tambah_fundamental_arb(pd.DataFrame(), self._fund()).empty
 
 
 class TestFilterAntiKejarHarga:

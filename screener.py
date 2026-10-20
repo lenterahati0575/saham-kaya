@@ -1780,6 +1780,34 @@ def build_rebound_berkualitas(cands: pd.DataFrame, fundamentals: pd.DataFrame,
     return out.sort_values(kunci, ascending=False, na_position="last").reset_index(drop=True)
 
 
+def tambah_fundamental_arb(cands: pd.DataFrame, fundamentals: pd.DataFrame,
+                            kode_col: str = "Saham", harga_col: str = "Entry", **kw) -> pd.DataFrame:
+    """Tempelkan gerbang KUALITAS FUNDAMENTAL + kolom risiko ARB/Lot Maks ke daftar kandidat
+    MANAPUN (Kandidat, Screener Sederhana, dst.) tanpa mengubah urutan/isi daftar aslinya -
+    user (2026-10-20): "mungkin digabungkan fundamental dan technical". Peran tiap sisi
+    (jujur): keputusan MASUK tetap dari sinyal TEKNIKAL yg sudah divalidasi backtest (Kandidat/
+    Screener Sederhana); fundamental di sini cuma LAPISAN KEAMANAN (hindari perusahaan rugi/
+    utang berat/arus kas kering) yg belum bisa diuji historis - lihat build_rebound_berkualitas().
+    `kw` diteruskan ke build_rebound_berkualitas() (min_roe, max_der, modal, risiko_arb_pct,
+    sektor_map, dst.). Hasil: semua baris & kolom `cands` + kolom tambahan; baris tanpa data
+    fundamental tetap ada (kolom "Kualitas Fundamental" = tanpa data), TIDAK dibuang."""
+    if cands is None or cands.empty:
+        return cands
+    tmp = cands[[kode_col, harga_col]].rename(columns={kode_col: "Kode", harga_col: "Harga"})
+    res = build_rebound_berkualitas(tmp, fundamentals, **kw)
+    ekstra = ["Kode", "Lolos Kualitas", "Tes Kualitas", "Gagal di", "ROE %", "Debt/Equity", "Current Ratio",
+              "ARB Sekarang %", "ARB 1 Jan 2027 %", "Lot Maks (ARB 2027)"]
+    res = res[[c for c in ekstra if c in res.columns]].rename(columns={"Kode": kode_col})
+    out = cands.merge(res, on=kode_col, how="left")
+
+    def _label(v, tes):
+        if tes == "tanpa data":
+            return "❔ Tanpa data"
+        return "✅ Lolos" if v is True or v == True else "❌ Gagal"
+    out["Kualitas Fundamental"] = [_label(v, t) for v, t in zip(out["Lolos Kualitas"], out["Tes Kualitas"])]
+    return out.drop(columns=["Lolos Kualitas"])
+
+
 def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
     """Tentukan kondisi pasar keseluruhan (regime) dari IHSG."""
     if ihsg_df is None or ihsg_df.empty or len(ihsg_df) < ma_period:

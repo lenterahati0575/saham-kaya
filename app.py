@@ -15,7 +15,7 @@ from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_wi
                       build_trade_candidates, build_simple_candidates, build_vcp_candidates, build_v_shape_candidates,
                       fetch_ihsg_history, market_regime, _donchian_levels, fetch_index_snapshot, ihsg_seasonality,
                       detect_open_ihsg_gaps, ihsg_gap_fill_stats, fetch_fundamental_snapshot,
-                      build_rebound_berkualitas, arb_limit_pct)
+                      build_rebound_berkualitas, arb_limit_pct, tambah_fundamental_arb)
 from telegram_notify import send_telegram_message, format_watchlist_message
 import gsheet_journal as gj
 import simple_journal
@@ -598,6 +598,38 @@ def dataframe_with_chart(df_display, kode_col="Kode", height=460, key=None, colu
     else:
         st.caption("💡 Klik salah satu baris di tabel di atas untuk melihat chart TradingView langsung di sini.")
 
+def overlay_fundamental_arb(df, kode_col, harga_col, key):
+    """Lapisan FUNDAMENTAL + risiko ARB di bawah tabel kandidat TEKNIKAL (2026-10-20, user:
+    "mungkin digabungkan fundamental dan technical"). On-demand (tombol) krn ~1 detik/saham dari
+    Yahoo Finance - tidak boleh jalan di tiap rerun. Keputusan masuk tetap dari sinyal teknikal
+    yg tervalidasi; ini cuma filter keamanan yg belum bisa diuji historis."""
+    with st.expander("🛡️ Cek Fundamental & Risiko ARB kandidat ini (opsional, ~1 detik/saham)", expanded=False):
+        st.caption("Sinyal TEKNIKAL di atas = dasar keputusan (sudah divalidasi backtest). Ini cuma LAPISAN "
+                   "KEAMANAN: apakah perusahaannya laba, tidak berutang berat, arus kas sehat - kriteria ini "
+                   "TIDAK bisa dibacktest (fundamental historis tdk tersedia gratis), data Yahoo utk saham "
+                   "IDX sering kosong/telat. Plus batas ARB (15% s.d. 31 Des 2026; Rp11-200 = 35% mulai "
+                   "1 Jan 2027 - dari berita, verifikasi ke BEI) & Lot Maks supaya 1 hari ARB penuh tdk "
+                   "merugikan lebih dari batas risiko Bro.")
+        _o1, _o2 = st.columns(2)
+        _modal = _o1.number_input("Modal utk Lot Maks (Rp)", value=int(total_equity_now) if total_equity_now else 10_000_000,
+                                  step=1_000_000, key=f"ov_modal_{key}")
+        _risk = _o2.number_input("Maks rugi bila 1 hari ARB (% modal)", value=2.0, min_value=0.1, max_value=20.0,
+                                 step=0.5, key=f"ov_risiko_{key}")
+        if st.button("🔍 Cek fundamental kandidat", key=f"ov_btn_{key}"):
+            _kodes = df[kode_col].tolist()
+            with st.spinner(f"Mengambil fundamental {len(_kodes)} saham..."):
+                _f = st.cache_data(ttl=3600, show_spinner=False)(fetch_fundamental_snapshot)(_kodes)
+            st.session_state[f"ov_hasil_{key}"] = tambah_fundamental_arb(
+                df[[kode_col, harga_col]], _f, kode_col=kode_col, harga_col=harga_col,
+                sektor_map=dict(zip(universe["Kode"], universe["Sektor"])), modal=_modal, risiko_arb_pct=_risk)
+        _hasil = st.session_state.get(f"ov_hasil_{key}")
+        if _hasil is not None and not _hasil.empty:
+            _hasil = _hasil[_hasil[kode_col].isin(df[kode_col])]
+            _kol = [c for c in [kode_col, "Kualitas Fundamental", "Tes Kualitas", "Gagal di", "ROE %", "Debt/Equity",
+                                "Current Ratio", "ARB Sekarang %", "ARB 1 Jan 2027 %", "Lot Maks (ARB 2027)"] if c in _hasil.columns]
+            st.dataframe(_hasil[_kol], use_container_width=True, hide_index=True)
+
+
 st.markdown("""<style>.block-container {padding-top: 1.5rem;} div[data-testid="stMetric"] {background: #111827; border-radius: 12px; padding: 12px 14px; border: 1px solid #1f2937; overflow: hidden;} div[data-testid="stMetricValue"] {font-size: 1.35rem !important; white-space: normal !important; overflow-wrap: break-word;} div[data-testid="stMetricLabel"] {font-size: 0.8rem !important;}</style>""", unsafe_allow_html=True)
 st.title("📈 IDX Screener Dashboard")
 st.caption("Data live Yahoo Finance · Gate likuiditas + Donchian 20D Breakout · Gratis & mobile-friendly")
@@ -1166,6 +1198,7 @@ with t_kandidat:
                        "- nilai sendiri sebelum beli.")
         st.dataframe(styler, use_container_width=True, hide_index=True, height=460, key="df_kandidat_final")
         st.download_button("⬇️ Download CSV", to_csv_excel_id(show[kolom_tampil]), file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+        overlay_fundamental_arb(picks, "Kode", "Entry", "kandidat")
 
     # ------------------------------------------------------------------------
     # SINYAL JUAL (posisi yang PERNAH muncul BUY di sini, sekarang berpotensi lanjut
@@ -1334,6 +1367,7 @@ with t_sederhana:
                                   if c in tampil_sederhana.columns]
         dataframe_with_chart(tampil_sederhana[kolom_tampil_sederhana], kode_col="Kode",
                               height=350, key="df_sederhana")
+        overlay_fundamental_arb(cands_sederhana, "Saham", "Entry", "sederhana")
 
         # Checklist per kandidat (2026-09-01, user cerita sering RAGU membeli walau
         # sistem sudah teruji, minta "kiat" -> ditawarkan checklist otomatis, user: "mau").
@@ -3155,10 +3189,16 @@ with t_fundamental:
                 _h = _rb[1]
                 st.markdown(f"**{int(_h['Lolos Kualitas'].sum())} lolos kualitas** dari {len(_h)} yang dicek fundamental "
                             f"(shortlist harga: {_rb[2]} saham lolos turun-dalam+stabil+likuid).")
+                _tek = [c for c in ["Kode", "Signal", "Score", "Trend", "Momentum", "Volume Ratio", "Status Breakout"] if c in table.columns]
+                _h = _h.merge(table[_tek], on="Kode", how="left")
                 _kol = ["Kode", "Nama", "Sektor", "Harga", "Turun dari Puncak %", "Potensi Return %", "Nilai Transaksi 20h (Rp M)",
+                        "Signal", "Score", "Trend", "Momentum", "Volume Ratio", "Status Breakout",
                         "ROE %", "Debt/Equity", "Current Ratio", "P/B", "Tes Kualitas", "Gagal di",
                         "ARB Sekarang %", "ARB 1 Jan 2027 %", "Lot Maks (ARB 2027)", "Chart"]
                 _kol = [c for c in _kol if c in _h.columns]
+                st.caption("Kolom Signal/Score/Trend/Momentum = sisi TEKNIKAL (dari tabel screener utama) supaya fundamental & teknikal "
+                           "terbaca berdampingan. Saat crash, hampir semua Signal HOLD/SELL - wajar; tabel ini bukan sinyal beli, "
+                           "melainkan daftar pantau.")
                 _tampil = st.radio("Tampilkan", ["Lolos kualitas saja", "Semua yang dicek"], horizontal=True, key="rb_tampil")
                 _df_t = _h[_h["Lolos Kualitas"]] if _tampil == "Lolos kualitas saja" else _h
                 if _df_t.empty:
