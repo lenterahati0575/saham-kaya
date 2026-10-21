@@ -3747,6 +3747,29 @@ mengubah sistem tervalidasi.
   Saat crash hampir semua Signal HOLD/SELL - tabel ini daftar pantau, bukan sinyal beli.
 - 3 test baru (328 total, semua lolos) + diuji end-to-end dgn streamlit AppTest.
 
+## Uji: Mars Trine Saturn vs IHSG (2026-10-21)
+
+User: *"mars trine saturn, tolong cek di ihsg"* (trine Mars-Saturn memang jatuh persis di minggu crash
+IHSG 16 Okt 2026). Diuji dgn disiplin yg sama spt Gann/Fibonacci/Astronacci di atas.
+
+Posisi planet dihitung dari elemen Keplerian JPL (Standish, valid 1800-2050) python murni, DIVERIFIKASI
+dulu ke peristiwa astronomi yg diketahui: konjungsi Mars-Saturn 1 Apr 2020 (diketahui ~31 Mar), 5 Apr 2022
+(~4 Apr), oposisi Mars 14 Okt 2020 (diketahui 13 Okt) - cocok dlm ~1 hari. Selisih bujur geosentris Mars-
+Saturn = 119,70 deg pd 16 Okt 2026 -> **trine persis ~17 Okt 2026**, sehari setelah crash -11,57% (dlm orb).
+
+Hasil, **43 hit trine persis sejak 1990 (42 dgn data IHSG lengkap)**:
+- Return IHSG sesudah hit vs semua hari: +5 hari +0,54% vs +0,19%, +10 hari +0,81% vs +0,37%, +20 hari
+  +0,96% vs +0,77% - uji permutasi p = 0,50 / 0,57 / 0,85 (TIDAK signifikan), split-half tdk konsisten.
+- Hari IHSG jatuh <= -4% (94 kejadian): cuma 1 (1,1%) dekat hit trine (+-3 hari) vs harapan acak 3,3% -
+  kalau ada arah, justru LEBIH JARANG. Hari naik >= +4% (90): 4 (4,4%) vs 3,3%.
+- Selama orb +-3 deg (335 hari): rata2 harian +0,008% vs +0,034% di luar, stdev 1,49 vs 1,38,
+  P(jatuh <=-3%) 2,09% vs 2,20% - tidak beda.
+- Hit terbaru: 6 Apr 2025 (IHSG justru rebound +10,6% dlm 10 hari), 30 Okt 2025, 17 Okt 2026 (crash).
+
+Kesimpulan: trine Mars-Saturn BUKAN prediktor IHSG. Kebetulan di 16-17 Okt 2026 itu satu titik dari
+sekitar 43 - tidak bisa dibedakan dari kebetulan. Penyebab crash yg terdokumentasi = kekhawatiran
+reklasifikasi MSCI, bukan aspek planet. Skrip uji ada di scratchpad (bukan bagian aplikasi).
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
