@@ -3830,6 +3830,19 @@ bertahap & ukuran posisi dihitung dari skenario terburuk (-15%/ARB), bukan dari 
 likuid (BBRI dkk) - bukan saham kecil; IHSG memberi KEADAAN RISIKO (panik, drawdown, regime), bukan jadwal
 beli/jual pasti.
 
+## Tabel Time Cycle = "Time Trading" Astronacci yang SUDAH Ada (2026-10-21)
+
+User kirim screenshot tabel Time Cycle (tab IHSG Analysis): *"mungkin kita sudah punya, tapi tidak tahu
+fungsinya"*. Benar - tabel itu (Fibonacci 8/13/21/34/55/89 & Gann 30/45/60... hari KALENDER dari Pivot
+Low/High terakhir, mis. Pivot Low 19 Okt 2026 + 8 hari = 27 Okt) adalah versi 'time trading' yg dipakai
+komunitas spt Astronacci. Ditambahkan expander "Fungsi & cara membaca tabel Time Cycle" di bawah
+peringatan uji, berisi penjelasan kolom, cara pakai jujur, dan hasil uji.
+
+Uji ulang dgn **hari kalender** (cara tabel ini; uji sebelumnya hari bursa), 336 saham/10 tahun, pembanding =
+SEMUA n non-Fibonacci 8-89: setelah pivot low P(naik) hari Fibonacci 43,1% (5h) / 43,7% (10h) vs non-
+Fibonacci 42,9% / 43,7% (selisih +0,19 / -0,02 poin); setelah pivot high P(turun) 48,8% vs 48,6%.
+Kesimpulan sama dgn uji hari bursa: tanggal Fibonacci tdk istimewa, peluang ~43% (bukan 70%).
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

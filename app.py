@@ -3377,6 +3377,21 @@ with t_ihsg:
                    "acak manapun (Gann 40.3%, Fibonacci 40.4%, hari acak 42.9%, baseline semua hari "
                    "42.6% - semuanya setara, bukan Gann/Fib yang menang). Anggap fitur ini eksploratif "
                    "berbasis numerologi klasik Gann, BUKAN sinyal dengan bukti statistik untuk IHSG.")
+        with st.expander("ℹ️ Fungsi & cara membaca tabel Time Cycle (ini 'time trading' ala Astronacci)", expanded=False):
+            st.markdown(
+                "**Apa ini?** Ini versi 'time trading' yang dipakai komunitas seperti Astronacci: dari titik balik "
+                "(pivot) terakhir, dihitung HARI KALENDER ke depan memakai angka **Fibonacci** (8, 13, 21, 34, 55, 89...) "
+                "dan **Gann** (30, 45, 60, 90, 120...). Tanggal hasil hitungannya dianggap 'rawan pembalikan arah'.\n\n"
+                "**Kolom**: `source` = dihitung dari Pivot Low/High terakhir; `type` = metode (Fibonacci/Gann); `days` = "
+                "angka hari dari pivot; `date` = tanggal hasil; `days_from_now` = berapa hari lagi; `Status` = seberapa dekat "
+                "(merah <7 hari, oranye minggu ini, hijau masih jauh). **Pivot Low** = titik terendah terakhir IHSG, "
+                "**Pivot High** = titik tertinggi terakhir. Baris 'DEKAT' berarti tanggal itu tinggal beberapa hari lagi.\n\n"
+                "**Cara pakai yang jujur**: hanya sebagai penanda 'tanggal untuk lebih waspada/mengecek ulang', BUKAN sinyal "
+                "beli atau jual. **Hasil uji kami**: (1) IHSG 10 tahun, 154 pivot - hari Gann/Fibonacci tidak lebih sering "
+                "bertepatan dengan reversal dibanding hari acak. (2) **336 saham x 10 tahun (~205 ribu kejadian)**: setelah "
+                "pivot low, peluang harga naik pada hari Fibonacci = **43%** (5 hari), sama dengan hari non-Fibonacci "
+                "(43%) dan jauh dari klaim 70%; diuji dengan hitungan hari bursa maupun hari kalender. Manajemen risiko "
+                "(stop loss, batas waktu tahan, kunci untung) di sistem ini yang terbukti berguna, bukan tanggal siklusnya.")
         tc_col1, tc_col2 = st.columns(2)
         with tc_col1: st.markdown(f"**📉 Dari Pivot Low**<br><span style='font-size:12px;color:#94a3b8;'>{pl_idx.strftime('%d %b %Y') if hasattr(pl_idx, 'strftime') else str(pl_idx)} @ {pl_price:,.0f}</span>", unsafe_allow_html=True)
         with tc_col2: st.markdown(f"**📈 Dari Pivot High**<br><span style='font-size:12px;color:#94a3b8;'>{ph_idx.strftime('%d %b %Y') if hasattr(ph_idx, 'strftime') else str(ph_idx)} @ {ph_price:,.0f}</span>", unsafe_allow_html=True)
