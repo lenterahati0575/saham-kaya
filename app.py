@@ -15,8 +15,11 @@ from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_wi
                       build_trade_candidates, build_simple_candidates, build_vcp_candidates, build_v_shape_candidates,
                       fetch_ihsg_history, market_regime, _donchian_levels, fetch_index_snapshot, ihsg_seasonality,
                       detect_open_ihsg_gaps, ihsg_gap_fill_stats, fetch_fundamental_snapshot,
-                      build_rebound_berkualitas, arb_limit_pct, tambah_fundamental_arb)
+                      build_rebound_berkualitas, arb_limit_pct, tambah_fundamental_arb,
+                      keadaan_ihsg_crash, rencana_crash, build_crash_blue_chips)
 from telegram_notify import send_telegram_message, format_watchlist_message
+from datetime import date as _date_cls
+_date_2027 = _date_cls(2027, 1, 1)
 import gsheet_journal as gj
 import simple_journal
 import indicators as ind
@@ -2872,7 +2875,7 @@ with t_equity:
 with t_fundamental:
     st.markdown("## 📊 Fundamental Analysis Pro")
     st.caption("Metrik value investing: Graham, Buffett, Lynch. Data dari Yahoo Finance.")
-    sub_fund, sub_gainer, sub_compare, sub_vshape, sub_rebound = st.tabs(["🔬 Fundamental Screener", "🏆 Top Gainer/Loser", "⚖️ Perbandingan", "📉 V-Shape Recovery", "🛡️ Rebound Berkualitas"])
+    sub_fund, sub_gainer, sub_compare, sub_vshape, sub_rebound, sub_playbook = st.tabs(["🔬 Fundamental Screener", "🏆 Top Gainer/Loser", "⚖️ Perbandingan", "📉 V-Shape Recovery", "🛡️ Rebound Berkualitas", "🚨 Crash Playbook"])
     with sub_fund:
         st.markdown("### 🎯 Filter Saham Fundamental")
         c1, c2, c3, c4 = st.columns(4)
@@ -3207,6 +3210,100 @@ with t_fundamental:
                     dataframe_with_chart(_df_t[_kol], kode_col="Kode", height=420, key="df_rebound")
                     st.download_button("⬇️ Download CSV", to_csv_excel_id(_df_t[_kol]),
                                        file_name=f"rebound_berkualitas_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+
+    # ------------------------------------------------------------------------
+    # CRASH PLAYBOOK (2026-10-21) - kerangka keputusan beli BERTAHAP saat IHSG panik. Angka dasar:
+    # README > "Beli Saat Panik IHSG" (IHSG 1990-2026 sbg proxy keranjang blue chip, sampel kecil).
+    # Logika: screener.py::keadaan_ihsg_crash() / rencana_crash() / build_crash_blue_chips().
+    # ------------------------------------------------------------------------
+    with sub_playbook:
+        st.markdown("### 🚨 Crash Playbook - Kerangka Beli Bertahap Saat IHSG Panik")
+        _kj = keadaan_ihsg_crash(fetch_ihsg_history(period="1y"))
+        if _kj.get("status") == "UNKNOWN":
+            st.warning("Data IHSG belum cukup utk menentukan keadaan.")
+        else:
+            _warna = {"PANIK": "🔴", "TURUN BERTAHAP": "🟠", "BEARISH BIASA": "🟡", "NORMAL": "🟢"}[_kj["status"]]
+            pk1, pk2, pk3, pk4 = st.columns(4)
+            pk1.metric("Keadaan IHSG", f"{_warna} {_kj['status']}")
+            pk2.metric("IHSG", f"{_kj['close']:,.0f}", f"{_kj['ret_hari_ini']:+.2f}% hari ini")
+            pk3.metric("Dari puncak 20 hari", f"{_kj['dd20']:.1f}%")
+            pk4.metric("Dari puncak 1 tahun", f"{_kj['dd252']:.1f}%")
+            if _kj["status"] == "PANIK":
+                st.info(f"📅 Hari panik: **{_kj['panic_date'].strftime('%d %b %Y')}** ({_kj['panic_ret']:+.2f}%, close "
+                        f"{_kj['panic_close']:,.0f}). Sejak itu {_kj['hari_sejak_panik']} hari bursa; close terendah "
+                        f"{_kj['low_close_sejak']:,.0f}; sekarang {_kj['pct_vs_panic_close']:+.2f}% dari close hari panik.")
+        st.warning("⚠️ **Kerangka keputusan, BUKAN ramalan.** Dasarnya statistik IHSG 1990-2026 (sampel kecil: 11 episode "
+                   "hari panik) sbg proxy keranjang blue chip - saham individual bisa bergerak lebih dalam (BBRI -14,8% "
+                   "saat IHSG -11,6%). Hasil historis bukan jaminan; masuk kecil & bertahap.")
+        st.markdown("**📊 Bukti historis (beli di close hari pemicu, tahan 60 hari bursa)**")
+        st.dataframe(pd.DataFrame([
+            {"Situasi": "Hari panik (turun >=7% sehari)", "Episode": "11", "Median 60h": "+6,3%", "Positif": "73%",
+             "Masih turun >=10% sesudahnya": "4 dari 11", "Catatan": "Beli bertahap: median +9,9%, terburuk -15,2%"},
+            {"Situasi": "Turun bertahap >=12% dari puncak 20h", "Episode": "28", "Median 60h": "-3,1%", "Positif": "43%",
+             "Masih turun >=10% sesudahnya": "15 dari 28", "Catatan": "TIDAK disarankan beli agresif"},
+            {"Situasi": "Semua hari (pembanding)", "Episode": "-", "Median 60h": "+2,5%", "Positif": "59%",
+             "Masih turun >=10% sesudahnya": "-", "Catatan": "-"}]), use_container_width=True, hide_index=True)
+
+        st.markdown("**🧮 Rencana beli bertahap**")
+        _pb1, _pb2, _pb3 = st.columns(3)
+        with _pb1:
+            pb_modal = st.number_input("Modal total (Rp)", value=int(total_equity_now) if total_equity_now else 100_000_000,
+                                       step=5_000_000, key="pb_modal")
+        with _pb2:
+            pb_alok = st.number_input("Alokasi dana crash (% modal)", value=20.0, min_value=1.0, max_value=100.0, step=5.0, key="pb_alok",
+                                      help="Porsi modal yg Bro SIAP tahan lewat skenario terburuk - bukan seluruh modal.")
+        with _pb3:
+            pb_t2 = st.number_input("Tahap 2 dipicu bila IHSG turun lagi (%)", value=5.0, min_value=2.0, max_value=15.0, step=1.0, key="pb_t2")
+        _rc = rencana_crash(pb_modal, pb_alok, _kj, tahap2_turun_pct=pb_t2) if _kj.get("status") != "UNKNOWN" else {"aktif": False, "alasan": "Data IHSG belum cukup.", "dana_crash": 0}
+        if not _rc["aktif"]:
+            st.info(f"Rencana belum aktif - {_rc['alasan']} Dana crash yang Bro siapkan: Rp{_rc['dana_crash']:,.0f}.")
+        else:
+            st.dataframe(pd.DataFrame([
+                {"Tahap": "1", "Nominal": f"Rp{_rc['tahap1_nominal']:,.0f}", "Pemicu": "Hari panik / sekarang (separuh dana)",
+                 "Status": "Boleh dieksekusi"},
+                {"Tahap": "2", "Nominal": f"Rp{_rc['tahap2_nominal']:,.0f}",
+                 "Pemicu": f"IHSG close <= {_rc['tahap2_level_ihsg']:,.0f} ({pb_t2:.0f}% di bawah close hari panik)",
+                 "Status": "✅ SUDAH terpicu" if _rc["tahap2_terpicu"] else "⏳ Menunggu (jangan dikejar kalau tidak terpicu)"}]),
+                use_container_width=True, hide_index=True)
+            st.caption(f"Rugi skenario terburuk historis hari panik (-15,2%): **Rp{_rc['rugi_terburuk_rp']:,.0f}** "
+                       f"= {_rc['rugi_terburuk_pct_modal']:.1f}% dari modal. Tenggat evaluasi (~60 hari bursa): "
+                       f"**{_rc['tenggat'].strftime('%d %b %Y')}**. Kalau angka rugi itu membuat Bro tidak tenang, kecilkan alokasi.")
+
+        st.markdown("**🚪 Aturan jual (diuji di 11 episode hari panik, IHSG sbg proxy)**")
+        st.dataframe(pd.DataFrame([
+            {"Aturan": "Tahan 60 hari", "Median": "+6,3%", "Positif": "73%", "Terburuk": "-15,2%", "Rata2 hari": 60},
+            {"Aturan": "Ambil untung +10%, else tahan 60 hari (disarankan)", "Median": "+10,7%", "Positif": "82%", "Terburuk": "-15,2%", "Rata2 hari": 28},
+            {"Aturan": "Stop -10% (else 60 hari)", "Median": "+1,0%", "Positif": "55%", "Terburuk": "-12,1%", "Rata2 hari": 43},
+            {"Aturan": "Stop -15% (else 60 hari)", "Median": "+2,3%", "Positif": "64%", "Terburuk": "-18,3%", "Rata2 hari": 50},
+            {"Aturan": "Tahan 120 hari", "Median": "+18,3%", "Positif": "64%", "Terburuk": "-23,7%", "Rata2 hari": 120},
+            {"Aturan": "Jual saat IHSG >= MA50 (maks 120 hari)", "Median": "+10,0%", "Positif": "64%", "Terburuk": "-25,1%", "Rata2 hari": 34}]),
+            use_container_width=True, hide_index=True)
+        st.caption("Pelajaran dari tabel: **stop sempit (-10%) MERUSAK hasil** - posisi terpotong di dasar sebelum rebound. "
+                   "Pengendali risiko utamanya **ukuran posisi** (alokasi di atas), bukan stop ketat. Aturan yg paling "
+                   "seimbang: **jual 1/2 posisi saat untung >=10%, sisanya tahan sampai tenggat 60 hari**. Stop darurat "
+                   "(mis. -20%) atau gugurnya alasan beli (laporan keuangan buruk) tetap keputusan Bro - tidak diuji di sini. "
+                   "N=11 episode: baca sbg sebaran, bukan angka pasti.")
+
+        st.markdown("**🏦 Daftar pantau blue chip yang ikut jatuh**")
+        _pc1, _pc2, _pc3 = st.columns(3)
+        with _pc1:
+            pb_vt = st.number_input("Min nilai transaksi 20h (Rp miliar/hari)", value=30.0, min_value=5.0, step=5.0, key="pb_vt")
+        with _pc2:
+            pb_drop = st.number_input("Min turun dari puncak 20 hari (%)", value=10.0, min_value=3.0, step=1.0, key="pb_drop")
+        with _pc3:
+            pb_maks = st.number_input("Maks dana per saham (% dana crash)", value=25.0, min_value=5.0, max_value=100.0, step=5.0, key="pb_maks")
+        _bc = build_crash_blue_chips(price_data, min_value_traded=pb_vt * 1e9, min_drop_20d=pb_drop, top_n=25)
+        if _bc.empty:
+            st.info("Tidak ada saham likuid yang turun sesuai ambang saat ini.")
+        else:
+            _bc["ARB 1 Jan 2027 %"] = _bc["Harga"].map(lambda h: arb_limit_pct(h, _date_2027))
+            _dana_t1 = (pb_modal * pb_alok / 100) * 0.5
+            _bc["Lot Tahap 1 (maks per saham)"] = _bc["Harga"].map(lambda h: int((_dana_t1 * pb_maks / 100) // (h * 100)) if h > 0 else 0)
+            dataframe_with_chart(_bc, kode_col="Kode", height=420, key="df_playbook")
+            st.caption("Hanya daftar PANTAU berbasis harga & likuiditas - bukan rekomendasi beli. Cek fundamental kandidat dengan "
+                       "tombol di bawah sebelum memutuskan.")
+            overlay_fundamental_arb(_bc, "Kode", "Harga", "playbook")
+
 
 # ============================================================================
 # TAB 11: VALUE INVESTING PORTFOLIO (100% dari app.py asli)

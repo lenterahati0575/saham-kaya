@@ -1808,6 +1808,115 @@ def tambah_fundamental_arb(cands: pd.DataFrame, fundamentals: pd.DataFrame,
     return out.drop(columns=["Lolos Kualitas"])
 
 
+# ============================================================================
+# CRASH PLAYBOOK (2026-10-21) - kerangka keputusan beli-bertahap saat IHSG panik
+# ============================================================================
+# User: komunitas trading tenang saat IHSG anjlok ~11%, "beli BRI... untung 12%"; "dengan mereviu IHSG
+# kita tahu kapan beli/jual". Dasar angka (README > "Beli Saat Panik IHSG"), IHSG 1990-2026 sbg proxy:
+#   - HARI PANIK (turun >=7% sehari, 11 episode): +60 hari median +6,3%, positif 73%, 4/11 masih -10%;
+#     beli bertahap (1/2 hari panik + 1/2 di -5% berikutnya) median +9,9%, terburuk -15,2%.
+#   - PENURUNAN BERTAHAP (>=12% dari puncak 20 hari, 28 episode): +60 hari median -3,1%, positif 43% ->
+#     TIDAK disarankan beli agresif (beda dari hari panik).
+#   - Aturan JUAL (11 episode panik): stop sempit -10% MERUSAK hasil (median +1,0% vs +6,3% tahan 60 hari -
+#     terpotong sebelum rebound); TP +10% else 60 hari = median +10,7%, positif 82%, rata2 28 hari, terburuk
+#     -15,2%; tahan 120 hari median +18,3% tapi terburuk -23,7%. Sampel KECIL - sebaran, bukan angka final.
+PANIK_HARIAN_PCT = -7.0
+
+
+def keadaan_ihsg_crash(ihsg_df: pd.DataFrame, jendela_panik: int = 10) -> dict:
+    """Klasifikasi keadaan IHSG utk Crash Playbook: PANIK (ada hari <= -7% dlm `jendela_panik` hari bursa
+    terakhir), TURUN BERTAHAP (>=12% di bawah puncak 20 hari TANPA hari panik), BEARISH BIASA (di bawah MA50),
+    NORMAL. Return dict (status, close, ma50, dd20, dd252, ret_hari_ini, + detail panik bila ada)."""
+    if ihsg_df is None or ihsg_df.empty or len(ihsg_df) < 60:
+        return {"status": "UNKNOWN"}
+    c = ihsg_df["Close"].astype(float)
+    ret = c.pct_change() * 100
+    ma50 = float(c.rolling(50).mean().iloc[-1])
+    last = float(c.iloc[-1])
+    dd20 = (last / float(c.tail(20).max()) - 1) * 100
+    dd252 = (last / float(c.tail(252).max()) - 1) * 100
+    out = {"close": last, "ma50": ma50, "dd20": round(dd20, 1), "dd252": round(dd252, 1),
+           "ret_hari_ini": round(float(ret.iloc[-1]), 2), "panic_date": None}
+    recent = ret.tail(jendela_panik)
+    panik = recent[recent <= PANIK_HARIAN_PCT]
+    if not panik.empty:
+        pd_ = panik.index[-1]
+        i = c.index.get_loc(pd_)
+        sesudah = c.iloc[i + 1:]
+        out.update({
+            "status": "PANIK", "panic_date": pd_, "panic_ret": round(float(panik.iloc[-1]), 2),
+            "panic_close": float(c.iloc[i]), "hari_sejak_panik": int(len(sesudah)),
+            "low_close_sejak": float(sesudah.min()) if len(sesudah) else float(c.iloc[i]),
+            "pct_vs_panic_close": round((last / float(c.iloc[i]) - 1) * 100, 2),
+        })
+    elif dd20 <= -12:
+        out["status"] = "TURUN BERTAHAP"
+    elif last < ma50:
+        out["status"] = "BEARISH BIASA"
+    else:
+        out["status"] = "NORMAL"
+    return out
+
+
+def rencana_crash(modal: float, alokasi_pct: float, keadaan: dict,
+                  tahap2_turun_pct: float = 5.0, bobot_tahap1: float = 0.5,
+                  skenario_terburuk_pct: float = 15.0) -> dict:
+    """Rencana beli BERTAHAP dari `keadaan_ihsg_crash()`. Aktif HANYA kalau status PANIK (bukti historis cuma
+    utk hari panik; penurunan bertahap justru negatif). Tahap 1 = `bobot_tahap1` dari dana crash; Tahap 2 =
+    sisanya, DIPICU kalau IHSG pernah close >= `tahap2_turun_pct`% di bawah close hari panik. Dana crash =
+    modal x alokasi%; rugi skenario terburuk = dana x `skenario_terburuk_pct`% (-15,2% = terburuk historis
+    hari panik utk INDEKS - saham individual bisa lebih dalam)."""
+    dana = modal * alokasi_pct / 100 if modal and modal > 0 else 0.0
+    if keadaan.get("status") != "PANIK":
+        return {"aktif": False, "dana_crash": dana,
+                "alasan": "Bukan keadaan PANIK - bukti historis beli bertahap hanya utk hari panik (turun >=7% sehari); "
+                          "penurunan bertahap/koreksi biasa tidak menguntungkan rata-rata."}
+    pc = keadaan["panic_close"]
+    t2_level = pc * (1 - tahap2_turun_pct / 100)
+    t2_terpicu = keadaan["low_close_sejak"] <= t2_level and keadaan["hari_sejak_panik"] > 0
+    return {
+        "aktif": True, "dana_crash": dana,
+        "tahap1_nominal": dana * bobot_tahap1, "tahap2_nominal": dana * (1 - bobot_tahap1),
+        "tahap2_level_ihsg": t2_level, "tahap2_terpicu": bool(t2_terpicu),
+        "rugi_terburuk_rp": dana * skenario_terburuk_pct / 100,
+        "rugi_terburuk_pct_modal": (alokasi_pct * skenario_terburuk_pct / 100) if modal and modal > 0 else 0.0,
+        "tenggat": (keadaan["panic_date"] + pd.Timedelta(days=84)).date(),   # ~60 hari bursa
+    }
+
+
+def build_crash_blue_chips(price_data: dict, min_value_traded: float = 3e10, min_drop_20d: float = 10.0,
+                            top_n: int = 20) -> pd.DataFrame:
+    """Daftar pantau BLUE CHIP LIKUID yg ikut jatuh dlm crash: nilai transaksi 20h >= `min_value_traded`
+    (default Rp30 M/hari - hanya saham besar/likuid) DAN turun >= `min_drop_20d`% dari puncak 20 hari.
+    Urut nilai transaksi terbesar. Ini daftar PANTAU berbasis harga - fundamental dicek terpisah."""
+    rows = []
+    for kode, df in price_data.items():
+        if df is None or len(df) < 25:
+            continue
+        c = float(df["Close"].iloc[-1])
+        if not c or np.isnan(c):
+            continue
+        h20 = float(df["High"].tail(20).max())
+        if h20 <= 0:
+            continue
+        drop = (h20 - c) / h20 * 100
+        vt = c * float(df["Volume"].tail(20).mean())
+        if drop < min_drop_20d or vt < min_value_traded:
+            continue
+        l10 = float(df["Low"].tail(10).min())
+        prev = float(df["Close"].iloc[-2])
+        rows.append({
+            "Kode": kode, "Harga": round(c, 0), "Turun dari Puncak 20h %": round(drop, 1),
+            "Naik dari Low 10h %": round((c / l10 - 1) * 100, 1) if l10 > 0 else None,
+            "Perubahan Hari Ini %": round((c / prev - 1) * 100, 2) if prev else None,
+            "Nilai Transaksi 20h (Rp M)": round(vt / 1e9, 1), "Chart": tradingview_url(kode),
+        })
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return out.sort_values("Nilai Transaksi 20h (Rp M)", ascending=False).head(top_n).reset_index(drop=True)
+
+
 def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
     """Tentukan kondisi pasar keseluruhan (regime) dari IHSG."""
     if ihsg_df is None or ihsg_df.empty or len(ihsg_df) < ma_period:

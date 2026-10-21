@@ -3843,6 +3843,36 @@ SEMUA n non-Fibonacci 8-89: setelah pivot low P(naik) hari Fibonacci 43,1% (5h) 
 Fibonacci 42,9% / 43,7% (selisih +0,19 / -0,02 poin); setelah pivot high P(turun) 48,8% vs 48,6%.
 Kesimpulan sama dgn uji hari bursa: tanggal Fibonacci tdk istimewa, peluang ~43% (bukan 70%).
 
+## Crash Playbook - Sub-tab Baru di Fundamental (2026-10-21)
+
+User: *"coba buat crash playbook"* (lanjutan "Beli Saat Panik IHSG" di atas). Sub-tab **🚨 Crash Playbook**
+di tab Fundamental:
+1. **Keadaan IHSG** (`screener.py::keadaan_ihsg_crash`): PANIK (ada hari <= -7% dlm 10 hari bursa), TURUN
+   BERTAHAP (>=12% di bawah puncak 20 hari tanpa hari panik), BEARISH BIASA (di bawah MA50), NORMAL. Hari ini:
+   PANIK - 16 Okt 2026 (-11,57%, close 5.185), close terendah sejak itu 4.997.
+2. **Bukti historis** (tabel) & peringatan: kerangka keputusan, bukan ramalan; sampel kecil; IHSG = proxy.
+3. **Rencana beli bertahap** (`rencana_crash`): aktif HANYA saat PANIK (bukti cuma utk hari panik); dana crash =
+   modal x alokasi%; Tahap 1 = 1/2 dana; Tahap 2 = 1/2 sisanya, DIPICU kalau IHSG pernah close >=5% di bawah
+   close hari panik; rugi skenario terburuk (-15,2%) dlm Rp & % modal; tenggat evaluasi ~60 hari bursa.
+4. **Aturan jual** - diuji di 11 episode hari panik (IHSG 1990-2026, entri close hari panik, dinilai di close):
+   tahan 60 hari median +6,3%/73% positif/terburuk -15,2%; **TP +10% else 60 hari median +10,7%/82%/-15,2%/rata2
+   28 hari**; **stop -10% else 60 hari MERUSAK: median +1,0%/55%** (terpotong sebelum rebound); stop -15%
+   +2,3%; tahan 120 hari +18,3% tapi terburuk -23,7%; jual saat IHSG>=MA50 +10,0% tapi terburuk -25,1%. Di 23
+   episode turun>=15% pola sama (stop sempit merusak). Pengendali risiko utama = UKURAN POSISI, bukan stop ketat.
+   Aturan default: jual 1/2 saat untung >=10%, sisanya tahan sampai tenggat; stop darurat -20%/gugurnya alasan
+   beli = keputusan user (tdk diuji).
+5. **Daftar pantau blue chip** (`build_crash_blue_chips`): nilai transaksi 20h >= Rp30 M & turun >=10% dari
+   puncak 20 hari, kolom ARB 2027 & Lot Tahap 1 (maks per saham), + tombol cek fundamental yg sama dgn
+   Kandidat/Sederhana. Daftar PANTAU, bukan rekomendasi beli.
+6 test baru (334 total) + AppTest end-to-end (status PANIK terbaca, overlay fundamental jalan).
+
+**Penjelasan "pivot low valid" di tabel Time Cycle** (`app.py::detect_pivot_low`): valid bila Low-nya yang
+TERENDAH dlm jendela 21 hari bursa terpusat (10 hari sebelum, hari itu, 10 hari sesudah) - jadi baru
+terkonfirmasi 10 hari bursa kemudian; yg dipakai = pivot terkonfirmasi TERAKHIR dlm data 3 bulan. Bila tidak
+ada (krn dasar baru di tepi data), **fallback = Low terendah 10 hari terakhir, BELUM terkonfirmasi** - itulah
+Pivot Low 19 Okt 2026 (4.907) saat ini; bisa bergeser kalau IHSG bikin low baru, dan seluruh tanggal siklus
+ikut bergeser. Pivot High 10 Sep 2026 (6.713) terkonfirmasi.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

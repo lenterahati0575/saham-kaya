@@ -13,7 +13,8 @@ from screener import (DEFAULT_PARAMS, compute_metrics, market_regime, build_trad
                       ihsg_seasonality, build_screener_table, build_simple_candidates,
                       compute_zigzag_pivots, detect_open_ihsg_gaps, ihsg_gap_fill_stats,
                       build_vcp_candidates, _compute_vcp_kuat_series, _hitung_hari_likuid,
-                      build_v_shape_candidates, arb_limit_pct, lot_maks_arb, build_rebound_berkualitas, tambah_fundamental_arb)
+                      build_v_shape_candidates, arb_limit_pct, lot_maks_arb, build_rebound_berkualitas, tambah_fundamental_arb,
+                      keadaan_ihsg_crash, rencana_crash, build_crash_blue_chips)
 
 
 def _flat_ohlcv(n: int, price: float = 1000.0, volume: float = 2_000_000.0) -> pd.DataFrame:
@@ -1070,6 +1071,52 @@ class TestTambahFundamentalArb:
         out = tambah_fundamental_arb(c, self._fund(), kode_col="Kode", harga_col="Harga")
         assert len(out) == 3
         assert tambah_fundamental_arb(pd.DataFrame(), self._fund()).empty
+
+
+class TestCrashPlaybook:
+    """Crash Playbook (2026-10-21): klasifikasi keadaan IHSG, rencana beli bertahap, daftar pantau blue chip."""
+
+    def _ihsg(self, closes):
+        idx = pd.date_range("2026-01-01", periods=len(closes), freq="B")
+        return pd.DataFrame({"Close": closes}, index=idx)
+
+    def test_hari_panik_terdeteksi(self):
+        k = keadaan_ihsg_crash(self._ihsg([6000.0] * 80 + [5400.0]))
+        assert k["status"] == "PANIK" and k["panic_ret"] == -10.0 and k["panic_close"] == 5400.0
+        assert k["hari_sejak_panik"] == 0
+
+    def test_turun_bertahap_bukan_panik(self):
+        turun = list(np.linspace(6000.0, 5200.0, 16))   # ~-13% pelan2, tdk ada hari <= -7%
+        k = keadaan_ihsg_crash(self._ihsg([6000.0] * 70 + turun))
+        assert k["status"] == "TURUN BERTAHAP" and k["dd20"] <= -12
+
+    def test_normal_dan_bearish_biasa_dan_unknown(self):
+        assert keadaan_ihsg_crash(self._ihsg([6000.0] * 80 + [6100.0]))["status"] == "NORMAL"
+        assert keadaan_ihsg_crash(self._ihsg([6000.0] * 80 + [5900.0]))["status"] == "BEARISH BIASA"
+        assert keadaan_ihsg_crash(self._ihsg([6000.0] * 10))["status"] == "UNKNOWN"
+
+    def test_rencana_bertahap_tahap2_belum_dan_sudah_terpicu(self):
+        k = keadaan_ihsg_crash(self._ihsg([6000.0] * 70 + [5400.0, 5200.0, 5500.0]))
+        r = rencana_crash(100_000_000, 20.0, k)
+        assert r["aktif"] and r["dana_crash"] == 20_000_000
+        assert r["tahap1_nominal"] == 10_000_000 and r["tahap2_nominal"] == 10_000_000
+        assert round(r["tahap2_level_ihsg"]) == 5130 and r["tahap2_terpicu"] is False  # low 5200 > 5130
+        assert r["rugi_terburuk_rp"] == 3_000_000 and round(r["rugi_terburuk_pct_modal"], 1) == 3.0
+        k2 = keadaan_ihsg_crash(self._ihsg([6000.0] * 70 + [5400.0, 5100.0, 5500.0]))
+        assert rencana_crash(100_000_000, 20.0, k2)["tahap2_terpicu"] is True
+
+    def test_rencana_tidak_aktif_kalau_bukan_panik(self):
+        k = keadaan_ihsg_crash(self._ihsg([6000.0] * 80 + [5900.0]))
+        r = rencana_crash(100_000_000, 20.0, k)
+        assert r["aktif"] is False and "PANIK" in r["alasan"]
+
+    def test_blue_chip_filter_likuiditas_dan_penurunan(self):
+        def df(close_akhir, vol):
+            idx = pd.date_range("2026-09-01", periods=30, freq="B")
+            c = [1000.0] * 29 + [close_akhir]
+            return pd.DataFrame({"Open": c, "High": [1000.0] * 30, "Low": c, "Close": c, "Volume": vol}, index=idx)
+        out = build_crash_blue_chips({"BIG": df(880.0, 5e7), "KECIL": df(880.0, 1e6), "TURUNKECIL": df(970.0, 5e7)})
+        assert list(out["Kode"]) == ["BIG"] and out.iloc[0]["Turun dari Puncak 20h %"] == 12.0
 
 
 class TestFilterAntiKejarHarga:
