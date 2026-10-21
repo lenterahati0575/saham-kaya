@@ -16,7 +16,7 @@ from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_wi
                       fetch_ihsg_history, market_regime, _donchian_levels, fetch_index_snapshot, ihsg_seasonality,
                       detect_open_ihsg_gaps, ihsg_gap_fill_stats, fetch_fundamental_snapshot,
                       build_rebound_berkualitas, arb_limit_pct, tambah_fundamental_arb,
-                      keadaan_ihsg_crash, rencana_crash, build_crash_blue_chips)
+                      keadaan_ihsg_crash, rencana_crash, build_crash_blue_chips, build_saham_tahan_banting)
 from telegram_notify import send_telegram_message, format_watchlist_message
 from datetime import date as _date_cls
 _date_2027 = _date_cls(2027, 1, 1)
@@ -3303,6 +3303,28 @@ with t_fundamental:
             st.caption("Hanya daftar PANTAU berbasis harga & likuiditas - bukan rekomendasi beli. Cek fundamental kandidat dengan "
                        "tombol di bawah sebelum memutuskan.")
             overlay_fundamental_arb(_bc, "Kode", "Harga", "playbook")
+
+        st.markdown("**🛡️ Saham tahan banting - turun LEBIH SEDIKIT saat IHSG turun**")
+        st.caption("Skor = rata-rata return saham pada hari-hari IHSG turun >= ambang dlm jendela di bawah. **Diuji walk-forward "
+                   "(335 saham, 10 th)**: sifat ini BERTAHAN ke periode berikutnya (korelasi rank +0,37), TAPI kelompok teratas "
+                   "rata-rata tetap NEGATIF saat IHSG turun (-0,6%/hari vs universe -1,3%) - mereka **turun lebih sedikit, bukan "
+                   "naik** (dari 12 periode IHSG turun >=3%, hanya 1 yg positif). Sebagian besar = beta rendah. Harga yg dibayar "
+                   "saat IHSG NAIK (cenderung ketinggalan) belum diukur. Hari tanpa transaksi dibuang supaya saham sepi tidak "
+                   "tampak 'tahan' palsu.")
+        _tb1, _tb2, _tb3 = st.columns(3)
+        with _tb1:
+            tb_win = st.number_input("Jendela (hari bursa)", value=120, min_value=40, max_value=240, step=20, key="tb_win")
+        with _tb2:
+            tb_down = st.number_input("Hari IHSG turun <= (%)", value=-1.0, max_value=-0.3, min_value=-5.0, step=0.5, key="tb_down")
+        with _tb3:
+            tb_vt = st.number_input("Min nilai transaksi 20h (Rp miliar/hari)", value=10.0, min_value=1.0, step=5.0, key="tb_vt")
+        _tb = build_saham_tahan_banting(price_data, fetch_ihsg_history(period="1y"), window=int(tb_win), down_pct=tb_down,
+                                         min_value_traded=tb_vt * 1e9, top_n=25)
+        if _tb.empty:
+            st.info("Belum cukup hari IHSG turun di jendela ini (butuh >= 8 hari) atau tidak ada saham yg memenuhi syarat.")
+        else:
+            dataframe_with_chart(_tb, kode_col="Kode", height=420, key="df_tahan_banting")
+            overlay_fundamental_arb(_tb, "Kode", "Harga", "tahan_banting")
 
 
 # ============================================================================

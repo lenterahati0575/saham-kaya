@@ -14,7 +14,7 @@ from screener import (DEFAULT_PARAMS, compute_metrics, market_regime, build_trad
                       compute_zigzag_pivots, detect_open_ihsg_gaps, ihsg_gap_fill_stats,
                       build_vcp_candidates, _compute_vcp_kuat_series, _hitung_hari_likuid,
                       build_v_shape_candidates, arb_limit_pct, lot_maks_arb, build_rebound_berkualitas, tambah_fundamental_arb,
-                      keadaan_ihsg_crash, rencana_crash, build_crash_blue_chips)
+                      keadaan_ihsg_crash, rencana_crash, build_crash_blue_chips, build_saham_tahan_banting)
 
 
 def _flat_ohlcv(n: int, price: float = 1000.0, volume: float = 2_000_000.0) -> pd.DataFrame:
@@ -1117,6 +1117,37 @@ class TestCrashPlaybook:
             return pd.DataFrame({"Open": c, "High": [1000.0] * 30, "Low": c, "Close": c, "Volume": vol}, index=idx)
         out = build_crash_blue_chips({"BIG": df(880.0, 5e7), "KECIL": df(880.0, 1e6), "TURUNKECIL": df(970.0, 5e7)})
         assert list(out["Kode"]) == ["BIG"] and out.iloc[0]["Turun dari Puncak 20h %"] == 12.0
+
+
+class TestSahamTahanBanting:
+    """Saham tahan banting (2026-10-21): skor = rata2 return pd hari IHSG turun; hari tanpa transaksi dibuang."""
+
+    N = 130
+
+    def _ihsg(self):
+        idx = pd.date_range("2026-03-01", periods=self.N, freq="B")
+        ret = np.where(np.arange(self.N) % 5 == 4, -0.02, 0.002)   # tiap hari ke-5 IHSG -2%
+        return pd.DataFrame({"Close": 6000.0 * np.cumprod(1 + ret)}, index=idx), ret
+
+    def _stock(self, idx, ret, volume=5e7):
+        c = 1000.0 * np.cumprod(1 + ret)
+        return pd.DataFrame({"Close": c, "High": c, "Low": c, "Volume": volume}, index=idx)
+
+    def test_urutan_skor_dan_saham_sepi_dikeluarkan(self):
+        ih, ret = self._ihsg()
+        idx = ih.index
+        a = self._stock(idx, np.where(ret < 0, 0.005, 0.001))   # naik tipis saat IHSG turun
+        b = self._stock(idx, ret * 1.5)                          # beta tinggi, anjlok saat IHSG turun
+        sepi = self._stock(idx, np.zeros(self.N), volume=0.0)    # datar & tanpa transaksi
+        out = build_saham_tahan_banting({"A": a, "B": b, "SEPI": sepi}, ih, window=120)
+        assert list(out["Kode"]) == ["A", "B"]                   # SEPI tidak muncul walau 'tahan' palsu
+        assert out.iloc[0]["Return Rata2 Hari IHSG Turun %"] > 0 > out.iloc[1]["Return Rata2 Hari IHSG Turun %"]
+        assert out.iloc[0]["Hari Naik Saat IHSG Turun %"] == 100.0
+
+    def test_hari_ihsg_turun_kurang_return_kosong(self):
+        idx = pd.date_range("2026-03-01", periods=self.N, freq="B")
+        ih = pd.DataFrame({"Close": 6000.0 * np.cumprod(np.full(self.N, 1.002))}, index=idx)   # tdk pernah turun
+        assert build_saham_tahan_banting({"A": self._stock(idx, np.full(self.N, 0.001))}, ih).empty
 
 
 class TestFilterAntiKejarHarga:

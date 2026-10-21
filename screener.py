@@ -1917,6 +1917,63 @@ def build_crash_blue_chips(price_data: dict, min_value_traded: float = 3e10, min
     return out.sort_values("Nilai Transaksi 20h (Rp M)", ascending=False).head(top_n).reset_index(drop=True)
 
 
+def build_saham_tahan_banting(price_data: dict, ihsg_df: pd.DataFrame, window: int = 120,
+                               down_pct: float = -1.0, min_down_days: int = 8,
+                               min_value_traded: float = 0.0, top_n: int = 20) -> pd.DataFrame:
+    """SAHAM TAHAN BANTING (2026-10-21) - user: "mengecek saham yang kecenderungannya tetap naik saat IHSG
+    turun". Skor = rata2 return saham pada hari-hari IHSG <= `down_pct`% dlm `window` hari terakhir.
+    UJI (README > "Saham yang Tetap Naik Saat IHSG Turun", walk-forward 335 saham/10 th/30 jendela): sifat ini
+    BERTAHAN ke periode berikutnya (korelasi rank +0,365, t=14) - TAPI kelompok paling tahan rata2 tetap
+    NEGATIF saat IHSG turun (-0,62%/hari vs universe -1,29%): mereka TURUN LEBIH SEDIKIT, bukan naik (di 12
+    jendela IHSG turun >=3%, cuma 1 yg positif). Sebagian besar = beta rendah. Harga yg dibayar saat IHSG NAIK
+    BELUM diukur. Hari tanpa transaksi (Volume=0) DIBUANG - harga datar saham sepi bikin saham tampak 'tahan'
+    palsu; saham yg >20% hari-nya tanpa transaksi dikeluarkan. Return: Kode, Harga, skor, fraksi hari naik,
+    downside beta, jumlah hari IHSG turun yg dipakai, dst. Kosong kalau IHSG turun <= ambang kurang dari
+    `min_down_days` hari dlm jendela."""
+    if ihsg_df is None or ihsg_df.empty or len(ihsg_df) < 30:
+        return pd.DataFrame()
+    ih = (ihsg_df["Close"].astype(float).pct_change() * 100).dropna().tail(window)
+    down = ih[ih <= down_pct]
+    if len(down) < min_down_days:
+        return pd.DataFrame()
+    rows = []
+    for kode, df in price_data.items():
+        if df is None or len(df) < window // 2:
+            continue
+        d = df.dropna(subset=["Close", "Volume"])
+        r_all = (d["Close"].pct_change() * 100)
+        vol_ok = (d["Volume"] > 0).reindex(ih.index, fill_value=False)
+        if vol_ok.mean() < 0.8:
+            continue
+        c = float(d["Close"].iloc[-1])
+        vt = c * float(d["Volume"].tail(20).mean())
+        if min_value_traded and vt < min_value_traded:
+            continue
+        r = r_all.reindex(down.index)
+        v = vol_ok.reindex(down.index, fill_value=False)
+        obs = r[v].dropna()
+        if len(obs) < min_down_days:
+            continue
+        m = down.reindex(obs.index)
+        var = float(m.var())
+        beta = float(np.cov(obs, m)[0, 1] / var) if var > 0 else np.nan
+        h20 = float(d["High"].tail(20).max()) if "High" in d.columns else c
+        rows.append({
+            "Kode": kode, "Harga": round(c, 0),
+            "Return Rata2 Hari IHSG Turun %": round(float(obs.mean()), 2),
+            "Hari Naik Saat IHSG Turun %": round(float((obs > 0).mean() * 100), 0),
+            "Downside Beta": round(beta, 2) if not np.isnan(beta) else None,
+            "Hari IHSG Turun (dipakai)": int(len(obs)),
+            "Perubahan Hari Ini %": round(float(r_all.iloc[-1]), 2),
+            "Turun dari Puncak 20h %": round((h20 - c) / h20 * 100, 1) if h20 > 0 else None,
+            "Nilai Transaksi 20h (Rp M)": round(vt / 1e9, 1), "Chart": tradingview_url(kode),
+        })
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return out.sort_values("Return Rata2 Hari IHSG Turun %", ascending=False).head(top_n).reset_index(drop=True)
+
+
 def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
     """Tentukan kondisi pasar keseluruhan (regime) dari IHSG."""
     if ihsg_df is None or ihsg_df.empty or len(ihsg_df) < ma_period:

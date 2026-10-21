@@ -3889,6 +3889,12 @@ IHSG turun di formasi & >=3 di uji).
 - Sebagian besar efek ini = beta rendah yg persisten (mekanis). Harga yg dibayar saat IHSG naik TIDAK bisa
   diukur (cuma 3 jendela naik >=3% dlm sampel terpilih ini) - perlu uji terpisah sebelum dijadikan fitur.
 - Batas: 30 jendela, hari "IHSG <= -1%" tdk mencakup sebab idiosinkratik (saham kecil lonjakan sendiri).
+- **Dibangun sbg daftar pantau** (user: "ya"): `screener.py::build_saham_tahan_banting()` + bagian "🛡️ Saham tahan
+  banting" di sub-tab Crash Playbook (jendela 120 hari, hari IHSG <= -1%, gerbang nilai transaksi Rp10 M, tombol
+  cek fundamental). Hari tanpa transaksi (Volume=0) DIBUANG & saham >20% harinya tanpa transaksi dikeluarkan -
+  tanpa ini saham sepi (harga datar) tampak "tahan" palsu. Dicoba live (32 hari IHSG turun di jendela 120 hari):
+  terbaik MARK -0,32%/hari, BSSR -0,47%, MAPI -0,97% - TIDAK ADA yg positif (konsisten dgn uji: turun lebih
+  sedikit, bukan naik). 2 test baru (336 total).
 
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
