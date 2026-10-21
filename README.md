@@ -3873,6 +3873,23 @@ ada (krn dasar baru di tepi data), **fallback = Low terendah 10 hari terakhir, B
 Pivot Low 19 Okt 2026 (4.907) saat ini; bisa bergeser kalau IHSG bikin low baru, dan seluruh tanggal siklus
 ikut bergeser. Pivot High 10 Sep 2026 (6.713) terkonfirmasi.
 
+## Uji: Saham yang "Tetap Naik Saat IHSG Turun" - Bertahan atau Tidak? (2026-10-21)
+
+User: *"ide mengecek saham yang kecenderungannya tetap naik saat IHSG turun"*. Diuji walk-forward (no
+lookahead): 335 saham, 10 tahun; jendela formasi 120 hari -> skor = rata2 return saham pada hari IHSG <= -1%
+(juga fraksi hari naik); jendela uji 20 hari berikutnya (tdk tumpang tindih). 30 jendela valid (butuh >=10 hari
+IHSG turun di formasi & >=3 di uji).
+- **Persistensi ADA**: korelasi rank skor formasi vs return pd hari IHSG-turun di jendela uji +0,365 (t=14,3);
+  skor fraksi-hari-naik +0,131 (t=7,0). Kuintil Q5 (paling "tahan") rata2 -0,62%/hari saat IHSG turun vs Q1
+  -2,39% (universe -1,29%); selisih +1,77 poin/hari (t=10,7).
+- **TAPI mereka TURUN LEBIH SEDIKIT, bukan NAIK**: rata2 Q5 pada hari IHSG turun tetap negatif. Return 20 hari
+  jendela uji: Q5 -0,22% vs universe -1,01% (selisih Q5-Q1 +2,04%, t=1,57 - tdk signifikan). Pada 12 jendela
+  IHSG turun >=3% dlm 20 hari (rata2 -8,0%): Q5 -4,15% vs universe -5,65% vs Q1 -9,37%; Q5 mengalahkan
+  universe di 9/12 jendela, tapi **cuma 1/12 yg benar2 positif**.
+- Sebagian besar efek ini = beta rendah yg persisten (mekanis). Harga yg dibayar saat IHSG naik TIDAK bisa
+  diukur (cuma 3 jendela naik >=3% dlm sampel terpilih ini) - perlu uji terpisah sebelum dijadikan fitur.
+- Batas: 30 jendela, hari "IHSG <= -1%" tdk mencakup sebab idiosinkratik (saham kecil lonjakan sendiri).
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
