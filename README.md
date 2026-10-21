@@ -3770,6 +3770,37 @@ Kesimpulan: trine Mars-Saturn BUKAN prediktor IHSG. Kebetulan di 16-17 Okt 2026 
 sekitar 43 - tidak bisa dibedakan dari kebetulan. Penyebab crash yg terdokumentasi = kekhawatiran
 reklasifikasi MSCI, bukan aspek planet. Skrip uji ada di scratchpad (bukan bagian aplikasi).
 
+## Uji "Time Trading" ala Astronacci pada SAHAM + Efek Waktu Kalender (2026-10-21)
+
+User: *"astronacci terkenal dengan time trading... probability 70% naik selebihnya manajemen
+risiko. apakah kamu bisa juga buat time trading"*. Uji klaim intinya dulu, di SAHAM (bukan cuma IHSG
+spt uji Gann/Fibonacci sebelumnya) supaya sampel besar.
+
+**Uji 1 - hari ke-n Fibonacci setelah pivot** (336 saham, 10 tahun, hari tanpa transaksi dibuang, pivot
+STRICT 5 hari kiri-kanan dikonfirmasi 5 hari sesudahnya = no lookahead, entry close hari ke-n, hold 5/10
+hari; pembanding = hari TETANGGA non-Fibonacci n+-1,n+-2 dan semua hari). Catatan proses: versi awal
+memakai pivot "sama-dengan" -> harga datar (saham suspen/sepi) jadi ribuan pivot palsu & P(naik) 21% -
+ketahuan krn P(naik)+P(turun) jauh <100%, diperbaiki sebelum dipercaya.
+- Baseline semua hari (hold 5h): P(naik) 40,5%.
+- Setelah PIVOT LOW, hari ke-8/13/21/34/55/89 (N=205.256): **P(naik) 42,6%** (5h), 43,5% (10h) - tetangga
+  non-Fibonacci **42,7% / 43,4%** -> selisih -0,08 / +0,08 poin persen = NOL. Tiap angka Fibonacci
+  sendiri 42,0-43,1%. **Klaim peluang naik ~70% tidak terdukung: maksimum terbaik 43,5%.** Kenaikan kecil
+  vs baseline (+2 poin) berlaku utk SEMUA hari sesudah pivot low (efek rebound biasa), bukan istimewa di
+  hari Fibonacci.
+- Setelah PIVOT HIGH, P(turun) 48,6% (Fibonacci) vs 48,6% (tetangga) - sama.
+- Batas: ini bentuk paling sederhana & setia dari "time" Astronacci (hitungan hari Fibonacci dari pivot);
+  TIDAK mencakup seluruh metode proprietary mereka (gabungan level harga, konfirmasi candle, dst).
+
+**Uji 2 - efek waktu kalender** (IHSG 1990-2026; rata-rata saham equal-weight 10 th; 6 uji -> ambang
+|t|~2,6): IHSG **Senin lemah** -0,106%/hari (t=-3,97, konsisten paruh1 -0,112% / paruh2 -0,100%) - lolos;
+Jumat +0,096% (p=0,049) & pergantian bulan +0,105% vs +0,016% (p=0,018) tidak lolos koreksi ganda.
+Di rata-rata SAHAM 10 tahun tidak ada efek hari-dalam-minggu maupun pergantian bulan yg signifikan
+(Senin +0,002%). Ukuran efek ~0,1%/hari < fee round-trip 0,4% -> tidak bisa diperdagangkan sendirian.
+
+Kesimpulan: time trading versi Fibonacci/astro TIDAK menambah edge di data kita; bagian "manajemen
+risiko"-nya SUDAH ada dan teruji di sistem ini (SL, Target-Lock, Partial-Lock, Sinyal Jual Dini, batas
+15 hari). Tidak ada kode aplikasi yg diubah. Skrip uji di scratchpad.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
