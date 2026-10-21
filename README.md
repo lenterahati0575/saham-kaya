@@ -3801,6 +3801,35 @@ Kesimpulan: time trading versi Fibonacci/astro TIDAK menambah edge di data kita;
 risiko"-nya SUDAH ada dan teruji di sistem ini (SL, Target-Lock, Partial-Lock, Sinyal Jual Dini, batas
 15 hari). Tidak ada kode aplikasi yg diubah. Skrip uji di scratchpad.
 
+## Beli Saat Panik IHSG: Event Study 36 Tahun + Blue Chip di Crash 16 Okt 2026 (2026-10-21)
+
+User: komunitas trading (Astronacci) disebut tenang saat IHSG anjlok ~11%, menyuruh anggota beli
+BBRI di harga tertentu, "beli 7 M untung 12%" - *"saya berharap seperti itu, dengan mereviu IHSG kita tahu
+kapan beli/jual"*. Anekdot tidak bisa diverifikasi (satu contoh sukses, hindsight), tapi arah idenya
+(beli blue chip likuid saat panik) bisa DIUKUR:
+
+**Blue chip di crash 16 Okt 2026** (data hari ini, 21 Okt): BBRI/BMRI/BBCA/BBNI/TLKM/ASII semua turun
+12-15% pd 16 Okt. BBRI: close 15/10 3.100 -> 16/10 2.640 -> 19/10 2.540 (low intraday 2.460) -> 21/10 2.810.
+Beli di close 16/10 = +6,4%; close 19/10 = +10,6%; di LOW = +14,2%. Jadi "untung ~12%" masuk akal
+HANYA kalau beli dekat dasar 19-20 Okt - sangat tergantung titik masuk, dan belum tentu dasar sudah
+terbentuk. Beli sebelum crash (close 15/10) = -9,4% sampai sekarang.
+
+**Event study IHSG sejak 1990** (kemunculan pertama per episode, jarak >40 hari, beli di close hari pemicu):
+- **Hari panik 1 hari <= -7%** (11 episode): +60 hari median **+6,3%**, positif 73% (baseline semua hari
+  +2,5% / 59%); TAPI 4/11 (36%) masih ada close >=10% di bawah harga beli dlm 60 hari. Beli bertahap
+  (1/2 hari pemicu + 1/2 di -5% berikutnya): median +9,9%, positif 73%, **terburuk -15,2%**.
+- **Turun >=12% dari puncak 20 hari** (28 episode, penurunan bertahap, bukan panik): +60 hari median
+  **-3,1%**, positif cuma 43%; 21/28 masih lebih rendah >=5% sesudahnya. Beli saat turun-bertahap
+  BUKAN menguntungkan - beda dari hari panik/capitulation.
+- Turun >=15% dari puncak 20 hari (23 episode): +60 hari median +2,1%, positif 70%, 10/23 masih -10%.
+- Batas: sampel kecil (11-28 episode), tumpang tindih krisis 1997-98 & 2008; angka = gambaran peluang,
+  BUKAN jaminan. Aturan keluar (kapan jual) belum diuji - hanya horizon tetap 60 hari.
+
+Takeaway utk desain "Crash Playbook" (belum dibangun): bedakan HARI PANIK vs PENURUNAN BERTAHAP; beli
+bertahap & ukuran posisi dihitung dari skenario terburuk (-15%/ARB), bukan dari harapan untung; blue chip
+likuid (BBRI dkk) - bukan saham kecil; IHSG memberi KEADAAN RISIKO (panik, drawdown, regime), bukan jadwal
+beli/jual pasti.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
