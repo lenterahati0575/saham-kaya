@@ -831,7 +831,7 @@ def compute_metrics(df: pd.DataFrame, params: dict) -> dict | None:
         # kadang lag sampai ~1 hari bursa utk saham mid/small-cap (data hari terbaru belum
         # settle), jadi "Harga" bisa merujuk ke penutupan KEMARIN/lusa, bukan selalu hari ini.
         # Ditampilkan di UI supaya user tidak mengira ini selalu harga live hari ini.
-        "Tanggal Harga": last.name.strftime("%d %b") if hasattr(last.name, "strftime") else "-",
+        "Tanggal Harga": last.name.strftime("%d %b %Y") if hasattr(last.name, "strftime") else "-",
         "Perubahan %": change_pct,
         "Naik dari Open %": round(naik_dari_open_pct, 2),
         "Range %": range_pct,

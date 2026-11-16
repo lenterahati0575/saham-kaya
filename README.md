@@ -3927,6 +3927,28 @@ lagi" utk garis yg jatuh Sabtu/Minggu (`tanggal_siklus`; libur nasional belum di
 AppTest end-to-end. Berikutnya (belum dibangun, user belum memutuskan): pencatat prediksi (catat sebelum tanggal,
 nilai otomatis termasuk yg gagal).
 
+## Format Tanggal Seragam "18 Dec 2026" + Download Excel (.xlsx) (2026-11-17)
+
+User: *"18 Dec 2026 - apakah semua tanggal bisa diformat seperti ini dan download langsung excel bukan csv"*.
+
+- **Modul baru `format_export.py`** (tanpa dependensi streamlit, teruji): `format_tanggal()`, `format_tanggal_df()`,
+  `format_tanggal_styler()`, `to_excel_bytes()`, `XLSX_MIME`. Nama bulan Inggris ditulis manual (tdk bergantung locale).
+- **Tampilan**: `st.dataframe` di app.py dibungkus SEKALI (penanda `_pembungkus_tanggal`, krn Streamlit menjalankan ulang
+  skrip tiap interaksi) -> SEMUA kolom tanggal (datetime atau string ISO `YYYY-MM-DD`, dgn/tanpa jam) tampil `18 Dec 2026`
+  / `10 Aug 2026 14:01`; juga tabel berwarna (Styler). Kolom teks biasa/angka tdk disentuh. Tabel Time Cycle/astro
+  (`date`) & kolom "Tanggal Harga" (kini + tahun) diformat di sumbernya. **Penyimpanan TETAP ISO** - Google Sheets/
+  Jurnal membaca ISO via strptime; formatnya hanya utk tampilan & file Excel.
+- **Download**: 8 tombol "Download CSV" -> **"Download Excel"** (.xlsx asli, bukan CSV titik-koma): header tebal & beku,
+  filter otomatis, lebar kolom menyesuaikan; tanggal = tanggal ASLI (bisa disortir/difilter) berformat `[$-409]dd mmm
+  yyyy` (409 = en-US, memaksa "Dec" walau Excel berbahasa Indonesia); angka asli berpemisah ribuan; teks terformat
+  `Rp1,234` / `+5.20%` / `2.00x` dikembalikan jadi ANGKA asli + format sel bila seluruh kolom cocok (bisa dijumlah).
+  Tombol baru "Download Excel (Riwayat Semua Trade)" di tab Performance. `requirements.txt` + `openpyxl>=3.1.0`.
+- **Batas**: ikon unduh kecil di pojok tabel (bawaan Streamlit) SELALU CSV, tdk bisa diubah - pakai tombol Excel.
+  Tabel yg dirender lewat `kolom.dataframe(...)` (bukan `st.dataframe`) tdk ikut format tanggal (tdk ada saat ini).
+- **Bug ditemukan saat uji**: pandas 3 memakai dtype `str` (bukan `object`) utk kolom teks - deteksi awal terlewat
+  semua kolom teks; diperbaiki mengenali keduanya (kode kompatibel pandas 2 & 3).
+- 7 test baru (347 total) + AppTest seluruh app (29 tabel: nol kolom tanggal ISO tersisa, 2 rerun tanpa error).
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

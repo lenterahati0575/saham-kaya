@@ -87,6 +87,29 @@ def to_csv_excel_id(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False, sep=";").encode("utf-8-sig")
 
 
+from format_export import (format_tanggal, format_tanggal_df, format_tanggal_styler, to_excel_bytes, XLSX_MIME)
+
+# Tampilan tanggal seragam "18 Dec 2026" di SEMUA tabel st.dataframe (user 2026-11-17: "semua tanggal bisa diformat seperti
+# ini"). Hanya TAMPILAN: kolom tanggal (datetime atau string ISO YYYY-MM-DD) diformat sebelum dikirim ke st.dataframe;
+# data sumber/penyimpanan (Google Sheets) tetap ISO. Dibungkus SEKALI saja (Streamlit menjalankan ulang skrip tiap
+# interaksi - tanpa penanda ini pembungkusnya menumpuk). Tabel via `kolom.dataframe(...)` tidak lewat sini.
+if not getattr(st.dataframe, "_pembungkus_tanggal", False):
+    _st_dataframe_asli = st.dataframe
+
+    def _dataframe_tanggal(data=None, *args, **kwargs):
+        try:
+            if isinstance(data, pd.DataFrame):
+                data = format_tanggal_df(data)
+            elif isinstance(getattr(data, "data", None), pd.DataFrame) and hasattr(data, "format"):
+                data = format_tanggal_styler(data)
+        except Exception:
+            pass   # format tanggal TIDAK boleh menggagalkan tabel - tampilkan apa adanya
+        return _st_dataframe_asli(data, *args, **kwargs)
+
+    _dataframe_tanggal._pembungkus_tanggal = True
+    st.dataframe = _dataframe_tanggal
+
+
 def embed_tradingview_chart(kode: str, height: int = 520):
     src = (
         f"https://s.tradingview.com/widgetembed/?symbol=IDX%3A{kode}"
@@ -122,7 +145,7 @@ class GannSquareOf9:
         for days in gann_cycles + fib_cycles:
             target_date = start_date + timedelta(days=days)
             days_from_now = (target_date - current_date).days
-            all_cycles.append({'type': 'Gann' if days in gann_cycles else 'Fibonacci', 'days': days, 'date': target_date.strftime('%Y-%m-%d'), 'days_from_now': days_from_now, 'passed': days_from_now < 0})
+            all_cycles.append({'type': 'Gann' if days in gann_cycles else 'Fibonacci', 'days': days, 'date': format_tanggal(target_date), 'days_from_now': days_from_now, 'passed': days_from_now < 0})
         all_cycles.sort(key=lambda x: x['days_from_now'])
         return all_cycles
 
@@ -282,7 +305,7 @@ def astro_cycle_analysis(current_date=None):
     last_new_moon = current_date - timedelta(days=int(moon["age"]))
     for fd in fib_days:
         target = last_new_moon + timedelta(days=fd); days_diff = (target - current_date).days
-        if 0 <= days_diff <= 7: recent_events.append({"event": f"Fib {fd} dari New Moon", "date": target.strftime("%Y-%m-%d"), "days_left": days_diff, "type": "🌑 Lunar-Fib"})
+        if 0 <= days_diff <= 7: recent_events.append({"event": f"Fib {fd} dari New Moon", "date": format_tanggal(target), "days_left": days_diff, "type": "🌑 Lunar-Fib"})
     return {"moon": moon, "planets": planet_positions, "conjunctions": conjunctions, "events": recent_events}
 
 # Periode SINODIK planet asli (hari kalender, angka astronomi standar - BUKAN dikira-kira),
@@ -306,7 +329,7 @@ def planetary_cycle_analysis(pivot_low_date, pivot_high_date, current_date=None)
             target_date = start_date + timedelta(days=days)
             days_from_now = (target_date - current_date).days
             all_cycles.append({"source": source_name, "planet": planet, "days": days,
-                                "date": target_date.strftime("%Y-%m-%d"),
+                                "date": format_tanggal(target_date),
                                 "days_from_now": days_from_now, "passed": days_from_now < 0})
     all_cycles.sort(key=lambda x: x["days_from_now"])
     return all_cycles
@@ -1201,7 +1224,7 @@ with t_kandidat:
                        "posisi nanti. INFO saja, bukan filter (belum cukup bukti utk jadi aturan keras) "
                        "- nilai sendiri sebelum beli.")
         st.dataframe(styler, use_container_width=True, hide_index=True, height=460, key="df_kandidat_final")
-        st.download_button("⬇️ Download CSV", to_csv_excel_id(show[kolom_tampil]), file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+        st.download_button("⬇️ Download Excel", to_excel_bytes(show[kolom_tampil]), file_name=f"kandidat_{datetime.now().strftime('%Y%m%d')}.xlsx", mime=XLSX_MIME)
         overlay_fundamental_arb(picks, "Kode", "Entry", "kandidat")
 
     # ------------------------------------------------------------------------
@@ -1680,7 +1703,7 @@ with t_semua:
     kolom_tampil2 = [col for col in kolom_tampil2 if col in view_display.columns]
     dataframe_with_chart(view_display[kolom_tampil2], kode_col="Kode", height=520, key="df_semua")
     st.caption(f"Menampilkan {len(view)} dari {len(table)} saham")
-    st.download_button("⬇️ Download CSV", to_csv_excel_id(view_display[kolom_tampil2]), file_name=f"semua_saham_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+    st.download_button("⬇️ Download Excel", to_excel_bytes(view_display[kolom_tampil2]), file_name=f"semua_saham_{datetime.now().strftime('%Y%m%d')}.xlsx", mime=XLSX_MIME)
 
     # ------------------------------------------------------------------------
     # Scanner Lonjakan Volume - diminta user setelah lihat tampilan scanner eksternal
@@ -2316,6 +2339,11 @@ with t_perf:
                                  "Harga Beli", "Harga Jual", "Lot", "P&L (Rp)", "P&L (%)", "Status"]
                 display_cols = [c for c in display_cols if c in positions_disp.columns]
                 st.dataframe(positions_disp[display_cols], use_container_width=True, hide_index=True, height=350)
+                st.download_button("⬇️ Download Excel (Riwayat Semua Trade)", to_excel_bytes(positions_disp[display_cols], "Riwayat Trade"),
+                                   file_name=f"riwayat_trade_{datetime.now().strftime('%Y%m%d')}.xlsx", mime=XLSX_MIME,
+                                   key="dl_riwayat_trade_xlsx",
+                                   help="Excel asli: tanggal bisa disortir/difilter, angka tidak berupa teks. Ikon unduh kecil di pojok "
+                                        "tabel (bawaan Streamlit) selalu CSV - pakai tombol ini utk Excel.")
                 st.caption("💡 \"IHSG saat Entry\" = Close IHSG & regime (Bullish/Bearish thd MA50) di "
                            "**tanggal posisi dibuka** - definisi regime sama dgn filter live di tab "
                            "Kandidat, jadi kalau banyak entry dgn regime 🔴 Bearish, itu berarti filter "
@@ -2569,8 +2597,8 @@ with t_real:
                 st.markdown("**Riwayat Semua Trade**")
                 st.dataframe(trades_all, use_container_width=True, hide_index=True, height=350)
                 st.download_button(
-                    "⬇️ Download CSV", to_csv_excel_id(trades_all),
-                    file_name=f"jurnal_real_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv",
+                    "⬇️ Download Excel", to_excel_bytes(trades_all),
+                    file_name=f"jurnal_real_{datetime.now().strftime('%Y%m%d')}.xlsx", mime=XLSX_MIME,
                     key="dl_jurnal_real",
                 )
         # --- Sub 4: Sekuritas ---
@@ -2857,7 +2885,7 @@ with t_equity:
             if equity_df.empty: st.info("Belum ada riwayat snapshot.")
             else:
                 st.dataframe(equity_df.sort_values("Tanggal", ascending=False), use_container_width=True, hide_index=True, height=400)
-                st.download_button("⬇️ Download CSV", to_csv_excel_id(equity_df), file_name=f"equity_log_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+                st.download_button("⬇️ Download Excel", to_excel_bytes(equity_df), file_name=f"equity_log_{datetime.now().strftime('%Y%m%d')}.xlsx", mime=XLSX_MIME)
                 st.divider()
                 st.markdown("**🗑️ Hapus Snapshot**")
                 del1, del2 = st.columns(2)
@@ -2988,7 +3016,7 @@ with t_fundamental:
                     if "Margin of Safety %" in display.columns: styler = styler.map(color_mos, subset=["Margin of Safety %"])
                     if "Quality Score" in display.columns: styler = styler.map(color_q, subset=["Quality Score"])
                     st.dataframe(styler, use_container_width=True, hide_index=True, height=500)
-                    st.download_button("⬇️ Download CSV Fundamental", to_csv_excel_id(filtered), file_name=f"fundamental_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+                    st.download_button("⬇️ Download Excel Fundamental", to_excel_bytes(filtered), file_name=f"fundamental_{datetime.now().strftime('%Y%m%d')}.xlsx", mime=XLSX_MIME)
                     st.divider()
                     st.markdown("### 💡 Insight")
                     c_ins1, c_ins2, c_ins3 = st.columns(3)
@@ -3114,9 +3142,9 @@ with t_fundamental:
             st.info("Tidak ada saham yang turun dalam & mulai stabil sesuai kriteria hari ini.")
         else:
             dataframe_with_chart(cands_vshape, kode_col="Kode", height=400, key="df_vshape")
-            st.download_button("⬇️ Download CSV", to_csv_excel_id(cands_vshape),
-                               file_name=f"vshape_recovery_{datetime.now().strftime('%Y%m%d')}.csv",
-                               mime="text/csv")
+            st.download_button("⬇️ Download Excel", to_excel_bytes(cands_vshape),
+                               file_name=f"vshape_recovery_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                               mime=XLSX_MIME)
 
     # ------------------------------------------------------------------------
     # REBOUND BERKUALITAS (2026-10-20) - user (IHSG -11,57% 16 Okt krn isu reklasifikasi
@@ -3209,8 +3237,8 @@ with t_fundamental:
                     st.info("Tidak ada yang lolos semua gerbang kualitas. Pilih 'Semua yang dicek' untuk lihat gagal di mana, atau longgarkan ROE/DER.")
                 else:
                     dataframe_with_chart(_df_t[_kol], kode_col="Kode", height=420, key="df_rebound")
-                    st.download_button("⬇️ Download CSV", to_csv_excel_id(_df_t[_kol]),
-                                       file_name=f"rebound_berkualitas_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+                    st.download_button("⬇️ Download Excel", to_excel_bytes(_df_t[_kol]),
+                                       file_name=f"rebound_berkualitas_{datetime.now().strftime('%Y%m%d')}.xlsx", mime=XLSX_MIME)
 
     # ------------------------------------------------------------------------
     # CRASH PLAYBOOK (2026-10-21) - kerangka keputusan beli BERTAHAP saat IHSG panik. Angka dasar:
@@ -3416,7 +3444,7 @@ with t_invest:
                 if "Rekomendasi" in display.columns: styler = styler.map(color_rec, subset=["Rekomendasi"])
                 if "Value Score" in display.columns: styler = styler.map(color_score, subset=["Value Score"])
                 st.dataframe(styler, use_container_width=True, hide_index=True, height=500)
-                st.download_button("⬇️ Download Value Portfolio", to_csv_excel_id(df_inv), file_name=f"value_portfolio_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+                st.download_button("⬇️ Download Value Portfolio", to_excel_bytes(df_inv), file_name=f"value_portfolio_{datetime.now().strftime('%Y%m%d')}.xlsx", mime=XLSX_MIME)
                 st.divider()
                 st.markdown("### 📊 Ringkasan Portofolio Value")
                 r1, r2, r3, r4 = st.columns(4)
