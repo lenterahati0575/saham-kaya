@@ -14,7 +14,8 @@ from screener import (DEFAULT_PARAMS, compute_metrics, market_regime, build_trad
                       compute_zigzag_pivots, detect_open_ihsg_gaps, ihsg_gap_fill_stats,
                       build_vcp_candidates, _compute_vcp_kuat_series, _hitung_hari_likuid,
                       build_v_shape_candidates, arb_limit_pct, lot_maks_arb, build_rebound_berkualitas, tambah_fundamental_arb,
-                      keadaan_ihsg_crash, rencana_crash, build_crash_blue_chips, build_saham_tahan_banting)
+                      keadaan_ihsg_crash, rencana_crash, build_crash_blue_chips, build_saham_tahan_banting,
+                      status_pivot_low, tanggal_siklus)
 
 
 def _flat_ohlcv(n: int, price: float = 1000.0, volume: float = 2_000_000.0) -> pd.DataFrame:
@@ -1148,6 +1149,42 @@ class TestSahamTahanBanting:
         idx = pd.date_range("2026-03-01", periods=self.N, freq="B")
         ih = pd.DataFrame({"Close": 6000.0 * np.cumprod(np.full(self.N, 1.002))}, index=idx)   # tdk pernah turun
         assert build_saham_tahan_banting({"A": self._stock(idx, np.full(self.N, 0.001))}, ih).empty
+
+
+class TestGarisSiklus:
+    """Helper grafik garis siklus (2026-11-16): status konfirmasi pivot low + tanggal siklus hari kalender."""
+    from datetime import date as _d
+
+    def test_tanggal_siklus_contoh_user_18_dan_22_nov_2026(self):
+        out = tanggal_siklus(self._d(2026, 10, 19), ("Fibonacci", "Gann"), horizon_hari=40, hari_ini=self._d(2026, 11, 16))
+        by = {(x["Jenis"], x["Hari"]): x for x in out}
+        assert by[("Gann", 30)]["Tanggal"] == self._d(2026, 11, 18) and by[("Gann", 30)]["Nama Hari"] == "Rabu"
+        f34 = by[("Fibonacci", 34)]
+        assert f34["Tanggal"] == self._d(2026, 11, 22) and f34["Nama Hari"] == "Minggu"
+        assert f34["Hari Bursa"] == self._d(2026, 11, 23) and f34["Hari Lagi"] == 6      # Minggu -> Senin
+        assert by[("Gann", 30)]["Hari Bursa"] == self._d(2026, 11, 18)                    # hari kerja tetap
+        assert [x["Tanggal"] for x in out] == sorted(x["Tanggal"] for x in out)
+
+    def test_filter_jenis_dan_rentang(self):
+        out = tanggal_siklus(self._d(2026, 10, 19), ("Gann",), horizon_hari=40, hari_ini=self._d(2026, 11, 16))
+        assert out and all(x["Jenis"] == "Gann" for x in out)
+        assert all(-5 <= x["Hari Lagi"] <= 40 for x in out)
+
+    def _ihsg(self, lows):
+        idx = pd.date_range("2026-08-03", periods=len(lows), freq="B")
+        return pd.DataFrame({"Low": lows, "Close": lows}, index=idx)
+
+    def test_pivot_belum_terkonfirmasi_dan_sudah(self):
+        lows = [5000.0] * 50 + [4800.0] + [4900.0] * 5            # low terbaru baru 5 hari bursa lalu
+        st_ = status_pivot_low(self._ihsg(lows))
+        assert st_["harga"] == 4800.0 and st_["hari_sejak"] == 5
+        assert st_["terkonfirmasi"] is False and st_["kurang"] == 5
+        lows2 = [5000.0] * 50 + [4800.0] + [4900.0] * 12
+        s2 = status_pivot_low(self._ihsg(lows2))
+        assert s2["terkonfirmasi"] is True and s2["kurang"] == 0
+
+    def test_input_kosong_aman(self):
+        assert status_pivot_low(pd.DataFrame()) is None
 
 
 class TestFilterAntiKejarHarga:

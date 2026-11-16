@@ -3896,6 +3896,37 @@ IHSG turun di formasi & >=3 di uji).
   terbaik MARK -0,32%/hari, BSSR -0,47%, MAPI -0,97% - TIDAK ADA yg positif (konsisten dgn uji: turun lebih
   sedikit, bukan naik). 2 test baru (336 total).
 
+## Uji Versi Mekanis "Dua Garis Vertikal" + Grafik Garis Siklus (2026-11-16)
+
+User kirim screenshot tabel Time Cycle: cara Prof Gema Astronacci = 2 garis vertikal, tanggal pertama = keluar
+(potensi turun, mis. 18 Nov 2026 = Gann 30 dari Pivot Low 19 Okt), tanggal kedua = masuk bila ada candle hijau
+penutupan (22 Nov 2026 = Fibonacci 34) - *"apakah ini maksud gambar ada"*. Jawabannya: ya, tabel = daftar tanggal
+yg sama; label keluar/masuk adalah TAFSIRAN mereka, bukan keluaran sistem ini.
+
+Temuan dari data: (1) **22 Nov 2026 = hari MINGGU** (bursa buka lagi Senin 23 Nov) - tabel menghitung hari kalender.
+(2) **Pivot Low di tabel (19 Okt, 4.907) sudah bukan low terendah terbaru** - IHSG bikin low 4 Nov 2026 (4.824); low
+itu belum terkonfirmasi (butuh 10 hari bursa) shg tabel masih memakai 19 Okt. Kalau acuan 4 Nov: +8 = 12 Nov, +13 =
+17 Nov, +21 = 25 Nov, +30 = 4 Des, +34 = 8 Des - tanggal bergeser, itulah kelenturan metode (mudah tampak cocok
+setelah kejadian).
+
+Uji mekanis (336 saham/10 tahun, hari KALENDER, pivot low strict, ~540 ribu kejadian, pembanding = tanggal kontrol
+non-siklus 8-89 hari):
+- **MASUK di tanggal siklus bila candle HIJAU** (Close>Open), tahan 5 hari: P(naik) siklus 40,7% vs kontrol 40,4% (hijau
+  juga), baseline semua hari 40,5% -> selisih +0,27 poin; semua candle +0,05 poin. Tidak ada edge.
+- **KELUAR antara 2 tanggal siklus berurutan** (jeda 2-10 hari kalender): rata2 return jendela +0,39% vs kontrol
+  +0,33% (jendela keluar harusnya lebih NEGATIF kalau berguna; ternyata positif). Jeda 4 hari (mirip 18->22 Nov):
+  +0,07% vs +0,21%, tapi jeda 5 hari berlawanan (+0,59% vs +0,25%) - tidak konsisten.
+- Batas: versi mekanis di SAHAM (uji IHSG sebelumnya juga null); Astronacci memakai penilaian diskresioner (pemilihan
+  pivot, level harga, konfirmasi candle) yg tdk bisa ditiru penuh; video contoh = sampel terseleksi.
+
+**Fitur** (tampilan saja): expander "📈 Grafik IHSG + garis tanggal siklus" di tab IHSG Analysis > Time Cycle -
+candle IHSG 100 hari + garis vertikal putus-putus (biru Fibonacci, oranye Gann) utk tanggal siklus ke depan; acuan
+bisa dipilih (Pivot Low tabel / Low terendah terbaru / Pivot High / tanggal sendiri); status konfirmasi pivot
+(`screener.py::status_pivot_low`), peringatan bila pivot tabel bukan low terbaru; tabel dgn nama hari & "Bursa buka
+lagi" utk garis yg jatuh Sabtu/Minggu (`tanggal_siklus`; libur nasional belum dihitung). 4 test baru (340 total) +
+AppTest end-to-end. Berikutnya (belum dibangun, user belum memutuskan): pencatat prediksi (catat sebelum tanggal,
+nilai otomatis termasuk yg gagal).
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

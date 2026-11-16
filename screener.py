@@ -1974,6 +1974,56 @@ def build_saham_tahan_banting(price_data: dict, ihsg_df: pd.DataFrame, window: i
     return out.sort_values("Return Rata2 Hari IHSG Turun %", ascending=False).head(top_n).reset_index(drop=True)
 
 
+# ============================================================================
+# GRAFIK GARIS SIKLUS (2026-11-16) - bantu baca tabel Time Cycle ala "dua garis vertikal" Astronacci
+# ============================================================================
+# Daftar hari SAMA dgn app.py::GannSquareOf9.time_cycle_analysis (tabel Time Cycle). Hitungan = hari KALENDER.
+# Uji (README > "Uji Versi Mekanis Dua Garis"): tanggal siklus TIDAK memberi edge - helper ini hanya utk TAMPILAN.
+GANN_HARI = [30, 45, 60, 90, 120, 180, 270, 360, 540, 720]
+FIB_HARI = [8, 13, 21, 34, 55, 89, 144, 233, 377, 610]
+_NAMA_HARI = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
+
+
+def status_pivot_low(ihsg_df: pd.DataFrame, lookback: int = 60, konfirmasi_hari: int = 10) -> dict | None:
+    """Low terendah dlm `lookback` hari bursa terakhir + status konfirmasi. Pivot low dianggap TERKONFIRMASI bila
+    sudah >= `konfirmasi_hari` hari bursa lewat sejak low itu tanpa low lebih rendah (SAMA dgn jendela 21 hari terpusat
+    yg dipakai app.py::detect_pivot_low). Kalau belum, tanggal siklus dari low ini masih bisa bergeser."""
+    if ihsg_df is None or ihsg_df.empty or "Low" not in ihsg_df.columns:
+        return None
+    low = ihsg_df["Low"].astype(float).tail(lookback)
+    if low.empty:
+        return None
+    tgl = low.idxmin()
+    sesudah = len(low) - 1 - int(low.index.get_loc(tgl))
+    return {"tanggal": tgl, "harga": float(low.min()), "hari_sejak": sesudah,
+            "terkonfirmasi": sesudah >= konfirmasi_hari, "kurang": max(0, konfirmasi_hari - sesudah)}
+
+
+def tanggal_siklus(pivot_date, jenis=("Fibonacci", "Gann"), horizon_hari: int = 75,
+                    hari_ini=None, mundur_hari: int = 5) -> list[dict]:
+    """Tanggal siklus (hari KALENDER dari `pivot_date`) yg jatuh dari `mundur_hari` hari lalu s.d. `horizon_hari` ke
+    depan. Tiap item: Jenis, Hari, Tanggal, Nama Hari, Hari Bursa (Sabtu/Minggu digeser ke Senin; LIBUR NASIONAL tdk
+    diperhitungkan), Hari Lagi. Urut tanggal."""
+    from datetime import date as _d, datetime as _dt, timedelta as _td
+    p = pd.Timestamp(pivot_date).date()
+    today = hari_ini or _dt.now().date()
+    if isinstance(today, _dt):
+        today = today.date()
+    out = []
+    for nama, daftar in (("Gann", GANN_HARI), ("Fibonacci", FIB_HARI)):
+        if nama not in jenis:
+            continue
+        for n in daftar:
+            t = p + _td(days=n)
+            sisa = (t - today).days
+            if sisa < -mundur_hari or sisa > horizon_hari:
+                continue
+            bursa = t + _td(days=(7 - t.weekday())) if t.weekday() >= 5 else t
+            out.append({"Jenis": nama, "Hari": n, "Tanggal": t, "Nama Hari": _NAMA_HARI[t.weekday()],
+                        "Hari Bursa": bursa, "Hari Lagi": sisa})
+    return sorted(out, key=lambda x: (x["Tanggal"], x["Jenis"]))
+
+
 def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
     """Tentukan kondisi pasar keseluruhan (regime) dari IHSG."""
     if ihsg_df is None or ihsg_df.empty or len(ihsg_df) < ma_period:

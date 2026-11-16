@@ -16,7 +16,8 @@ from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_wi
                       fetch_ihsg_history, market_regime, _donchian_levels, fetch_index_snapshot, ihsg_seasonality,
                       detect_open_ihsg_gaps, ihsg_gap_fill_stats, fetch_fundamental_snapshot,
                       build_rebound_berkualitas, arb_limit_pct, tambah_fundamental_arb,
-                      keadaan_ihsg_crash, rencana_crash, build_crash_blue_chips, build_saham_tahan_banting)
+                      keadaan_ihsg_crash, rencana_crash, build_crash_blue_chips, build_saham_tahan_banting,
+                      status_pivot_low, tanggal_siklus)
 from telegram_notify import send_telegram_message, format_watchlist_message
 from datetime import date as _date_cls
 _date_2027 = _date_cls(2027, 1, 1)
@@ -3511,6 +3512,73 @@ with t_ihsg:
                 "pivot low, peluang harga naik pada hari Fibonacci = **43%** (5 hari), sama dengan hari non-Fibonacci "
                 "(43%) dan jauh dari klaim 70%; diuji dengan hitungan hari bursa maupun hari kalender. Manajemen risiko "
                 "(stop loss, batas waktu tahan, kunci untung) di sistem ini yang terbukti berguna, bukan tanggal siklusnya.")
+        # GRAFIK GARIS SIKLUS (2026-11-16) - user kirim screenshot tabel Time Cycle: "cara Prof Gema Astronacci buat 2 garis
+        # vertikal utk tanggal exit & masuk... apakah ini maksud gambar ada". Tabel = daftar tanggal; grafik ini menaruhnya
+        # sbg garis vertikal di candle IHSG (tampilan saja - uji: tanggal siklus TIDAK memberi edge, README > "Uji Versi
+        # Mekanis Dua Garis"). Pivot bisa DIPILIH krn tanggal bergeser tergantung pivot (mis. low baru 4 Nov 2026).
+        with st.expander("📈 Grafik IHSG + garis tanggal siklus (cara 'dua garis vertikal' ala Astronacci)", expanded=False):
+            _gh = fetch_ihsg_history(period="1y")
+            _sp = status_pivot_low(_gh)
+            _opsi = ["Pivot Low di tabel (terkonfirmasi)", "Low terendah terbaru", "Pivot High di tabel", "Tanggal sendiri"]
+            _cg1, _cg2, _cg3 = st.columns([2, 2, 1])
+            with _cg1:
+                _pilih = st.radio("Hitung dari", _opsi, key="cg_acuan")
+            with _cg2:
+                _jenis = st.multiselect("Jenis siklus", ["Fibonacci", "Gann"], default=["Fibonacci", "Gann"], key="cg_jenis")
+                _tgl_sendiri = st.date_input("Tanggal sendiri (bila dipilih)", value=(_sp["tanggal"].date() if _sp else datetime.now().date()), key="cg_tgl")
+            with _cg3:
+                _hor = st.number_input("Ke depan (hari)", value=60, min_value=15, max_value=200, step=15, key="cg_hor")
+            if _pilih == _opsi[0]:
+                _acuan, _hrg = pl_idx, pl_price
+            elif _pilih == _opsi[1]:
+                _acuan, _hrg = (_sp["tanggal"], _sp["harga"]) if _sp else (pl_idx, pl_price)
+            elif _pilih == _opsi[2]:
+                _acuan, _hrg = ph_idx, ph_price
+            else:
+                _acuan, _hrg = pd.Timestamp(_tgl_sendiri), None
+            _acuan = pd.Timestamp(_acuan)
+            if _sp:
+                if _sp["terkonfirmasi"]:
+                    st.caption(f"✅ Low terendah terbaru {_sp['tanggal'].strftime('%d %b %Y')} @ {_sp['harga']:,.0f} sudah TERKONFIRMASI "
+                               f"({_sp['hari_sejak']} hari bursa tanpa low lebih rendah).")
+                else:
+                    st.warning(f"⚠️ Low terendah terbaru {_sp['tanggal'].strftime('%d %b %Y')} @ {_sp['harga']:,.0f} BELUM terkonfirmasi - "
+                               f"baru {_sp['hari_sejak']} hari bursa sejak itu (butuh 10, kurang {_sp['kurang']}). Kalau IHSG bikin low baru, "
+                               "tanggal siklus dari titik ini ikut bergeser. Tabel di atas memakai pivot terkonfirmasi yg lebih lama.")
+                if _pilih == _opsi[0] and pd.Timestamp(_sp["tanggal"]) > _acuan:
+                    st.info(f"ℹ️ Pivot di tabel ({_acuan.strftime('%d %b %Y')}) BUKAN low terendah terbaru - IHSG sudah membuat low lebih rendah "
+                            f"pada {_sp['tanggal'].strftime('%d %b %Y')}. Coba pilihan 'Low terendah terbaru' utk membandingkan.")
+            _sik = tanggal_siklus(_acuan, tuple(_jenis), int(_hor))
+            if not _gh.empty:
+                _cd = _gh.tail(100)
+                _fg = go.Figure(go.Candlestick(x=_cd.index, open=_cd["Open"], high=_cd["High"], low=_cd["Low"], close=_cd["Close"],
+                                               name="IHSG", increasing_line_color="#4ade80", decreasing_line_color="#f87171"))
+                _warna = {"Fibonacci": "#38bdf8", "Gann": "#fb923c"}
+                _y0, _y1 = float(_cd["Low"].min()) * 0.98, float(_cd["High"].max()) * 1.02
+                for _i, _c in enumerate(_sik):
+                    _x = pd.Timestamp(_c["Tanggal"])
+                    _fg.add_shape(type="line", x0=_x, x1=_x, y0=_y0, y1=_y1, line=dict(color=_warna[_c["Jenis"]], width=1, dash="dot"))
+                    _fg.add_annotation(x=_x, y=_y1 if _i % 2 == 0 else _y0, text=f"{_c['Jenis'][:3]} {_c['Hari']}", showarrow=False,
+                                       font=dict(size=9, color=_warna[_c["Jenis"]]), yshift=8 if _i % 2 == 0 else -8)
+                if _hrg:
+                    _fg.add_trace(go.Scatter(x=[_acuan], y=[_hrg], mode="markers+text", text=["acuan"], textposition="bottom center",
+                                             marker=dict(size=10, color="#facc15", symbol="triangle-up"), name="Pivot acuan"))
+                _fg.update_layout(height=460, template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=30, b=10),
+                                  yaxis=dict(range=[_y0, _y1]), showlegend=False,
+                                  xaxis=dict(range=[_cd.index.min(), pd.Timestamp(datetime.now().date()) + pd.Timedelta(days=int(_hor) + 5)]))
+                st.plotly_chart(_fg, use_container_width=True)
+            if _sik:
+                _tb = pd.DataFrame(_sik)
+                _tb["Tanggal"] = _tb["Tanggal"].map(lambda d: d.strftime("%d %b %Y"))
+                _tb["Hari Bursa"] = _tb.apply(lambda r: "-" if r["Nama Hari"] not in ("Sabtu", "Minggu") else r["Hari Bursa"].strftime("%a %d %b"), axis=1)
+                st.dataframe(_tb.rename(columns={"Hari Bursa": "Bursa buka lagi"}), use_container_width=True, hide_index=True)
+            else:
+                st.info("Tidak ada tanggal siklus dalam rentang ini.")
+            st.caption("📌 **Cara membaca**: garis putus-putus = tanggal hasil hitungan hari KALENDER dari titik acuan (biru Fibonacci, "
+                       "oranye Gann). Dua garis berdekatan ala Astronacci = 'waspada/keluar' di garis pertama, 'masuk bila ada candle hijau "
+                       "penutupan' di garis kedua - itu tafsiran mereka, bukan keluaran sistem ini. Garis yg jatuh di Sabtu/Minggu: bursa buka "
+                       "lagi hari Senin (libur nasional belum dihitung). **Hasil uji**: kombinasi 'keluar di garis 1, masuk di garis 2 saat candle "
+                       "hijau' tidak lebih baik dari tanggal acak (336 saham, 10 th). Pakai sbg penanda cek ulang, bukan sinyal.")
         tc_col1, tc_col2 = st.columns(2)
         with tc_col1: st.markdown(f"**📉 Dari Pivot Low**<br><span style='font-size:12px;color:#94a3b8;'>{pl_idx.strftime('%d %b %Y') if hasattr(pl_idx, 'strftime') else str(pl_idx)} @ {pl_price:,.0f}</span>", unsafe_allow_html=True)
         with tc_col2: st.markdown(f"**📈 Dari Pivot High**<br><span style='font-size:12px;color:#94a3b8;'>{ph_idx.strftime('%d %b %Y') if hasattr(ph_idx, 'strftime') else str(ph_idx)} @ {ph_price:,.0f}</span>", unsafe_allow_html=True)
