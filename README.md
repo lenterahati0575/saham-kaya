@@ -3969,6 +3969,34 @@ Kesimpulan: tidak ada deteksi bandar yg terbukti di sistem ini; skor Smart Money
 bukan sinyal beli mandiri. Info tambahan yg lebih mendekati: Screener Sederhana (breakout volume RENDAH, PF 18,33).
 Tidak ada kode aplikasi yg diubah.
 
+## Mengapa Kandidat Kosong Setelah Crash? Funnel + Uji Regime Screener Sederhana (2026-11-17)
+
+User: Kandidat tidak pernah lolos krn IHSG dianggap bearish padahal "saatnya beli di bottom"; *"mungkin screener saya
+terlalu bagus jadi sulit tangkap saham yang mau naik"*.
+
+**Funnel hari ini (live, 831 saham di tabel, IHSG 5.305 vs MA50 5.752 = BEARISH):** sebaran Signal: 614 SKIP (ILIKUID -
+nilai transaksi turun krn harga turun ~40%), 151 HOLD, 21 BUY/STRONG BUY. Dari 21: hanya 5 lolos posisi 52-minggu
+(72% saham >35% di bawah high 52 minggu; cuma 16% lolos syarat ini) -> 3 lolos RR/close solid dst -> **0 dgn filter regime ON**.
+Mematikan regime saja = 3 kandidat; mematikan juga filter 52-minggu = 8. Jadi PENGHALANGNYA BERLAPIS: regime
+(IHSG<MA50), posisi 52-minggu (sengaja "hanya saham kuat dekat high"), gerbang likuiditas Rp3 M (menyusut krn harga turun),
+Score>=5. Kandidat memang dirancang utk LANJUTAN tren, bukan menangkap dasar - diamnya setelah crash 40% = perilaku
+semestinya, bukan bug. Alat utk fase dasar sudah ada & menemukan 20+ nama: sub-tab Rebound Berkualitas & Crash Playbook.
+
+**Screener Sederhana TIDAK dipagari regime** (`require_bullish_regime` default False di app.py) - hari ini cuma 1
+kandidat krn syarat posisi 52-minggu & volume rendah.
+
+**Uji: apakah regime membuang peluang?** Screener Sederhana (formula & exit CURRENT), 336 saham, 10 tahun, 445 sinyal tanpa
+filter regime, dipecah menurut IHSG di tanggal sinyal: BULLISH (>MA50) N=358, avg +9,9%, PF 6,4, WR 65%;
+BEARISH (<MA50, belum rebound >=8% dari low 20h) **N=80, avg +15,1%, PF 8,2, WR 60%**; PEMULIHAN (<MA50 tapi >=8% di atas
+low 20h) **N=7 saja - terlalu sedikit utk disimpulkan**. Catatan jujur: (1) median semua kelompok +2,1% (keluar via
+partial-lock); rata2 ditarik segelintir pemenang besar; (2) split-half TIDAK konsisten (paruh 1 ~+0,6%, paruh 2 ~+21%) - hasil
+3 tahun terakhir (PF 18,3) lebih kuat dari 10 tahun (PF 6,8); (3) sinyal di BEARISH jarang & terkonsentrasi di 2021+.
+Untuk KANDIDAT, uji lama di kode (gsheet_journal.py, 614 sinyal/3 th): dgn exit sekarang PF bullish 2,27 vs bearish 1,50 -
+bearish masih positif tapi lebih lemah (sampel 3 tahun; crash sekarang -40% lebih ekstrem dari rata2 bearish sampel itu).
+
+Tidak ada kode yg diubah. Opsi bagi user: centang-off "Sembunyikan kandidat Swing saat IHSG Bearish" di sidebar (kontrol
+yg sudah ada) utk melihat 3 kandidat; posisi kecil & bertahap.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
