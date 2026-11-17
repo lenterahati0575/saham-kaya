@@ -4020,6 +4020,28 @@ dan tetap tdk menang di median/peluang naik. Interpretasi: "rendah" yg berguna =
 sistem ini RR>=1,5 + SL struktural), atau rendah thd nilai (fundamental) - bukan sekadar jauh di bawah puncak harga. Tidak ada
 kode yg diubah.
 
+## Mengapa Tab Astronacci Membingungkan: Posisi Planet Palsu Diperbaiki + Teks Synthesis Jujur (2026-11-17)
+
+User bingung membaca 3 kotak di tab Astronacci ("NEUTRAL-BULLISH" vs Konjungsi vs "HIGH ALERT... Hindari entry baru"). Diselidiki:
+1. **"NEUTRAL-BULLISH"** = tabel tetap berdasarkan umur bulan (`moon_phase`), bukan analisis harga. Uji IHSG 1990-2026 (8.913 hari):
+   First Quarter rata2 -0,048%/hari (t=-2,69, p=0,01) - BERLAWANAN dgn label "neutral-bullish"; gabungan label BULLISH vs BEARISH
+   +0,091% vs +0,028% (p=0,11); rata2 336 saham 10 th p=0,47; selisih per paruh +0,122%/+0,003% (tdk konsisten).
+2. **"Posisi Planet (Proxy)" & "Konjungsi" PALSU**: dihitung "hari sejak 2000-01-01 mod periode orbit" - menganggap semua planet
+   di 0 derajat pada 1 Jan 2000, orbit lingkaran heliosentris. Dibanding posisi nyata 17 Nov 2026: Mars app 104 deg (Cancer) vs nyata
+   146 deg (Leo); Jupiter 96 (Cancer) vs 146 (Leo); Saturn 328 (Aquarius) vs 8 (Aries); Mercury/Venus meleset 15-24 deg. Konjungsi
+   "Mars-Jupiter 8,7" tdk nyata (nyata 0,4 deg - kebetulan ada konjungsi sungguhan, tapi bukan dari hitungan yg benar; Mercury-Venus 13,2).
+3. **"HIGH ALERT"**: aturannya cuma `cycle_alert` = ada tanggal Gann/Fibonacci dari pivot low dlm <=7 hari; nama fase bulan hanya
+   ditempel di teks. Klaim "reversal kemungkinan besar / hindari entry baru" bertentangan dgn uji (tanggal siklus ~43% = acak).
+
+**Perbaikan**: modul baru `astro_real.py` (elemen orbit JPL/Standish, python murni, akurasi ~1 deg; diverifikasi ke konjungsi
+Jupiter-Saturn 21 Des 2020 0,13 deg, Mars-Saturn 1 Apr 2020 0,10 deg, Venus-Jupiter 1 Mar 2023 1,17 deg) menggantikan hitungan palsu
+di `astro_cycle_analysis()`; judul tabel "Posisi Planet (Nyata, Geosentris)" + catatan hasil uji; kotak Synthesis diganti info jujur
+("TANGGAL SIKLUS DEKAT (info)... penanda mengecek ulang rencana, bukan sinyal"); catatan hasil uji di bawah kartu fase bulan; teks
+"HIGH/MODERATE ALERT" dihapus. 4 test baru (`tests/test_astro_real.py`).
+
+Arah kerja (user: "kita akan melakukan penyempurnaan sampai sistem bisa bermanfaat utk keuntungan"): fitur berbasis astro/siklus
+tdk terbukti - prioritas ke sistem yg teruji (Screener Sederhana, Kandidat, Crash Playbook) + jurnal live utk bukti nyata.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

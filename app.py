@@ -88,6 +88,7 @@ def to_csv_excel_id(df: pd.DataFrame) -> bytes:
 
 
 from format_export import (format_tanggal, format_tanggal_df, format_tanggal_styler, to_excel_bytes, XLSX_MIME)
+from astro_real import posisi_planet, konjungsi_planet
 
 # Tampilan tanggal seragam "18 Dec 2026" di SEMUA tabel st.dataframe (user 2026-11-17: "semua tanggal bisa diformat seperti
 # ini"). Hanya TAMPILAN: kolom tanggal (datetime atau string ISO YYYY-MM-DD) diformat sebelum dikirim ke st.dataframe;
@@ -292,15 +293,11 @@ def moon_phase(date):
 def astro_cycle_analysis(current_date=None):
     if current_date is None: current_date = datetime.now()
     moon = moon_phase(current_date)
-    planets = {"Mercury": 88, "Venus": 225, "Mars": 687, "Jupiter": 4333, "Saturn": 10759}
-    base_date = datetime(2000, 1, 1); days_since = (current_date - base_date).days
-    planet_positions = {name: round(((days_since % period) / period) * 360, 1) for name, period in planets.items()}
-    conjunctions = []; planet_names = list(planet_positions.keys())
-    for i in range(len(planet_names)):
-        for j in range(i+1, len(planet_names)):
-            p1, p2 = planet_names[i], planet_names[j]; diff = abs(planet_positions[p1] - planet_positions[p2])
-            if diff > 180: diff = 360 - diff
-            if diff < 15: conjunctions.append(f"{p1}-{p2} ({diff:.1f}°)")
+    # Posisi planet NYATA (2026-11-17): hitungan lama ("hari sejak 2000-01-01 mod periode orbit", semua planet dianggap mulai
+    # 0 derajat) meleset 15-50 derajat dari langit sebenarnya (Mars/Jupiter di Cancer padahal Leo, Saturn Aquarius padahal
+    # Aries) - konjungsi yg ditampilkan ikut palsu. Kini dari elemen orbit JPL (astro_real.py, akurasi ~1 derajat).
+    planet_positions = posisi_planet(current_date)
+    conjunctions = konjungsi_planet(planet_positions, orb=15.0)
     fib_days = [8, 13, 21, 34, 55, 89, 144, 233, 377]; recent_events = []
     last_new_moon = current_date - timedelta(days=int(moon["age"]))
     for fd in fib_days:
@@ -3831,13 +3828,18 @@ with t_astro:
         st.markdown("### 🌙 Fase Bulan Hari Ini")
         moon = astro["moon"]
         st.markdown(f"""<div style="background:#1e293b;border-radius:12px;padding:16px;border:1px solid #334155;text-align:center;"><div style="font-size:48px;margin-bottom:8px;">{moon['name'].split()[0]}</div><div style="font-size:14px;font-weight:700;color:#fbbf24;">{moon['name']}</div><div style="font-size:12px;color:#94a3b8;margin-top:8px;">Umur: {moon['age']:.1f} hari (siklus 29.5 hari)</div><div style="background:#0f172a;border-radius:6px;height:12px;margin-top:10px;overflow:hidden;"><div style="background:linear-gradient(90deg,#1e293b,#fbbf24,#1e293b);width:{moon['phase_pct']*100}%;height:100%;"></div></div><div style="font-size:11px;color:#94a3b8;margin-top:4px;">{moon['phase_pct']*100:.1f}% dari siklus</div><div style="font-size:13px;font-weight:600;color:#38bdf8;margin-top:10px;padding:8px;background:#0f172a;border-radius:6px;">{moon['bias']}</div></div>""", unsafe_allow_html=True)
+        st.caption("ℹ️ Label bias (BULLISH/BEARISH/NEUTRAL) di atas = tabel tetap per fase bulan, BUKAN analisis harga. Uji IHSG 1990-2026 "
+                   "(8.913 hari): fase First Quarter justru rata-rata sedikit NEGATIF (-0,05%/hari, p=0,01) walau berlabel 'neutral-bullish'; "
+                   "gabungan hari berlabel BULLISH vs BEARISH tidak beda bermakna (IHSG p=0,11; 336 saham p=0,47) & tidak konsisten antar paruh waktu.")
         st.markdown("### 📅 Astro-Trading Calendar")
         st.caption("Fibonacci days dari New Moon terakhir:")
         if astro["events"]:
             for ev in astro["events"]: st.markdown(f"""<div style="background:#1e293b;border-radius:6px;padding:8px;margin-bottom:4px;border-left:3px solid #fbbf24;"><span style="font-size:11px;color:#fbbf24;font-weight:600;">{ev['type']}</span> <span style="font-size:11px;color:#94a3b8;"> → {ev['date']} ({ev['days_left']} hari)</span></div>""", unsafe_allow_html=True)
         else: st.info("Tidak ada astro-event dalam 7 hari ke depan.")
     with ac2:
-        st.markdown("### 🪐 Posisi Planet (Proxy)")
+        st.markdown("### 🪐 Posisi Planet (Nyata, Geosentris)")
+        st.caption("Bujur ekliptika tropis dari elemen orbit JPL (akurasi ~1°) - posisi SEBENARNYA, bukan proxy lagi. "
+                   "Hasil uji: posisi/konjungsi planet TIDAK terbukti memprediksi IHSG; tampil sbg informasi astronomi saja.")
         planet_data = []
         for name, deg in astro["planets"].items():
             signs = ["♈ Aries", "♉ Taurus", "♊ Gemini", "♋ Cancer", "♌ Leo", "♍ Virgo", "♎ Libra", "♏ Scorpio", "♐ Sagittarius", "♑ Capricorn", "♒ Aquarius", "♓ Pisces"]
@@ -3846,17 +3848,20 @@ with t_astro:
         st.dataframe(pd.DataFrame(planet_data), use_container_width=True, hide_index=True, height=250)
         if astro["conjunctions"]:
             st.markdown("### ⚠️ Konjungsi Planet")
-            st.caption("Planet yang berdekatan (<15°) — potensi volatilitas tinggi")
+            st.caption("Planet yang berdekatan (<15°) di langit. Klaim 'potensi volatilitas tinggi' dari tradisi astro TIDAK diuji/terbukti - informasi saja.")
             for conj in astro["conjunctions"]: st.markdown(f"<div style='background:#7f1d1d;border-radius:6px;padding:8px;margin-bottom:4px;color:#fca5a5;font-size:12px;'>🔴 {conj}</div>", unsafe_allow_html=True)
         else: st.markdown("<div style='background:#0f172a;border-radius:6px;padding:8px;color:#4ade80;font-size:12px;'>✅ Tidak ada konjungsi planet saat ini</div>", unsafe_allow_html=True)
         st.markdown("### 🔮 Astronacci Synthesis")
         st.caption("Gabungan Gann Time Cycle + Astro Cycle:")
         if ihsg_gann_data and ihsg_gann_data.get('cycle_alert'):
-            st.markdown(f"""<div style="background:#7f1d1d;border-radius:8px;padding:12px;border:1px solid #dc2626;"><div style="font-size:13px;color:#fca5a5;font-weight:700;">🚨 HIGH ALERT</div><div style="font-size:12px;color:#f87171;margin-top:4px;">Time Cycle aktif + {moon['name']} → Reversal kemungkinan besar!<br>Hindari entry baru. Pantau breakout level kunci.</div></div>""", unsafe_allow_html=True)
+            # Teks lama "HIGH ALERT... Reversal kemungkinan besar! Hindari entry baru" DIGANTI (2026-11-17): fase bulan hanya ditempel di
+            # teks (tidak mempengaruhi aturan), dan klaim reversal/hindari entry bertentangan dgn uji - tanggal siklus Gann/Fibonacci
+            # tidak lebih sering bertepatan dgn reversal dibanding hari acak (IHSG 154 pivot; 336 saham x 10 th ~43% = baseline).
+            st.markdown(f"""<div style="background:#1e293b;border-radius:8px;padding:12px;border:1px solid #38bdf8;"><div style="font-size:13px;color:#38bdf8;font-weight:700;">📅 TANGGAL SIKLUS DEKAT (info)</div><div style="font-size:12px;color:#cbd5e1;margin-top:4px;">Ada tanggal Gann/Fibonacci dari pivot low dalam ≤7 hari (lihat IHSG Analysis &gt; Time Cycle). Fase bulan: {moon['name']}.<br>Anggap penanda untuk <b>mengecek ulang rencana</b>, bukan sinyal: hasil uji kami tanggal siklus TIDAK lebih sering bertepatan dgn reversal dibanding hari acak. Keputusan tetap dari harga, ukuran posisi & stop.</div></div>""", unsafe_allow_html=True)
         elif "FULL MOON" in moon['name'] or "NEW MOON" in moon['name']:
-            st.markdown(f"""<div style="background:#713f12;border-radius:8px;padding:12px;border:1px solid #eab308;"><div style="font-size:13px;color:#fde047;font-weight:700;">⚡ MODERATE ALERT</div><div style="font-size:12px;color:#fbbf24;margin-top:4px;">{moon['name']} terdeteksi — sentimen pasar bisa berubah drastis.<br>Gunakan position size lebih kecil dari biasanya.</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div style="background:#1e293b;border-radius:8px;padding:12px;border:1px solid #334155;"><div style="font-size:13px;color:#94a3b8;font-weight:700;">🌙 {moon['name']} (info)</div><div style="font-size:12px;color:#94a3b8;margin-top:4px;">Uji IHSG 1990-2026 & 336 saham: tidak ada pengaruh fase bulan yang konsisten pada return. Tidak ada alasan statistik mengubah ukuran posisi karena ini.</div></div>""", unsafe_allow_html=True)
         else:
-            st.markdown(f"""<div style="background:#0f172a;border-radius:8px;padding:12px;border:1px solid #334155;"><div style="font-size:13px;color:#4ade80;font-weight:700;">✅ NORMAL</div><div style="font-size:12px;color:#94a3b8;margin-top:4px;">Tidak ada astro-anomaly. Trading sesuai plan biasa.</div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div style="background:#0f172a;border-radius:8px;padding:12px;border:1px solid #334155;"><div style="font-size:13px;color:#4ade80;font-weight:700;">✅ Tidak ada penanda tanggal siklus dalam 7 hari</div><div style="font-size:12px;color:#94a3b8;margin-top:4px;">Trading sesuai plan biasa.</div></div>""", unsafe_allow_html=True)
     st.divider()
     st.markdown("### 🪐 Siklus Planet (Synodic)")
     st.warning("⚠️ **Sudah diuji secara historis** (IHSG 10 tahun, 154 pivot terdeteksi, metodologi "
