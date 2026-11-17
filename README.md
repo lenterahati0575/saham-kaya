@@ -3949,6 +3949,26 @@ User: *"18 Dec 2026 - apakah semua tanggal bisa diformat seperti ini dan downloa
   semua kolom teks; diperbaiki mengenali keduanya (kode kompatibel pandas 2 & 3).
 - 7 test baru (347 total) + AppTest seluruh app (29 tabel: nol kolom tanggal ISO tersisa, 2 rerun tanpa error).
 
+## Uji: Apakah "Akumulasi Bandar" (Smart Money) Bisa Dipilih dari Sistem? (2026-11-17)
+
+User: *"apakah ada cara memilih saham yang sedang diakumulasi bandar di sistem kita"*. Fakta dasar: data **broker
+summary** (net buy/sell per kode broker - bahan analisis bandar yg sebenarnya) TIDAK tersedia gratis/terprogram
+(yfinance hanya OHLCV; tab Broker lama palsu & sudah dihapus). Yang ada = proxy dari harga+volume: kolom **"Smart Money"**
+di tab Kandidat (`screener.py::_detect_accumulation_distribution`: korelasi volume-harga 30%, posisi close di candle 25%,
+higher lows 25%, OBV 20%; skor>=50 = ACCUMULATION, >=65 STRONG).
+
+Diuji dgn fungsi ASLI (261 saham likuid >=Rp3 M/hari, 2017-2026, 29.007 sampel tiap 7 hari bursa, entri close hari sinyal,
+tanpa fee): P(naik) 10 hari: ACCUMULATION 44,3% vs semua 44,9% vs DISTRIBUTION 45,4% (tidak beda); skor 50-65 (+0,13%)
+LEBIH RENDAH dari rata2 (+0,40%) - tdk monoton. Hanya skor >=65: rata2 10 hari **+0,98% vs +0,23%** (t=3,5; menang di 7
+dari 10 tahun; tetap +0,51% vs +0,11% setelah 1% ekstrem dipangkas) TAPI **median -0,62% & win rate sama (44,7%)** - efeknya dari
+ekor kanan (sedikit saham melonjak besar), bukan peluang naik lebih tinggi; skor itu mengukur harga yg SUDAH naik (close dekat
+high, higher lows, OBV naik) = momentum, bukan bukti "bandar belum selesai beli". Sebelum fee 0,4%. Proxy 'akumulasi
+tersembunyi' (harga datar 20h + CMF>0,10 + volume 20h >=1,2x 60h): N=321, 20 hari **-1,57%** (lebih buruk dari rata2).
+
+Kesimpulan: tidak ada deteksi bandar yg terbukti di sistem ini; skor Smart Money >=65 = filter momentum berekor kanan,
+bukan sinyal beli mandiri. Info tambahan yg lebih mendekati: Screener Sederhana (breakout volume RENDAH, PF 18,33).
+Tidak ada kode aplikasi yg diubah.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
