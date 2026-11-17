@@ -3997,6 +3997,29 @@ bearish masih positif tapi lebih lemah (sampel 3 tahun; crash sekarang -40% lebi
 Tidak ada kode yg diubah. Opsi bagi user: centang-off "Sembunyikan kandidat Swing saat IHSG Bearish" di sidebar (kontrol
 yg sudah ada) utk melihat 3 kandidat; posisi kecil & bertahap.
 
+## Uji "Beli di Harga Lebih Rendah": Hasil Menurut Jarak di Bawah Puncak 252 Hari (2026-11-17)
+
+User: prinsip profesional "beli di harga agak rendah, jual di harga lebih tinggi" - apakah beli saham yg lebih jauh di bawah
+puncaknya memberi hasil lebih baik? 249 saham likuid (>=Rp3 M/hari), 2017-2026 (sampel sampai Apr 2026 krn butuh 120 hari ke
+depan), 35.556 stock-hari tiap 5 hari bursa, close ke close, tanpa fee, hari tanpa transaksi dibuang.
+
+| Jarak di bawah puncak | median 20h | median 60h | % naik 60h | rata2 120h | % naik 120h |
+|---|---|---|---|---|---|
+| 0-5% | 0,0% | -0,6% | 48% | +3,0% | 48% |
+| 10-20% | -1,0% | -2,0% | 44% | +4,0% | 43% |
+| 30-40% | -1,3% | -3,3% | 42% | +4,8% | 42% |
+| 40-50% | -1,5% | -3,7% | 42% | +6,7% | 40% |
+| >50% | -1,6% | -4,0% | 42% | +5,2% | 40% |
+| semua | -1,0% | -2,6% | 43% | +4,3% | 43% |
+
+Makin jauh di bawah puncak: median & peluang naik MEMBURUK secara monoton; rata2 120 hari sedikit naik (+5-7%) tapi dari ekor kanan
+(segelintir saham pulih besar), dan syarat "stabil" (tdk bikin low baru 10 hari) tdk mengubah pola. Konsistensi paruh waktu
+(rata2 60 hari): dekat puncak +2,9%/+2,5%; 30-50% stabil +3,9%/-1,1% (tdk konsisten). BIAS: universe = saham yg masih tercatat &
+likuid sekarang (survivorship) - yg anjlok lalu delisting tdk ada, jadi hasil "beli turun dalam" di sini cenderung TERLALU BAGUS
+dan tetap tdk menang di median/peluang naik. Interpretasi: "rendah" yg berguna = rendah thd STOP/dukungan (risk-reward kecil; di
+sistem ini RR>=1,5 + SL struktural), atau rendah thd nilai (fundamental) - bukan sekadar jauh di bawah puncak harga. Tidak ada
+kode yg diubah.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash
