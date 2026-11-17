@@ -4042,6 +4042,34 @@ di `astro_cycle_analysis()`; judul tabel "Posisi Planet (Nyata, Geosentris)" + c
 Arah kerja (user: "kita akan melakukan penyempurnaan sampai sistem bisa bermanfaat utk keuntungan"): fitur berbasis astro/siklus
 tdk terbukti - prioritas ke sistem yg teruji (Screener Sederhana, Kandidat, Crash Playbook) + jurnal live utk bukti nyata.
 
+## Papan Skor Sistem (Bukti Live) + Mode Pemulihan (Uji Coba Terkendali) (2026-11-17)
+
+User: *"penyempurnaan sampai sistem bisa bermanfaat utk keuntungan"* - dipilih (1) jurnal live yg rapi & (2) mode pemulihan setelah crash.
+
+**1. Papan Skor Sistem** (tab Performance, di atas "Riwayat Semua Trade"; logika `scorecard.py`, teruji): bukti LIVE dari jurnal, bukan backtest.
+Per sistem - Kandidat Swing (`SWING`), Kandidat Mode Pemulihan (`SWING-PEMULIHAN`), Screener Sederhana - dan per kondisi IHSG saat entry
+(BULLISH >MA50 / PEMULIHAN <=MA50 tapi rebound >=8% dari dasar 20 hari / BEARISH; dipakai close hari bursa SEBELUM entry, tanpa lookahead):
+N tutup, Win Rate dgn interval kepercayaan 95% Wilson, Profit Factor, rata2/median/terburuk %, total P&L, dan **Status Data**: "Belum cukup
+(n/30 trade)" sampai 30 trade per kelompok - dgn 10 trade win rate 60% hanya berarti ~31-83%. Memakai filter cutoff 31 Agu & bug hari-sama
+yg sama dgn ringkasan di atasnya; tombol Download Excel. Pembanding backtest dicantumkan di caption (bukan janji; live biasanya lebih rendah).
+
+**2. Mode Pemulihan** - masalah: filter regime (IHSG>MA50) memblokir semua kandidat berbulan2 setelah crash (MA50 lamban) padahal itu fase yg dicari
+investor; bukti historis utk melonggarkannya SANGAT kurang (10 th: 7 sinyal sejenis). Maka bukan perubahan permanen, tapi UJI COBA TERKENDALI:
+- Definisi: `screener.market_regime_pemulihan()` - status "PEMULIHAN" bila IHSG < MA50 TAPI close >= 1,08 x close terendah 20 hari (konstanta
+  `REBOUND_PEMULIHAN_PCT=8`). Hari ini (17 Nov 2026): IHSG 5.305 < MA50 5.752, rebound +8,2% dari 4.904 -> PEMULIHAN.
+- Pengaman: ukuran posisi dipotong `FAKTOR_UKURAN_PEMULIHAN=0.5` (risiko per trade x0,5), maks `MAKS_POSISI_BARU_PEMULIHAN=2` posisi baru/hari,
+  filter lain TETAP (posisi 52-minggu, RR>=1,5, close solid, likuiditas, anti-kejar-harga).
+- **Dashboard**: checkbox sidebar "🧪 Mode Pemulihan (uji coba)", DEFAULT MATI (keputusan beli di user); banner info saat fase PEMULIHAN & peringatan
+  saat aktif; tombol "Buka Posisi Swing Trading" memakai Tipe `SWING-PEMULIHAN`. Diuji live: mode MATI -> kandidat disembunyikan; mode aktif ->
+  1 kandidat (BTPS RR 2,48x) dgn lot dipotong.
+- **auto_run.py (GitHub Actions)**: `MODE_PEMULIHAN_AKTIF = True` - saat PEMULIHAN membuka posisi di JURNAL BACKTEST (paper, bukan uang riil) dgn
+  Tipe `SWING-PEMULIHAN`, dilaporkan di Telegram; ubah ke False utk mematikan. Tujuannya mengumpulkan bukti live yg dinilai TERPISAH di Papan Skor.
+- Aturan evaluasi (ditetapkan SEBELUM data ada): jangan simpulkan apa pun sebelum >=30 trade tertutup `SWING-PEMULIHAN`; kalau PF live <1 atau win
+  rate CI 95% di bawah ekspektasi, mode ini DIMATIKAN, bukan disetel ulang sampai terlihat bagus.
+
+Tes: 8 test baru (`tests/test_scorecard.py`: regime pemulihan & ambang rebound, label regime tanpa lookahead, Wilson, ringkas, Papan Skor) -> 359
+total, semua lolos; AppTest live (checkbox, banner, Papan Skor dgn jurnal palsu lokal) tanpa exception.
+
 ## Jalankan di Laptop Sendiri (opsional, sebelum deploy)
 
 ```bash

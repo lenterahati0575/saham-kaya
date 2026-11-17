@@ -2036,6 +2036,40 @@ def market_regime(ihsg_df: pd.DataFrame, ma_period: int = 50) -> dict:
     return {"status": status, "close": close, "ma": ma}
 
 
+# ============================================================================
+# MODE PEMULIHAN (2026-11-17) - Kandidat saat IHSG di bawah MA50 TAPI sudah rebound dari dasar
+# ============================================================================
+# User: Kandidat kosong terus setelah crash 16 Okt 2026 (IHSG -11,6%) krn filter regime (IHSG>MA50) - MA50 lamban, butuh
+# berbulan2 utk dilewati padahal investor mulai masuk di dasar. TIDAK ADA bukti historis cukup utk melonggarkan filter
+# (uji 10 th Screener Sederhana: cuma 7 sinyal di kondisi "pemulihan"), jadi dibuat sbg UJI COBA TERKENDALI, bukan perubahan
+# permanen: (1) hanya aktif bila rebound >= REBOUND_PEMULIHAN_PCT dari close terendah 20 hari; (2) ukuran posisi dipotong
+# FAKTOR_UKURAN_PEMULIHAN; (3) maks MAKS_POSISI_BARU_PEMULIHAN posisi baru/hari; (4) posisi dicatat dgn Tipe terpisah
+# "SWING-PEMULIHAN" di jurnal supaya hasilnya bisa dievaluasi TERPISAH (Papan Skor, scorecard.py) & dibandingkan dgn sistem biasa.
+# Filter lain (posisi 52-minggu, RR>=1,5, close solid, likuiditas) TETAP berlaku.
+REBOUND_PEMULIHAN_PCT = 8.0
+FAKTOR_UKURAN_PEMULIHAN = 0.5
+MAKS_POSISI_BARU_PEMULIHAN = 2
+TIPE_SWING_PEMULIHAN = "SWING-PEMULIHAN"
+
+
+def market_regime_pemulihan(ihsg_df: pd.DataFrame, ma_period: int = 50, rebound_pct: float = REBOUND_PEMULIHAN_PCT,
+                             low_window: int = 20) -> dict:
+    """Seperti market_regime() tapi status BEARISH dipecah: "PEMULIHAN" bila Close < MA50 TETAPI Close >= (1 + rebound_pct%)
+    x Close terendah `low_window` hari terakhir (definisi SAMA dgn uji di README > "Mengapa Kandidat Kosong..."). BULLISH/UNKNOWN
+    diteruskan apa adanya. Return dict market_regime() + `low20` & `rebound_pct` (None bila bukan kondisi bearish)."""
+    out = dict(market_regime(ihsg_df, ma_period))
+    out["low20"] = None
+    out["rebound_pct"] = None
+    if out["status"] != "BEARISH":
+        return out
+    low = float(ihsg_df["Close"].astype(float).tail(low_window).min())
+    reb = (out["close"] / low - 1.0) * 100.0 if low > 0 else 0.0
+    out["low20"], out["rebound_pct"] = low, round(reb, 2)
+    if reb >= rebound_pct:
+        out["status"] = "PEMULIHAN"
+    return out
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_ihsg_history(period: str = "3mo") -> pd.DataFrame:
     """Ambil histori IHSG (^JKSE) dari Yahoo Finance.

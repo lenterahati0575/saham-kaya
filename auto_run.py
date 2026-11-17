@@ -23,6 +23,7 @@ import streamlit as st
 from screener import (
     DEFAULT_PARAMS, load_ticker_universe, get_price_history_with_report, build_screener_table,
     build_trade_candidates, build_simple_candidates, fetch_ihsg_history, market_regime,
+    market_regime_pemulihan, FAKTOR_UKURAN_PEMULIHAN, MAKS_POSISI_BARU_PEMULIHAN, TIPE_SWING_PEMULIHAN,
 )
 import gsheet_journal as gj
 import equity as eq
@@ -35,6 +36,9 @@ WIB = ZoneInfo("Asia/Jakarta")
 N_SCAN = 962                 # pindai semua saham (bukan cuma top-N seperti default dashboard) -
                               # 962 = seluruh saham tercatat IDX per tickers_idx.csv resmi BEI
 DONCHIAN_LB_SWING = 20
+# Mode Pemulihan (uji coba, jurnal backtest/paper saja) - lihat blok "MODE PEMULIHAN" di bawah & screener.REBOUND_PEMULIHAN_PCT.
+# Ubah ke False utk mematikan tanpa mengubah logika lain.
+MODE_PEMULIHAN_AKTIF = True
 # MIN_RR_SWING=1.5 divalidasi lewat backtest realistis + out-of-sample (README > Backtest
 # Historis).
 MIN_RR_SWING = 1.5
@@ -153,6 +157,25 @@ def main():
     else:
         log(f"Auto-BUY Swing Trading: {opened_swing if opened_swing else 'tidak ada posisi baru'}")
 
+    # ---- MODE PEMULIHAN (2026-11-17, UJI COBA TERKENDALI di JURNAL BACKTEST/PAPER - bukan uang riil) ----
+    # IHSG di bawah MA50 TAPI sudah rebound >= REBOUND_PEMULIHAN_PCT dari dasar 20 hari: filter regime di atas memblokir
+    # semuanya, padahal itu fase yg dicari investor (beli setelah dasar). Tidak ada bukti historis cukup (cuma 7 sinyal
+    # sejenis dlm 10 th), jadi dikumpulkan bukti LIVE: posisi dibuka dgn ukuran dipotong (FAKTOR_UKURAN_PEMULIHAN), maks
+    # MAKS_POSISI_BARU_PEMULIHAN/hari, Tipe "SWING-PEMULIHAN" supaya Papan Skor (tab Performance) menilainya TERPISAH.
+    # Filter lain (52-minggu, RR, close solid, likuiditas) tetap berlaku. Matikan dgn MODE_PEMULIHAN_AKTIF = False.
+    opened_pemulihan = []
+    regime_ext = market_regime_pemulihan(ihsg_hist)
+    if MODE_PEMULIHAN_AKTIF and regime_ext["status"] == "PEMULIHAN":
+        log(f"MODE PEMULIHAN aktif: IHSG {regime_ext['close']:,.0f} < MA50 {regime_ext['ma']:,.0f}, rebound "
+            f"+{regime_ext['rebound_pct']}% dari dasar 20 hari {regime_ext['low20']:,.0f}")
+        cands_pem = build_trade_candidates(table, price_data, DONCHIAN_LB_SWING, MIN_RR_SWING, top_n=10,
+                                            require_bullish_regime=False, regime_status=regime["status"],
+                                            total_equity=total_equity_now,
+                                            risk_pct=RISK_PCT_PER_TRADE * FAKTOR_UKURAN_PEMULIHAN)
+        opened_pemulihan = gj.open_positions_from_candidates(cands_pem, TIPE_SWING_PEMULIHAN,
+                                                              max_new_per_day=MAKS_POSISI_BARU_PEMULIHAN)
+        log(f"Auto-BUY Mode Pemulihan: {opened_pemulihan if opened_pemulihan else 'tidak ada posisi baru'}")
+
     # ---- Auto-SELL: cek TP/SL/force-sell semua posisi OPEN ----
     # hl_lookup (High/Low hari ini) - SAMA seperti yang dipakai dashboard (app.py) supaya
     # TP/SL dicek dari rentang harga hari itu, bukan cuma 1 titik harga (Close) yang bisa
@@ -197,6 +220,9 @@ def main():
         swing_line = (f"dilewati (IHSG {regime['status']})" if regime["status"] != "BULLISH"
                       else (", ".join(opened_swing) if opened_swing else "tidak ada"))
         lines.append(f"🟢 Auto-BUY Swing (IHSG {regime['status']}): {swing_line}")
+        if MODE_PEMULIHAN_AKTIF and regime_ext["status"] == "PEMULIHAN":
+            lines.append("🧪 Mode Pemulihan (jurnal uji coba, ukuran 50%): "
+                         + (", ".join(opened_pemulihan) if opened_pemulihan else "tidak ada"))
         lines.append(f"🔴 Auto-SELL: " + (", ".join(closed) if closed else "tidak ada"))
         ok, info = send_telegram_message(bot_token, chat_id, "\n".join(lines))
         log(f"Telegram: {'terkirim' if ok else 'GAGAL - ' + info}")

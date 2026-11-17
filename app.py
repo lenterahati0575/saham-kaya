@@ -17,7 +17,9 @@ from screener import (DEFAULT_PARAMS, load_ticker_universe, get_price_history_wi
                       detect_open_ihsg_gaps, ihsg_gap_fill_stats, fetch_fundamental_snapshot,
                       build_rebound_berkualitas, arb_limit_pct, tambah_fundamental_arb,
                       keadaan_ihsg_crash, rencana_crash, build_crash_blue_chips, build_saham_tahan_banting,
-                      status_pivot_low, tanggal_siklus)
+                      status_pivot_low, tanggal_siklus, market_regime_pemulihan, REBOUND_PEMULIHAN_PCT,
+                      FAKTOR_UKURAN_PEMULIHAN, TIPE_SWING_PEMULIHAN, MAKS_POSISI_BARU_PEMULIHAN)
+from scorecard import papan_skor
 from telegram_notify import send_telegram_message, format_watchlist_message
 from datetime import date as _date_cls
 _date_2027 = _date_cls(2027, 1, 1)
@@ -664,6 +666,7 @@ st.caption("Data live Yahoo Finance · Gate likuiditas + Donchian 20D Breakout �
 universe = load_ticker_universe()
 ihsg_hist = fetch_ihsg_history()
 regime = market_regime(ihsg_hist)
+regime_ext = market_regime_pemulihan(ihsg_hist)   # BEARISH dipecah: PEMULIHAN = rebound >= 8% dari dasar 20 hari (uji coba)
 
 with st.sidebar:
     st.header("⚙️ Parameter Filter")
@@ -740,6 +743,12 @@ with st.sidebar:
                                  help="Default AKTIF - divalidasi lewat backtest: sistem breakout Swing ini "
                                       "net rugi di pasar sideways/bearish, net profit konsisten kalau cuma "
                                       "aktif saat IHSG di atas MA50.")
+    mode_pemulihan = st.checkbox("🧪 Mode Pemulihan (uji coba)", value=False,
+                                  help=f"Hanya berlaku saat IHSG di bawah MA50 TAPI sudah rebound >= {REBOUND_PEMULIHAN_PCT:.0f}% dari "
+                                       f"close terendah 20 hari. Kandidat Swing tetap ditampilkan (filter 52-minggu, RR, close solid, "
+                                       f"likuiditas tetap berlaku) dgn ukuran posisi dipotong {int((1 - FAKTOR_UKURAN_PEMULIHAN) * 100)}%. "
+                                       "BELUM ada bukti historis cukup (cuma 7 sinyal sejenis dlm 10 th) - ini uji coba; hasil live "
+                                       "dinilai terpisah di Papan Skor (tab Performance). Default MATI - keputusan beli tetap di Bro.")
     # Bug nyata dari laporan user: setelah filter Minervini (posisi 52-minggu) diterapkan
     # sbg default aktif, di hari tertentu kandidat yang lolos jadi SANGAT sedikit (4 lolos
     # RR/regime, cuma 1 yang lolos Minervini juga) - meski rata-rata 3 tahun filter ini
@@ -919,6 +928,11 @@ st.caption(f"Terakhir refresh: {datetime.now().strftime('%d %b %Y, %H:%M')} · {
 if regime["status"] == "BEARISH": st.error(f"📉 IHSG BEARISH (Close {regime['close']:,.0f} < MA50 {regime['ma']:,.0f})")
 elif regime["status"] == "BULLISH": st.success(f"📈 IHSG BULLISH (Close {regime['close']:,.0f} > MA50 {regime['ma']:,.0f})")
 elif regime["status"] == "UNKNOWN" and filter_market: st.warning("⚠️ Regime IHSG tidak terhitung (data kurang) - kandidat Swing disembunyikan (safe default, sama seperti BEARISH).")
+if regime_ext["status"] == "PEMULIHAN":
+    st.info(f"🌱 **IHSG dalam fase PEMULIHAN**: masih di bawah MA50 tapi sudah rebound +{regime_ext['rebound_pct']:.1f}% dari close terendah "
+            f"20 hari ({regime_ext['low20']:,.0f}). Kandidat Swing masih disembunyikan oleh filter regime. "
+            + ("**Mode Pemulihan (uji coba) AKTIF** - kandidat ditampilkan dengan ukuran posisi dipotong." if mode_pemulihan else
+               "Centang **🧪 Mode Pemulihan (uji coba)** di sidebar untuk melihat kandidat dgn ukuran posisi dipotong (belum ada bukti historis cukup - lihat Papan Skor di tab Performance)."))
 
 # Index utama (IHSG/LQ45/JII) - IDX30 & SRI-KEHATI tidak dimasukkan krn tidak ada data
 # gratis dari Yahoo Finance utk keduanya (sudah dicoba beberapa simbol, lihat screener.py).
@@ -935,7 +949,8 @@ if idx_snapshot:
 # sinyal BUY tanpa Entry/SL/Target, membingungkan. Disamakan jadi 1 kondisi yg SAMA
 # PERSIS dgn build_trade_candidates(): market_ok = TRUE hanya kalau filter dimatikan
 # ATAU status benar2 BULLISH.
-market_ok = (not filter_market) or (regime["status"] == "BULLISH")
+mode_pemulihan_aktif = bool(mode_pemulihan and regime_ext["status"] == "PEMULIHAN")
+market_ok = (not filter_market) or (regime["status"] == "BULLISH") or mode_pemulihan_aktif
 
 # Total Equity terbaru (kalau ada snapshot) - dipakai utk hitung Lot Auto-BUY berbasis risiko
 # (risk_pct_per_trade% dari modal / jarak Entry-SL), bukan lagi angka tetap 10 lot utk semua
@@ -961,8 +976,9 @@ if gj.is_configured():
 # - open_positions_from_candidates() akan tetap ambil cuma sebanyak max_posisi_per_hari
 # TERATAS (sudah diurutkan RR/VCP/Score) dari daftar yang lebih panjang ini.
 cands_swing_all = build_trade_candidates(table, price_data, int(donchian_lb), min_rr_swing, top_n=int(jumlah_kandidat_tampil),
-                                          require_bullish_regime=filter_market, regime_status=regime["status"],
-                                          total_equity=total_equity_now, risk_pct=risk_pct_per_trade,
+                                          require_bullish_regime=(filter_market and not mode_pemulihan_aktif), regime_status=regime["status"],
+                                          total_equity=total_equity_now,
+                                          risk_pct=risk_pct_per_trade * (FAKTOR_UKURAN_PEMULIHAN if mode_pemulihan_aktif else 1.0),
                                           require_minervini_position=filter_minervini)
 if total_equity_now is None:
     st.sidebar.caption("💡 Lot Auto-BUY masih default (10 lot/saham) - isi snapshot di tab **Equity > Catat "
@@ -1058,6 +1074,12 @@ t_kandidat, t_sederhana, t_openlow, t_gap, t_semua, t_grafik, t_real, t_equity, 
 # ============================================================================
 with t_kandidat:
     picks = table[table["Signal"].isin(["STRONG BUY", "BUY"])].copy()
+    if mode_pemulihan_aktif:
+        st.warning(f"🧪 **MODE PEMULIHAN (UJI COBA) AKTIF** - IHSG masih di bawah MA50 ({regime_ext['close']:,.0f} < {regime_ext['ma']:,.0f}) "
+                   f"tapi sudah rebound +{regime_ext['rebound_pct']:.1f}% dari dasar 20 hari. Lot di bawah dihitung dgn risiko "
+                   f"{int(FAKTOR_UKURAN_PEMULIHAN * 100)}% dari biasa. **Belum ada bukti historis cukup** untuk kondisi ini (7 sinyal sejenis "
+                   f"dlm 10 tahun) - masuk bertahap, maks {MAKS_POSISI_BARU_PEMULIHAN} posisi baru/hari, dan cek Papan Skor di tab Performance. "
+                   "Bukan rekomendasi beli.")
     if not market_ok:
         alasan_regime = "IHSG Bearish" if regime["status"] == "BEARISH" else "regime IHSG tidak terhitung"
         st.info(f"🚦 Kandidat BUY disembunyikan sementara karena {alasan_regime}.")
@@ -2035,7 +2057,11 @@ with t_perf:
                         else:
                             st.write("🎯 **Kandidat yang akan dibuka:**")
                             st.dataframe(cands_swing_all[["Saham", "Entry", "Stop Loss", "Target", "RR"]].head(10))
-                            opened = gj.open_positions_from_candidates(cands_swing_all, "SWING", max_new_per_day=max_posisi_per_hari)
+                            # Mode Pemulihan: Tipe terpisah "SWING-PEMULIHAN" + batas posisi baru/hari lebih kecil, supaya
+                            # Papan Skor menilainya terpisah dari sistem Swing biasa.
+                            opened = gj.open_positions_from_candidates(
+                                cands_swing_all, TIPE_SWING_PEMULIHAN if mode_pemulihan_aktif else "SWING",
+                                max_new_per_day=(min(max_posisi_per_hari, MAKS_POSISI_BARU_PEMULIHAN) if mode_pemulihan_aktif else max_posisi_per_hari))
                             if opened:
                                 st.success(f"✅ Berhasil dibuka: {', '.join(opened)}")
                                 st.balloons()
@@ -2288,6 +2314,55 @@ with t_perf:
                 fl_df = pd.DataFrame(floating_list)
                 fl_df["Floating (Rp)"] = fl_df["Floating (Rp)"].map(lambda x: f"Rp{x:,.0f}")
                 st.dataframe(fl_df, use_container_width=True, hide_index=True)
+            # ------------------------------------------------------------------------------------------------
+            # PAPAN SKOR SISTEM (2026-11-17, user: "penyempurnaan sampai sistem bisa bermanfaat utk keuntungan"):
+            # bukti LIVE per sistem dari jurnal, dipecah menurut kondisi IHSG saat entry, dgn tanda jujur bila sampel kecil.
+            # Logika di scorecard.py (teruji). Memakai filter cutoff/bug hari-sama yang sama dgn ringkasan di atas.
+            # ------------------------------------------------------------------------------------------------
+            st.divider()
+            st.markdown("### 🧮 Papan Skor Sistem (bukti LIVE dari jurnal)")
+            try:
+                _ihsg_sc = fetch_ihsg_history(period="1y")
+                _kolom_tipe = positions_perf["Tipe"].astype(str).str.upper().str.strip() if "Tipe" in positions_perf.columns else pd.Series("SWING", index=positions_perf.index)
+
+                def _filter_papan(d, hari_sama=False):
+                    d = d.copy()
+                    if "Tanggal Open" not in d.columns:
+                        return d
+                    to = pd.to_datetime(d["Tanggal Open"], errors="coerce")
+                    if hari_sama and exclude_bug_hari_sama and "Tanggal Close" in d.columns:
+                        tc = pd.to_datetime(d["Tanggal Close"], errors="coerce")
+                        d = d[~(to.notna() & tc.notna() & (to.dt.date == tc.dt.date))]
+                        to = pd.to_datetime(d["Tanggal Open"], errors="coerce")
+                    if cutoff_aktif:
+                        d = d[to.notna() & (to.dt.date >= cutoff_tgl)]
+                    return d
+
+                _sistem = {"Kandidat Swing (SWING)": _filter_papan(positions_perf[_kolom_tipe == "SWING"], hari_sama=True),
+                           "Kandidat Mode Pemulihan (SWING-PEMULIHAN)": _filter_papan(positions_perf[_kolom_tipe == TIPE_SWING_PEMULIHAN], hari_sama=True)}
+                try:
+                    _sistem["Screener Sederhana"] = _filter_papan(simple_journal.load_positions()) if simple_journal.is_configured() else pd.DataFrame()
+                except Exception:
+                    _sistem["Screener Sederhana"] = pd.DataFrame()
+                _ps = papan_skor(_sistem, _ihsg_sc["Close"] if not _ihsg_sc.empty else pd.Series(dtype=float))
+                _ps_tampil = pd.DataFrame({
+                    "Sistem": _ps["Sistem"], "Regime saat Entry": _ps["Regime Entry"], "N Tutup": _ps["N"].fillna(0).astype(int),
+                    "Win Rate (CI 95%)": [("-" if pd.isna(w) else f"{w:.0f}% ({lo:.0f}-{hi:.0f}%)") for w, lo, hi in zip(_ps["Win Rate %"], _ps["WR CI Bawah %"], _ps["WR CI Atas %"])],
+                    "Profit Factor": [("-" if pd.isna(p) else ("∞" if p == float("inf") else f"{p:.2f}")) for p in _ps["Profit Factor"]],
+                    "Rata2 %": _ps["Rata2 %"], "Median %": _ps["Median %"], "Terburuk %": _ps["Terburuk %"],
+                    "Total P&L (Rp)": _ps["Total P&L (Rp)"], "Status Data": _ps["Status Data"]})
+                st.dataframe(_ps_tampil, use_container_width=True, hide_index=True)
+                st.download_button("⬇️ Download Excel (Papan Skor)", to_excel_bytes(_ps_tampil, "Papan Skor"),
+                                   file_name=f"papan_skor_{datetime.now().strftime('%Y%m%d')}.xlsx", mime=XLSX_MIME, key="dl_papan_skor_xlsx")
+                st.caption("Hanya posisi yang SUDAH ditutup, sesuai filter cutoff/bug hari-sama di atas. **Regime saat entry** = kondisi IHSG "
+                           "hari bursa SEBELUM entry: BULLISH (>MA50), PEMULIHAN (<=MA50 tapi rebound >=8% dari dasar 20 hari), BEARISH. "
+                           "**CI 95%** = rentang kemungkinan win rate sebenarnya - dgn 10 trade lebarnya ~30-83%, jadi 'Belum cukup' (<30 "
+                           "trade/kelompok) berarti JANGAN disimpulkan apa-apa dulu. Pembanding backtest (bukan janji): Kandidat dgn exit "
+                           "sekarang WR ~60% & PF ~2,05 (614 sinyal/3 th; bullish 2,27, bearish 1,50); Screener Sederhana PF 18,3 (3 th) "
+                           "tetapi ~6,8 di 10 th. Hasil live biasanya lebih rendah dari backtest (eksekusi, slippage).")
+            except Exception as e:
+                st.caption(f"⚠️ Papan Skor tidak dapat dihitung: {e}")
+
             if show_all_trades:
                 st.divider()
                 st.markdown("**🏅 Riwayat Semua Trade**")
